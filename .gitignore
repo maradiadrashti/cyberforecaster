@@ -1,0 +1,35 @@
+# Node.js dependencies
+**/node_modules/
+/client/dist/
+/client/dist-ssr/
+/client/*.local
+
+# Python virtual environments & cache
+/ml_service/venv/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+
+# Solidity compiler cache and build outputs
+/blockchain/cache/
+/blockchain/artifacts/
+/blockchain/deployments/localhost.json
+
+# Environment variables & secrets
+.env
+.env.*
+.env.local
+
+# Operating System specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

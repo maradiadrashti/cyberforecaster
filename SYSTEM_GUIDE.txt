@@ -1,0 +1,153 @@
+================================================================================
+          AETHERIS // AI-BASED NETWORK ATTACK FORECASTING SYSTEM
+                      SYSTEM UNDERSTANDING & USAGE GUIDE
+================================================================================
+
+This document explains the architecture, the data source, the prediction logic, 
+and the step-by-step pipeline of the system to help you understand and present it.
+
+--------------------------------------------------------------------------------
+1. CORE PROBLEMS & OUR SOLUTIONS
+--------------------------------------------------------------------------------
+* REACTIVE VS. PROACTIVE:
+  - Reactive (Current IDS/Firewalls): Sound an alarm only AFTER a signature match 
+    or anomaly occurs (e.g., alert on "Data stolen").
+  - Proactive (Our System): Learns host-specific flow sequences over time, 
+    understands attack stages, and forecasts the attacker's next move 
+    (e.g., "75% chance of Exfiltration in 2 hours if not isolated").
+
+* WORLD MODELS (COUNTERFACTUAL SIMULATION):
+  - Our PyTorch model acts as a "World Model" (internal simulation of the network).
+  - Given a sequence of past flows, it doesn't just predict the next state. It
+    can forecast multiple future steps under different imaginary intervention
+    scenarios (e.g., "What if we Do Nothing?" vs. "What if we Isolate Host?").
+  - The analyst can compare these "what-if" rollouts side-by-side on a line graph.
+
+* IMMUTABLE FORECAST LEDGER (BLOCKCHAIN):
+  - In a real SOC, warning alerts might be ignored or deleted.
+  - To enforce accountability, the system computes a cryptographic hash of every 
+    high-threat forecast: SHA256(hostIp + predictedStage + confidence).
+  - This hash is logged on-chain via a Solidity smart contract. Analysts can later
+    click "Verify Audit Trail" to match the local record against the ledger,
+    proving the warning was generated and never modified.
+
+--------------------------------------------------------------------------------
+2. DATASETS: TRAINING VS. TESTING (CIC-IDS2017, UNSW-NB15, ETC.)
+--------------------------------------------------------------------------------
+* WHAT TYPE OF DATASET IS USED?
+  We use Labeled Network Flow Datasets (statistical summary of packets, not raw 
+  PCAPs). Specifically, we mimic the structure of standard cybersecurity benchmarks:
+  - CIC-IDS2017 / CIC-IDS2018 (from Canadian Institute for Cybersecurity)
+  - UNSW-NB15 (from University of New South Wales)
+  - CTU-13 / LANL Authentication dataset
+
+  Instead of analyzing raw packet contents (which is slow and easily bypassed by 
+  encryption), these datasets represent traffic as "flows" (conversations between 
+  IPs) containing statistics: flow duration, packet counts, bytes, and protocols.
+
+* HOW DATA IS USED FOR TRAINING:
+  - Path: ml_service/train_simulator.py
+  - To train the GRU World Model, we generate a dataset of 800 sequence paths 
+    representing normal traffic, scanning phases, exploitation, and data theft.
+  - The feature distribution ranges (duration: 0-15s, packets: 0-250, bytes: 
+    0-200,000) are modeled directly on the statistical profiles of the 
+    CIC-IDS2017 and UNSW-NB15 attack profiles.
+  - This offline training dataset is used to fit the GRU network weights so it 
+    learns how states transition from stage to stage (e.g. how a high "Port Danger" 
+    leads to a high "Bytes" exfiltration state).
+
+* HOW DATA IS USED FOR TESTING / LIVE DEMO:
+  - Path: simulator/simulate.py
+  - In a real-world SOC deployment, raw network taps feed a flow exporter 
+    (NetFlow/IPFIX) which outputs live flow metrics to the system.
+  - For the demo, we implement this collector using our live Cyber Range Simulator 
+    (simulate.py). It streams these same flow features in real-time, representing 
+    our active "Testing/Evaluation Data".
+  - This allows us to test the model's accuracy on the fly, and dynamically 
+    simulate what happens when an analyst applies an intervention (e.g., isolating 
+    a host reduces incoming test flow rates to 0).
+
+* STATE/FLOW REPRESENTATION:
+  Each network event represents a flow summary (6 features + 1 action code):
+  - Duration (seconds)
+  - Source Packets
+  - Destination Packets
+  - Total Bytes
+  - Port Danger Level (0.0 for standard ports, 1.0 for scanner/attack ports)
+  - Protocol (TCP = 1.0, UDP = 0.5, ICMP = 0.2)
+  - Action taken (0 = None, 1 = Rate Limit, 2 = Block Port, 3 = Isolate Host)
+
+--------------------------------------------------------------------------------
+3. HOW THE END-TO-END PIPELINE WORKS (THE FLOW)
+--------------------------------------------------------------------------------
+Every 4 seconds, the simulator generates flows and POSTs them to the backend:
+
+1. FLOW EVENT INGESTION:
+   - The Simulator POSTs a flow event to: POST http://127.0.0.1:5050/api/traffic-event
+   - The Express Backend updates the host status, saves the event in MongoDB, 
+     and pushes a `traffic_update` event via Socket.io to animate the UI logs.
+
+2. SEQ GENERATION & ML PREDICTION:
+   - The Backend fetches the last 10 traffic events for that specific host from MongoDB.
+   - It queries the Python FastAPI service: POST http://127.0.0.1:8000/predict
+   - The FastAPI loads the trained PyTorch GRU model (trained on transition states).
+   - It runs the sequence through the GRU to forecast:
+     * The predicted next flow features (Duration, Packets, Bytes, etc.).
+     * The probability distribution for 5 attack stages (Normal, Recon, 
+       Initial Access, Lateral Move, Exfiltration).
+
+3. BLOCKCHAIN LOGGING & ALERTS:
+   - If the predicted stage is NOT "Normal" and confidence is >= 50%:
+     * An Alert is generated in MongoDB.
+     * The Backend computes the forecast hash and makes an Ethereum contract call:
+       ForecastRegistry.logForecast(forecastId, hostIp, predictedStage, dataHash)
+     * The local Hardhat Node records the transaction and issues a transaction hash.
+     * The Backend saves this TxHash and pushes the alert via Socket.io.
+     * The React Dashboard flashes a warning banner and lights up the host node.
+
+4. CLOSED-LOOP MITIGATION FEEDBACK:
+   - When an alert triggers, the analyst clicks a defensive intervention button:
+     "Isolate Host" or "Block Ports" or "Rate Limit Flows".
+   - This fires: POST http://127.0.0.1:5050/api/hosts/action
+   - The Backend updates the Host's status in MongoDB and broadcasts it.
+   - In the next tick, the Simulator fetches host statuses from the backend.
+   - Observing "ISOLATED", the Simulator immediately drops all traffic from that 
+     host to 0. 
+   - Consequently, the next ML prediction registers 100% "Normal" threat level. 
+     This demonstrates a fully active closed-loop defensive system.
+
+5. BLOCKCHAIN VERIFICATION MODE:
+   - Clicking "Verify Audit Trail" calls: GET http://127.0.0.1:5050/api/blockchain/verify/:id
+   - The Backend reads the smart contract's immutable record for that forecast ID, 
+     verifies that the data hash matches the local alert details, and displays a
+     green validation certificate on the frontend.
+
+--------------------------------------------------------------------------------
+4. HOW THE MULTI-STEP "WHAT-IF" SIMULATION WORKS
+--------------------------------------------------------------------------------
+When you select a host node in the topology map:
+- The React client calls: POST http://127.0.0.1:5050/api/forecasts/rollout
+- The Backend grabs the host's traffic history and forwards it to Python FastAPI `/rollout`.
+- The PyTorch GRU model takes the current hidden state $h_t$ and runs 6 steps recursively 
+  into the future under 4 potential defensive pathways:
+  * Scenario 1: Do Nothing (future actions = [0, 0, 0, 0, 0, 0])
+  * Scenario 2: Rate Limit (future actions = [1, 1, 1, 1, 1, 1])
+  * Scenario 3: Block Ports (future actions = [2, 2, 2, 2, 2, 2])
+  * Scenario 4: Isolate Host (future actions = [3, 3, 3, 3, 3, 3])
+- The model outputs the risk percentage over time for each branch, which is rendered 
+  as the color-coded lines on the Recharts Area/Line Plot.
+
+--------------------------------------------------------------------------------
+5. QUICK RUN INSTRUCTIONS
+--------------------------------------------------------------------------------
+1. To run all 5 services concurrently:
+   $ chmod +x start.sh
+   $ ./start.sh
+
+2. Service Ports summary:
+   - SOC React Dashboard:    http://127.0.0.1:5173
+   - Express Backend API:    http://127.0.0.1:5050
+   - FastAPI ML Service:     http://127.0.0.1:8000
+   - Hardhat Ethereum Node:  http://127.0.0.1:8545
+   - Mongoose MongoDB Port:  127.0.0.1:27017
+================================================================================

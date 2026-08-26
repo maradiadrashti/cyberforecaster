@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap');
+
+:root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  background-color: #060913;
+}
+
+body {
+  margin: 0;
+  color: #e2e8f0;
+  background-color: #060913;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(15, 23, 42, 0.9) 0, transparent 50%),
+    radial-gradient(at 50% 0%, rgba(30, 27, 75, 0.4) 0, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(88, 28, 135, 0.15) 0, transparent 50%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+.font-mono-tech {
+  font-family: 'Share Tech Mono', monospace;
+}
+
+/* Glassmorphism scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 21, 36, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(31, 41, 61, 0.8);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 240, 255, 0.5);
+}
+
+/* Grid animation for cyberpunk aesthetic */
+.cyber-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+/* Glass card styling */
+.glass-card {
+  background: rgba(15, 21, 36, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-card-hover:hover {
+  border-color: rgba(0, 240, 255, 0.25);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.05);
+}
+
+/* Pulse animation */
+@keyframes cyber-pulse-red {
+  0%, 100% {
+    box-shadow: 0 0 0 0px rgba(255, 0, 85, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(255, 0, 85, 0);
+  }
+}
+
+@keyframes cyber-pulse-cyan {
+  0%, 100% {
+    box-shadow: 0 0 0 0px rgba(0, 240, 255, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(0, 240, 255, 0);
+  }
+}
+
+.pulse-red {
+  animation: cyber-pulse-red 2s infinite;
+}
+
+.pulse-cyan {
+  animation: cyber-pulse-cyan 2s infinite;
+}
