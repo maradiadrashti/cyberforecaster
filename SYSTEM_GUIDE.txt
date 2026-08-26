@@ -32,6 +32,50 @@ and the step-by-step pipeline of the system to help you understand and present i
     proving the warning was generated and never modified.
 
 --------------------------------------------------------------------------------
+1.5 FOLDER STRUCTURE & COMPONENT ROLES
+--------------------------------------------------------------------------------
+Here is the purpose of each directory in the codebase:
+
+* /backend (Express + Socket.io Server):
+  - Purpose: The core orchestrator and API gateway of the application.
+  - Why it is used: It connects all isolated parts of the system. It receives 
+    incoming traffic events from the simulator, fetches historical events from 
+    MongoDB to feed the ML service, routes predictions onto the local blockchain 
+    ledger, updates host status metadata, and uses WebSockets (Socket.io) to 
+    push live alerts instantly to the React frontend.
+
+* /blockchain (Hardhat + Solidity Registry):
+  - Purpose: Decentralized immutable audit trailing.
+  - Why it is used: It hosts the Solidity smart contract (ForecastRegistry.sol) 
+    and handles its local deployment and network runtime (via Hardhat). Writing 
+    forecast data hashes to this registry guarantees that any warning alerts 
+    raised by the AI are permanently recorded and cannot be altered or covered up 
+    retroactively.
+
+* /client (Vite + React.js Frontend):
+  - Purpose: The Threat Operations Console (SOC Dashboard) for security analysts.
+  - Why it is used: Built with React, Tailwind, and Recharts, it presents critical 
+    information visually. It graphs the network node topology, logs live packet 
+    flows, shows forecasted attack progression stages, maps threat patterns to 
+    MITRE ATT&CK codes, houses the interface to apply defensive actions, and 
+    displays the on-chain blockchain verification seal.
+
+* /ml_service (Python FastAPI + PyTorch GRU):
+  - Purpose: The artificial intelligence engine (World Model).
+  - Why it is used: Isolated in a Python FastAPI container for maximum performance. 
+    It maintains the neural network definition (model.py) and training routine 
+    (train_simulator.py). Its GRU recurrent architecture evaluates sequence histories 
+    and computes multi-step rollouts, predicting how threat levels evolve under 
+    different defensive scenarios (Do Nothing, Block Ports, Isolate Host).
+
+* /simulator (Python Cyber Range Generator):
+  - Purpose: Real-time network threat emulation.
+  - Why it is used: It generates synthetic network packet flows matching the 
+    CIC-IDS2017 feature representation. It replays real attack sequences 
+    (port scanning, web exploits, credential dumps, and data theft) and listens 
+    to the backend to dynamically quarantine hosts (closed-loop mitigation).
+
+--------------------------------------------------------------------------------
 2. DATASETS: TRAINING VS. TESTING (CIC-IDS2017, UNSW-NB15, ETC.)
 --------------------------------------------------------------------------------
 * WHAT TYPE OF DATASET IS USED?
