@@ -7,6 +7,51 @@ This document explains the architecture, the data source, the prediction logic,
 and the step-by-step pipeline of the system to help you understand and present it.
 
 --------------------------------------------------------------------------------
+1.1 WHY WE USE THIS PROJECT (VALUE PROPOSITION)
+--------------------------------------------------------------------------------
+Unlike reactive firewalls and signature-based IDSes, we use this system because:
+1. It is PROACTIVE: It alerts before a breach is completed by looking at sequence history.
+2. It supports COUNTERFACTUAL WHAT-IF TESTING: Security officers can run scenario rollouts
+   and see the predicted risk scores over time for multiple possible mitigation actions.
+3. It guarantees ON-CHAIN AUDIT LOGGING: All warnings are cryptographically hashed 
+   and recorded to the blockchain so that they cannot be retroactively altered, deleted,
+   or claimed to have never been received.
+
+--------------------------------------------------------------------------------
+1.2 HOW TO DEMO THIS SYSTEM (WALKTHROUGH STEPS)
+--------------------------------------------------------------------------------
+Follow these simple steps to demonstrate the system live:
+
+Step 1: Start the services
+  - Run `./start.sh` in the workspace root and open http://127.0.0.1:5173 in a browser.
+  - Check the indicators: "ON-CHAIN AUDIT LOG ACTIVE" and "LIVE ORCHESTRATOR ONLINE".
+
+Step 2: Observe normal traffic
+  - All host nodes on the topology map will be green ("ONLINE").
+  - Live flow packets are streaming in the bottom-left pane.
+
+Step 3: Watch the attack forecast trigger
+  - After 20-30 seconds (Tick 5+), the Public Web Server (192.168.1.20) will turn yellow.
+  - The forecast panel will change to "Reconnaissance" (active port scanning is detected),
+    and then transition to "Initial Access" (exploitation attempts).
+  - An alert will appear in the bottom logs showing it has been registered on-chain.
+
+Step 4: Run a "What-If" simulation
+  - Click on the Web Server node.
+  - Observe the line chart comparing mitigation options. The red line ("Do Nothing") 
+    climbs to 95% exfiltration threat. The green line ("Isolate Host") drops to 0%.
+
+Step 5: Execute Quarantine (Closed-Loop feedback)
+  - Click the red "ISOLATE HOST" button in the right panel.
+  - The node turns red. The simulator automatically stops sending attack flows, and 
+    the threat forecast drops to clean (0%), saving the Finance Server from pivoting.
+
+Step 6: Verify blockchain audit logs
+  - Click "Verify Audit Trail" on the bottom alert log.
+  - A modal will query the Ethereum smart contract, verify that the local hash matches 
+    the on-chain hash, and print a "Verification Complete" validation seal.
+
+--------------------------------------------------------------------------------
 1. CORE PROBLEMS & OUR SOLUTIONS
 --------------------------------------------------------------------------------
 * REACTIVE VS. PROACTIVE:
