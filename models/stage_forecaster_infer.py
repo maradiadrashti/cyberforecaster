@@ -115,8 +115,7 @@ def _normalize(features: np.ndarray) -> np.ndarray:
     return (features - fmin) / (fmax - fmin + 1e-8)
 
 
-def forecast_host(host_ip: str, recent_flows: list[dict],
-                  forecast_steps: int = 6) -> dict:
+def forecast_host(host_ip: str, recent_flows: list[dict], forecast_steps: int = 6, risk_history: list = None) -> dict:
     """
     Forecast the attack stage and risk for a given host.
 
@@ -124,6 +123,7 @@ def forecast_host(host_ip: str, recent_flows: list[dict],
         host_ip: IP address of the host to forecast
         recent_flows: List of recent flow dicts (up to 10 most recent)
         forecast_steps: Number of future timesteps to project risk curve
+        risk_history: Optional list of recent historical risk_score floats for host
 
     Returns:
         Dict with keys:
@@ -163,11 +163,24 @@ def forecast_host(host_ip: str, recent_flows: list[dict],
     stage_probs_dict = {STAGES[i]: round(p, 4) for i, p in enumerate(stage_probs)}
     predicted_stage = STAGES[int(np.argmax(stage_probs))]
 
-    # Project risk curve derived from model outputs without hardcoded synthetic multipliers
+    # Calculate effective risk based on current model predictions
     stage_weights = [0.0, 0.2, 0.5, 0.7, 0.9, 1.0]
     weighted_stage_risk = sum(p * w for p, w in zip(stage_probs, stage_weights))
     effective_risk = round(max(0.0, min(1.0, (risk_score + weighted_stage_risk) / 2.0)), 4)
-    projected_risk = [effective_risk] * forecast_steps
+
+    # Derive linear trend slope from real historical risk trajectory
+    if risk_history and len(risk_history) >= 3:
+        y = np.array(list(risk_history) + [effective_risk], dtype=np.float32)
+        x_idx = np.arange(len(y), dtype=np.float32)
+        slope = float(np.polyfit(x_idx, y, 1)[0])
+    else:
+        slope = 0.0
+
+    projected_risk = [effective_risk]
+    current = effective_risk
+    for _ in range(1, forecast_steps):
+        current = min(1.0, max(0.0, current + slope))
+        projected_risk.append(round(current, 4))
 
     return {
         "host": host_ip,

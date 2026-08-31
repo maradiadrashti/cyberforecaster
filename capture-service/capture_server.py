@@ -10,7 +10,7 @@ import sys
 import time
 import threading
 import ipaddress
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime
 
 def _is_multicast_or_broadcast(ip_str: str) -> bool:
@@ -108,6 +108,9 @@ _ip_ports: dict[str, set] = {}            # src_ip -> set of unique dst_ports hi
 _ip_bytes: dict[str, int] = {}            # src_ip -> total bytes sent recently
 _ip_dst: dict[str, dict] = {}            # src_ip -> {dst_ip: flow_count}
 _TRACKING_WINDOW = 30  # seconds for tracking window
+
+# Bounded per-host risk history for data-driven forecast trend projection
+_host_risk_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=12))
 
 # Mapping from friendly interface name -> Scapy Npcap device GUID
 iface_to_scapy: dict[str, str] = {}
@@ -465,6 +468,7 @@ def reset_backend_state():
         _ip_ports.clear()
         _ip_bytes.clear()
         _ip_dst.clear()
+        _host_risk_history.clear()
 
 
 def _start_iface_capture(iface: str) -> bool:
@@ -546,9 +550,10 @@ def _capture_loop(iface: str):
 
                 # ML classification (lazy-loaded, never blocks capture)
                 # Only override when ML detects an actual attack, never downgrade
+                # Prevent ML predictions from overriding benign multicast/broadcast traffic
                 if not _ml_loaded:
                     _lazy_load_ml()
-                if _ml_predict_flow:
+                if _ml_predict_flow and not _is_multicast_or_broadcast(event.get("dst_ip", "")):
                     try:
                         ml_label, ml_confidence = _ml_predict_flow(flow_cache[key])
                         # Only use ML label if it detected something (not benign)
@@ -643,7 +648,10 @@ async def _stage_forecast_loop():
                                      reverse=True)[:20]:
                 recent = flows[-10:]
                 try:
-                    forecast = _stage_forecaster(ip, recent)
+                    history = list(_host_risk_history[ip])
+                    forecast = _stage_forecaster(ip, recent, risk_history=history)
+                    if forecast and "risk_score" in forecast:
+                        _host_risk_history[ip].append(forecast["risk_score"])
                     forecasts[ip] = forecast
                 except Exception:
                     pass
