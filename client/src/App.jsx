@@ -76,10 +76,11 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Simulate live traffic for demo pages (only when capture server is not running)
+  // Simulate live traffic for demo pages (only when capture server is NOT connected/running)
   useEffect(() => {
-    const isCapturing = captureStats.active_captures && Object.values(captureStats.active_captures).some(Boolean);
-    if (isCapturing) return;
+    // If capture server is running (even when idle), do NOT run mock demo generator
+    const hasCaptureServer = captureStats && captureStats.active_captures !== undefined;
+    if (hasCaptureServer) return;
 
     const interval = setInterval(() => {
       tickRef.current++;
@@ -100,7 +101,7 @@ export default function App() {
     }, 1800);
 
     return () => clearInterval(interval);
-  }, [captureStats.active_captures]);
+  }, [captureStats]);
 
   // Callbacks for LiveTraffic to lift state up
   const handleInterfaceChange = useCallback((iface, ifaceInfo) => {

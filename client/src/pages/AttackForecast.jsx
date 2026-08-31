@@ -178,9 +178,8 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     };
   }, [mlForecast]);
 
-  // Build what-if chart data: "Captured Flow" (actual traffic intensity %) + "Predicted Flow" (ML predicted threat %)
+  // Build what-if chart data: "Captured Flow" (baseline risk %) + "Predicted Flow" (ML projected risk %)
   const whatIfChartData = useMemo(() => {
-    const recentPkts = (livePackets || []).slice(0, 6).reverse();
     const isReady = mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0 &&
       (mlForecast.windows_collected === undefined || mlForecast.windows_collected >= (mlForecast.min_windows_required || 10));
 
@@ -192,21 +191,16 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
       }));
     }
 
+    const baselineRiskPct = Math.round((mlForecast.risk_score || 0.05) * 100);
+
     return rolloutData.do_nothing.map((d, i) => {
-      const captured = recentPkts[i];
-      let capturedPct = 0;
-      if (captured) {
-        // Calculate captured flow intensity based on packet length and severity
-        const sevMult = captured.severity === "critical" ? 1.0 : captured.severity === "high" ? 0.8 : captured.severity === "medium" ? 0.5 : 0.2;
-        capturedPct = Math.min(100, Math.round((Math.min(captured.length || 60, 1500) / 1500) * 100 * sevMult));
-      }
       return {
         step: d.step,
-        "Captured Flow": capturedPct,
+        "Captured Flow": baselineRiskPct,
         "Predicted Flow": Math.round(rolloutData.do_nothing[i].threat * 100),
       };
     });
-  }, [rolloutData, livePackets, mlForecast]);
+  }, [rolloutData, mlForecast]);
 
   // Compute defense state for current interface
   const currentDefense = useMemo(() => {
