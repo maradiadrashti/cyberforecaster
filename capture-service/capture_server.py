@@ -9,8 +9,17 @@ import json
 import sys
 import time
 import threading
+import ipaddress
 from collections import defaultdict
 from datetime import datetime
+
+def _is_multicast_or_broadcast(ip_str: str) -> bool:
+    """Check if an IP address is multicast or subnet broadcast."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return ip.is_multicast or ip_str.endswith(".255")
+    except ValueError:
+        return False
 
 import subprocess
 import psutil
@@ -352,12 +361,14 @@ def _heuristic_classify(flow_key: str, event: dict):
     _ip_flows[src_ip] = [t for t in _ip_flows[src_ip] if t > cutoff]
 
     # ── Detection rules ─────────────────────────────────────────────────
-    flow_duration = max(flow["packet_count"] * 0.01, 0.001)
+    first_seen_ts = flow.get("first_seen_ts", now)
+    flow_duration = max(now - first_seen_ts, 0.001)
     pps = flow["packet_count"] / flow_duration
     bpp = flow["byte_count"] / max(flow["packet_count"], 1)
     recent_flows = len(_ip_flows[src_ip])
     unique_ports = len(_ip_ports[src_ip])
     dst_flow_count = _ip_dst[src_ip].get(dst_ip, 0)
+    is_multicast = _is_multicast_or_broadcast(dst_ip)
 
     severity = "none"
     attack_type = "Benign"
@@ -372,16 +383,17 @@ def _heuristic_classify(flow_key: str, event: dict):
         attack_type = "Port Scan"
 
     # --- DDoS / Flood Detection ---
-    # High packet rate to same destination
-    if pps > 100 or dst_flow_count > 50:
-        severity = "critical"
-        attack_type = "DDoS"
-    elif pps > 40 or dst_flow_count > 25:
-        severity = "high"
-        attack_type = "DDoS"
+    # High packet rate to same destination (skip for multicast/broadcast)
+    if not is_multicast:
+        if pps > 100 or dst_flow_count > 50:
+            severity = "critical"
+            attack_type = "DDoS"
+        elif pps > 40 or dst_flow_count > 25:
+            severity = "high"
+            attack_type = "DDoS"
 
-    # --- SYN Flood Detection ---
-    if flow.get("syn_flag", 0) > 20 and flow.get("ack_flag", 0) < 3:
+    # --- SYN Flood Detection --- (skip for multicast/broadcast)
+    if not is_multicast and flow.get("syn_flag", 0) > 20 and flow.get("ack_flag", 0) < 3:
         severity = "critical"
         attack_type = "SYN Flood"
 
@@ -395,8 +407,8 @@ def _heuristic_classify(flow_key: str, event: dict):
         severity = "medium"
         attack_type = "Brute Force"
 
-    # --- ICMP Flood Detection ---
-    if proto == "ICMP" and flow["packet_count"] > 50:
+    # --- ICMP Flood Detection --- (skip for multicast/broadcast)
+    if not is_multicast and proto == "ICMP" and flow["packet_count"] > 50:
         severity = "high"
         attack_type = "ICMP Flood"
 
@@ -495,6 +507,7 @@ def _capture_loop(iface: str):
                             "packet_count": 1,
                             "byte_count": event["length"],
                             "first_seen": event["timestamp"],
+                            "first_seen_ts": time.time(),
                             "last_seen": event["timestamp"],
                             "duration": 0.001,
                             "severity": event["severity"],

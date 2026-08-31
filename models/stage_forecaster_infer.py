@@ -184,6 +184,8 @@ def forecast_host(host_ip: str, recent_flows: list[dict],
         "predicted_stage": predicted_stage,
         "risk_score": round(risk_score, 4),
         "projected_risk_curve": projected_risk,
+        "windows_collected": len(recent_flows),
+        "min_windows_required": seq_len,
     }
 
 

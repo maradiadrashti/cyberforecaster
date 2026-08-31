@@ -141,10 +141,13 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     return () => clearInterval(iv);
   }, []);
 
-  // Generate what-if rollout data dynamically from ML model forecast or flow heuristic
+  // Generate what-if rollout data dynamically from real ML model forecast
   const rolloutData = useMemo(() => {
-    // 1. If real ML forecast exists for active target, use its projected risk curve
-    if (mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0) {
+    // 1. If real ML forecast exists for active target and model is ready, use its projected risk curve
+    const isReady = mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0 &&
+      (mlForecast.windows_collected === undefined || mlForecast.windows_collected >= (mlForecast.min_windows_required || 10));
+
+    if (isReady) {
       const curve = mlForecast.projected_risk_curve;
       const steps = curve.length;
       const scenarios = {
@@ -165,25 +168,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
       return scenarios;
     }
 
-    // 2. If active attack flow exists, compute heuristic rollout
-    const atkFlow = selectedFlow || (attackFlows && attackFlows.length > 0 ? attackFlows[0] : null);
-    if (atkFlow) {
-      let stage = "Normal";
-      const attackType = (atkFlow.attack_type || "").toLowerCase();
-      const severity = atkFlow.severity;
-      if (attackType.includes("exfiltration") || attackType.includes("large transfer") || severity === "critical") {
-        stage = "Exfiltration";
-      } else if (attackType.includes("brute force") || attackType.includes("ddos") || severity === "high") {
-        stage = "Lateral Movement";
-      } else if (attackType.includes("port scan") || attackType.includes("syn flood") || severity === "medium") {
-        stage = "Initial Access";
-      } else if (attackType.includes("icmp") || attackType.includes("reset storm") || severity === "low") {
-        stage = "Reconnaissance";
-      }
-      return generateRolloutData(stage);
-    }
-
-    // 3. Flat zero baseline when idle
+    // 2. Flat zero baseline when warming up or idle (no keyword heuristic)
     const zeroSteps = [5, 10, 15, 20, 25, 30].map(s => ({ threat: 0, step: `T+${s}s` }));
     return {
       do_nothing: zeroSteps,
@@ -191,14 +176,15 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
       block_port: zeroSteps,
       isolate_host: zeroSteps,
     };
-  }, [attackFlows, selectedFlow, mlForecast]);
+  }, [mlForecast]);
 
   // Build what-if chart data: "Captured Flow" (actual traffic intensity %) + "Predicted Flow" (ML predicted threat %)
   const whatIfChartData = useMemo(() => {
     const recentPkts = (livePackets || []).slice(0, 6).reverse();
-    const hasActivity = (livePackets && livePackets.length > 0) || (attackFlows && attackFlows.length > 0) || (mlForecast && mlForecast.risk_score > 0);
+    const isReady = mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0 &&
+      (mlForecast.windows_collected === undefined || mlForecast.windows_collected >= (mlForecast.min_windows_required || 10));
 
-    if (!hasActivity || !rolloutData) {
+    if (!isReady || !rolloutData) {
       return [5, 10, 15, 20, 25, 30].map(s => ({
         step: `T+${s}s`,
         "Captured Flow": 0,
@@ -220,7 +206,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
         "Predicted Flow": Math.round(rolloutData.do_nothing[i].threat * 100),
       };
     });
-  }, [rolloutData, livePackets, attackFlows, mlForecast]);
+  }, [rolloutData, livePackets, mlForecast]);
 
   // Compute defense state for current interface
   const currentDefense = useMemo(() => {
@@ -293,13 +279,24 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     }
   }, [selectedFlow, currentDefense, selectedInterface, callDefenseApi]);
 
-  // Determine threat level for display based on real attack flow classification
+  // Determine threat level for display based ONLY on real ML model stage forecaster (or warm up / no data state)
   const threatInfo = useMemo(() => {
-    if (!isCapturing || !attackFlows || attackFlows.length === 0) {
-      return { stage: "Normal", color: STAGE_COLORS.Normal, confidence: 0.95, riskScore: 0.05, techniques: [] };
+    if (!mlForecast) {
+      return { state: "no_data" };
     }
 
-    if (mlForecast) {
+    const collected = mlForecast.windows_collected;
+    const required = mlForecast.min_windows_required || 10;
+
+    if (collected !== undefined && collected < required) {
+      return {
+        state: "warming_up",
+        windowsCollected: collected,
+        minWindowsRequired: required,
+      };
+    }
+
+    if (mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0) {
       const stage = mapStageName(mlForecast.predicted_stage);
       const confidence = mlForecast.confidence || (mlForecast.stage_probs && mlForecast.stage_probs[mlForecast.predicted_stage]) || 0.5;
       const riskScore = mlForecast.risk_score || 0.05;
@@ -312,6 +309,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
       }
 
       return {
+        state: "ready",
         stage,
         color: STAGE_COLORS[stage] || STAGE_COLORS.Normal,
         confidence,
@@ -321,44 +319,15 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
       };
     }
 
-    const atkFlow = selectedFlow || attackFlows[0];
-    const attackType = (atkFlow.attack_type || "").toLowerCase();
-    const severity = atkFlow.severity || "none";
-
-    // Map real attack type + severity to kill chain stage (deterministic)
-    let stage = "Normal";
-    let confidence = 0.5;
-    if (attackType.includes("exfiltration") || attackType.includes("large transfer") || severity === "critical") {
-      stage = "Exfiltration";
-      confidence = 0.88;
-    } else if (attackType.includes("brute force") || attackType.includes("ddos") || severity === "high") {
-      stage = "Lateral Movement";
-      confidence = 0.82;
-    } else if (attackType.includes("port scan") || attackType.includes("syn flood") || severity === "medium") {
-      stage = "Initial Access";
-      confidence = 0.75;
-    } else if (attackType.includes("icmp") || attackType.includes("reset storm") || severity === "low") {
-      stage = "Reconnaissance";
-      confidence = 0.65;
-    }
-
-    const riskScore = severity === "critical" ? 0.85 : severity === "high" ? 0.65 : severity === "medium" ? 0.4 : 0.2;
-
-    return {
-      stage,
-      color: STAGE_COLORS[stage],
-      confidence,
-      riskScore,
-      techniques: MITRE_TECHNIQUES[stage] || [],
-    };
-  }, [attackFlows, selectedFlow, isCapturing, mlForecast, mapStageName]);
+    return { state: "no_data" };
+  }, [mlForecast, mapStageName]);
 
   const ifaceName = selectedInterface || "No interface selected";
   const ifaceInfo = selectedInterfaceInfo;
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Gateway / Interface Info Banner */}
+      {/* Monitored Host / Interface Info Banner */}
       <section className="glass-card rounded-xl border border-cyan-900/30 p-5">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
@@ -368,7 +337,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold uppercase tracking-wider font-mono-tech text-white">Gateway Router</h3>
+                <h3 className="text-sm font-bold uppercase tracking-wider font-mono-tech text-white">Monitored Host</h3>
                 <span className="text-[8px] font-mono-tech text-cyan-400 bg-cyan-950/30 px-1.5 py-0.5 rounded border border-cyan-900/50">LIVE</span>
               </div>
               <p className="text-[10px] text-slate-500 font-mono-tech mt-1">
@@ -393,7 +362,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
           )}
           {!ifaceInfo && (
             <div className="text-[10px] text-slate-600 font-mono-tech">
-              Go to Live Traffic and select an interface to view gateway info
+              Go to Live Traffic and select an interface to view monitored host info
             </div>
           )}
         </div>
@@ -405,7 +374,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
           <Target className="h-4 w-4 text-amber-400" />
           <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">MITRE ATT&CK Kill Chain Progression</h3>
         </div>
-        <KillChainBar currentStage={threatInfo.stage} />
+        <KillChainBar currentStage={threatInfo.state === "ready" ? threatInfo.stage : "Normal"} />
       </section>
 
       {/* Main Content Grid */}
@@ -418,7 +387,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
               <ShieldAlert className="h-4 w-4 text-rose-400" />
               <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Threat Prediction</h3>
             </div>
-            {attackFlows && attackFlows.length > 0 ? (
+            {threatInfo.state === "ready" ? (
               <div className="space-y-4">
                 <div>
                   <p className="text-[9px] text-slate-500 uppercase tracking-wider font-mono-tech mb-1">Forecasted Attack Stage</p>
@@ -448,7 +417,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
                 {/* Target IP selector */}
                 {targetIp && (
                   <div className="p-3 rounded-lg bg-slate-950/50 border border-slate-900">
-                    <p className="text-[9px] text-slate-500 uppercase font-mono-tech mb-1">Target Attacker IP</p>
+                    <p className="text-[9px] text-slate-500 uppercase font-mono-tech mb-1">Target Host IP</p>
                     <p className="text-sm font-bold text-rose-400 font-mono-tech">{targetIp}</p>
                     {selectedFlow && (
                       <div className="mt-2 space-y-1 text-[9px] font-mono-tech">
@@ -474,7 +443,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
                 )}
 
                 {/* MITRE Techniques */}
-                {threatInfo.techniques.length > 0 && (
+                {threatInfo.techniques && threatInfo.techniques.length > 0 && (
                   <div className="space-y-1.5">
                     <p className="text-[9px] text-slate-500 uppercase tracking-wider font-mono-tech">MITRE ATT&CK Techniques</p>
                     {threatInfo.techniques.map((tech, i) => (
@@ -486,11 +455,17 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
                   </div>
                 )}
               </div>
+            ) : threatInfo.state === "warming_up" ? (
+              <div className="text-center py-8 text-slate-400 text-xs font-mono-tech space-y-2">
+                <div className="animate-spin h-6 w-6 border-2 border-cyan-400 border-t-transparent rounded-full mx-auto mb-2" />
+                <p className="text-cyan-400 font-bold">Model warming up ({threatInfo.windowsCollected} / {threatInfo.minWindowsRequired} flow windows collected)</p>
+                <p className="text-[10px] text-slate-500">Accumulating host flow history for deep GRU stage forecaster...</p>
+              </div>
             ) : (
               <div className="text-center py-8 text-slate-600 text-[10px] font-mono-tech">
                 <Target className="h-6 w-6 mx-auto mb-2 opacity-20" />
-                <p>No attack flows detected.</p>
-                <p className="mt-1">Start a capture on Live Traffic to see threat assessments.</p>
+                <p>No traffic captured yet for this host.</p>
+                <p className="mt-1">Start a capture on Live Traffic to see real model forecasts.</p>
               </div>
             )}
           </div>
