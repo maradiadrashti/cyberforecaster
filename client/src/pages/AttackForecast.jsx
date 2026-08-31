@@ -79,6 +79,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
   const [defenseState, setDefenseState] = useState({});
   const [defenseLoading, setDefenseLoading] = useState({});
   const [targetIp, setTargetIp] = useState("");
+  const [riskHistory, setRiskHistory] = useState([]);
 
   // Map backend stage name to frontend stage name
   const mapStageName = useCallback((stage) => {
@@ -110,16 +111,34 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
 
   // Poll real-time forecasts from window.__mlStageForecasts updated by WebSocket
   useEffect(() => {
+    // Reset history when switching target IP to prevent stale graph
+    setRiskHistory([]);
+    
     const checkForecast = () => {
+      let currentForecast = null;
       if (window.__mlStageForecasts && targetIp && window.__mlStageForecasts[targetIp]) {
-        setMlForecast(window.__mlStageForecasts[targetIp]);
+        currentForecast = window.__mlStageForecasts[targetIp];
+        setMlForecast(currentForecast);
       } else if (window.__mlStageForecasts && Object.keys(window.__mlStageForecasts).length > 0) {
         // Fallback to first active forecast in window.__mlStageForecasts if targetIp has no direct entry
         const firstIp = Object.keys(window.__mlStageForecasts)[0];
-        setMlForecast(window.__mlStageForecasts[firstIp]);
+        currentForecast = window.__mlStageForecasts[firstIp];
+        setMlForecast(currentForecast);
       } else {
         setMlForecast(null);
       }
+      
+      // Record history point for smooth moving graph synced with real-time
+      setRiskHistory(prev => {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        let riskVal = 0;
+        if (currentForecast && (currentForecast.windows_collected === undefined || currentForecast.windows_collected >= (currentForecast.min_windows_required || 10))) {
+          riskVal = Math.round((currentForecast.risk_score || 0) * 100);
+        }
+        const next = [...prev, { step: timeStr, "Captured Flow": riskVal, "Predicted Flow": riskVal }];
+        return next.slice(-20); // Keep last 20 seconds of history
+      });
     };
     checkForecast();
     const interval = setInterval(checkForecast, 1000);
@@ -183,24 +202,37 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     const isReady = mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0 &&
       (mlForecast.windows_collected === undefined || mlForecast.windows_collected >= (mlForecast.min_windows_required || 10));
 
-    if (!isReady || !rolloutData) {
-      return [5, 10, 15, 20, 25, 30].map(s => ({
-        step: `T+${s}s`,
-        "Captured Flow": 0,
-        "Predicted Flow": 0,
-      }));
+    const baselineRiskPct = isReady ? Math.round((mlForecast.risk_score || 0) * 100) : 0;
+    
+    // Start with historical sliding window
+    const combinedData = [...riskHistory];
+    
+    // Fallback if empty
+    if (combinedData.length === 0) {
+      combinedData.push({ step: "Now", "Captured Flow": baselineRiskPct, "Predicted Flow": baselineRiskPct });
     }
 
-    const baselineRiskPct = Math.round((mlForecast.risk_score || 0.05) * 100);
+    if (!isReady || !rolloutData) {
+      [5, 10, 15, 20, 25, 30].forEach(s => {
+        combinedData.push({
+          step: `+${s}s`,
+          "Captured Flow": 0,
+          "Predicted Flow": 0,
+        });
+      });
+      return combinedData;
+    }
 
-    return rolloutData.do_nothing.map((d, i) => {
-      return {
-        step: d.step,
-        "Captured Flow": baselineRiskPct,
-        "Predicted Flow": Math.round(rolloutData.do_nothing[i].threat * 100),
-      };
+    rolloutData.do_nothing.forEach((d, i) => {
+      combinedData.push({
+        step: d.step, // +5s, +10s etc
+        "Captured Flow": null, // don't draw captured flow into future
+        "Predicted Flow": Math.round(d.threat * 100),
+      });
     });
-  }, [rolloutData, mlForecast]);
+
+    return combinedData;
+  }, [rolloutData, mlForecast, riskHistory]);
 
   // Compute defense state for current interface
   const currentDefense = useMemo(() => {

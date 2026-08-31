@@ -385,12 +385,14 @@ def _heuristic_classify(flow_key: str, event: dict):
     # --- DDoS / Flood Detection ---
     # High packet rate to same destination (skip for multicast/broadcast)
     if not is_multicast:
-        if pps > 120 and flow["packet_count"] >= 50:
-            severity = "critical"
-            attack_type = "DDoS"
-        elif pps > 50 and flow["packet_count"] >= 30:
-            severity = "high"
-            attack_type = "DDoS"
+        # Require flow to be active for at least 1.0 second to avoid flagging rapid short bursts
+        if flow_duration >= 1.0:
+            if pps > 120 and flow["packet_count"] >= 120:
+                severity = "critical"
+                attack_type = "DDoS"
+            elif pps > 50 and flow["packet_count"] >= 50:
+                severity = "high"
+                attack_type = "DDoS"
 
     # --- SYN Flood Detection --- (skip for multicast/broadcast)
     if not is_multicast and flow.get("syn_flag", 0) > 20 and flow.get("ack_flag", 0) < 3:
