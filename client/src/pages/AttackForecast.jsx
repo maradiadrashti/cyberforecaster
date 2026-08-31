@@ -93,20 +93,30 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     return stage.charAt(0).toUpperCase() + stage.slice(1);
   }, []);
 
-  // Auto-set target IP from selected flow or first attack flow
+  // Auto-set target IP from selected flow, first attack flow, or active live flow
   useEffect(() => {
-    if (selectedFlow) {
+    if (selectedFlow && selectedFlow.src_ip) {
       setTargetIp(selectedFlow.src_ip);
-    } else if (attackFlows && attackFlows.length > 0) {
+    } else if (attackFlows && attackFlows.length > 0 && attackFlows[0].src_ip) {
       setTargetIp(attackFlows[0].src_ip);
+    } else if (liveFlows && Object.keys(liveFlows).length > 0) {
+      const firstKey = Object.keys(liveFlows)[0];
+      const srcIp = liveFlows[firstKey]?.src_ip;
+      if (srcIp) setTargetIp(srcIp);
+    } else if (livePackets && livePackets.length > 0 && livePackets[0].src_ip) {
+      setTargetIp(livePackets[0].src_ip);
     }
-  }, [selectedFlow, attackFlows]);
+  }, [selectedFlow, attackFlows, liveFlows, livePackets]);
 
   // Poll real-time forecasts from window.__mlStageForecasts updated by WebSocket
   useEffect(() => {
     const checkForecast = () => {
       if (window.__mlStageForecasts && targetIp && window.__mlStageForecasts[targetIp]) {
         setMlForecast(window.__mlStageForecasts[targetIp]);
+      } else if (window.__mlStageForecasts && Object.keys(window.__mlStageForecasts).length > 0) {
+        // Fallback to first active forecast in window.__mlStageForecasts if targetIp has no direct entry
+        const firstIp = Object.keys(window.__mlStageForecasts)[0];
+        setMlForecast(window.__mlStageForecasts[firstIp]);
       } else {
         setMlForecast(null);
       }
@@ -131,22 +141,10 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     return () => clearInterval(iv);
   }, []);
 
-  // Generate what-if rollout data dynamically without timeouts to avoid flashing
+  // Generate what-if rollout data dynamically from ML model forecast or flow heuristic
   const rolloutData = useMemo(() => {
-    const hasAttacks = attackFlows && attackFlows.length > 0;
-
-    // If capturing but no attack flows, return flat zero rollout scenarios
-    if (!hasAttacks) {
-      const zeroSteps = [5, 10, 15, 20, 25, 30].map(s => ({ threat: 0, step: `T+${s}s` }));
-      return {
-        do_nothing: zeroSteps,
-        rate_limit: zeroSteps,
-        block_port: zeroSteps,
-        isolate_host: zeroSteps,
-      };
-    }
-
-    if (mlForecast && mlForecast.projected_risk_curve) {
+    // 1. If real ML forecast exists for active target, use its projected risk curve
+    if (mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0) {
       const curve = mlForecast.projected_risk_curve;
       const steps = curve.length;
       const scenarios = {
@@ -167,10 +165,10 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
       return scenarios;
     }
 
-    // Heuristic fallback
-    const atkFlow = selectedFlow || attackFlows[0];
-    let stage = "Normal";
+    // 2. If active attack flow exists, compute heuristic rollout
+    const atkFlow = selectedFlow || (attackFlows && attackFlows.length > 0 ? attackFlows[0] : null);
     if (atkFlow) {
+      let stage = "Normal";
       const attackType = (atkFlow.attack_type || "").toLowerCase();
       const severity = atkFlow.severity;
       if (attackType.includes("exfiltration") || attackType.includes("large transfer") || severity === "critical") {
@@ -182,48 +180,47 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
       } else if (attackType.includes("icmp") || attackType.includes("reset storm") || severity === "low") {
         stage = "Reconnaissance";
       }
+      return generateRolloutData(stage);
     }
-    return generateRolloutData(stage);
+
+    // 3. Flat zero baseline when idle
+    const zeroSteps = [5, 10, 15, 20, 25, 30].map(s => ({ threat: 0, step: `T+${s}s` }));
+    return {
+      do_nothing: zeroSteps,
+      rate_limit: zeroSteps,
+      block_port: zeroSteps,
+      isolate_host: zeroSteps,
+    };
   }, [attackFlows, selectedFlow, mlForecast]);
 
-  // Build what-if chart data: "Captured Flow" (actual) + "Predicted" (do_nothing scenario)
+  // Build what-if chart data: "Captured Flow" (actual traffic intensity %) + "Predicted Flow" (ML predicted threat %)
   const whatIfChartData = useMemo(() => {
-    if (!rolloutData) {
-      return [5, 10, 15, 20, 25, 30].map(s => ({
-        step: `T+${s}s`,
-        "Captured Flow": 0,
-        "Predicted Flow": 0,
-      }));
-    }
-
-    const hasAttacks = attackFlows && attackFlows.length > 0;
-    if (!hasAttacks) {
-      return [5, 10, 15, 20, 25, 30].map(s => ({
-        step: `T+${s}s`,
-        "Captured Flow": 0,
-        "Predicted Flow": 0,
-      }));
-    }
-
     const recentPkts = (livePackets || []).slice(0, 6).reverse();
-    if (recentPkts.length === 0) {
-      return rolloutData.do_nothing.map((d, i) => ({
-        step: d.step,
+    const hasActivity = (livePackets && livePackets.length > 0) || (attackFlows && attackFlows.length > 0) || (mlForecast && mlForecast.risk_score > 0);
+
+    if (!hasActivity || !rolloutData) {
+      return [5, 10, 15, 20, 25, 30].map(s => ({
+        step: `T+${s}s`,
         "Captured Flow": 0,
-        "Predicted Flow": Math.round(rolloutData.do_nothing[i].threat * 100),
+        "Predicted Flow": 0,
       }));
     }
 
     return rolloutData.do_nothing.map((d, i) => {
       const captured = recentPkts[i];
-      const capturedPct = captured ? Math.min(100, Math.round(((captured.length || 0) / 1500) * 100)) : 0;
+      let capturedPct = 0;
+      if (captured) {
+        // Calculate captured flow intensity based on packet length and severity
+        const sevMult = captured.severity === "critical" ? 1.0 : captured.severity === "high" ? 0.8 : captured.severity === "medium" ? 0.5 : 0.2;
+        capturedPct = Math.min(100, Math.round((Math.min(captured.length || 60, 1500) / 1500) * 100 * sevMult));
+      }
       return {
         step: d.step,
         "Captured Flow": capturedPct,
         "Predicted Flow": Math.round(rolloutData.do_nothing[i].threat * 100),
       };
     });
-  }, [rolloutData, livePackets, attackFlows]);
+  }, [rolloutData, livePackets, attackFlows, mlForecast]);
 
   // Compute defense state for current interface
   const currentDefense = useMemo(() => {

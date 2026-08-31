@@ -1,6 +1,6 @@
 {
   "version": "v1",
-  "created": "2026-08-31T22:32:37.686476",
+  "created": "2026-08-31T22:42:31.005315",
   "stages": [
     "normal",
     "reconnaissance",
@@ -53,6 +53,6 @@
     ]
   },
   "forecast_horizon_seconds": 30,
-  "test_accuracy": 0.9933333333333333,
+  "test_accuracy": 1.0,
   "training_notes": "Sequences include bootstrapped multi-stage data constructed from real flows in artificial temporal order. This is a TEMPORARY bootstrapping strategy until real multi-stage incidents are captured."
 }

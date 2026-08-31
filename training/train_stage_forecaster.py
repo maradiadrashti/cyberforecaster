@@ -824,6 +824,7 @@ def generate_inference_module(output_dir: str, meta: dict):
     infer_path = os.path.join(output_dir, "stage_forecaster_infer.py")
 
     code = '''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 stage_forecaster_infer.py - Standalone inference for the GRU stage forecaster.
 
@@ -836,13 +837,6 @@ Usage:
          "syn_flag": 1, "ack_flag": 0, "rst_flag": 0, "fin_flag": 0},
         # ... more flows ...
     ])
-    # result = {
-    #     "host": "192.168.1.100",
-    #     "stage_probs": {"normal": 0.1, "reconnaissance": 0.7, ...},
-    #     "predicted_stage": "reconnaissance",
-    #     "risk_score": 0.65,
-    #     "projected_risk_curve": [0.3, 0.45, 0.65, ...]
-    # }
 """
 
 import os
@@ -859,7 +853,7 @@ _meta = None
 
 
 class _StageForecasterGRU(nn.Module):
-    """GRU model architecture — must match training exactly."""
+    """GRU model architecture - must match training exactly."""
 
     def __init__(self, input_size=14, hidden_size=64, num_layers=2,
                  num_classes=6, dropout=0.2):
@@ -1002,10 +996,10 @@ def forecast_host(host_ip: str, recent_flows: list[dict],
         # or increases if current stage is advanced
         stage_idx = int(np.argmax(stage_probs))
         if stage_idx >= 2:
-            # Attack stage — risk increases slightly
+            # Attack stage - risk increases slightly
             current_risk = min(1.0, current_risk + 0.05 * (1 - current_risk))
         else:
-            # Normal/recon — risk decays
+            # Normal/recon - risk decays
             current_risk = max(0.0, current_risk * 0.85)
         projected_risk.append(round(current_risk, 4))
 
@@ -1030,7 +1024,7 @@ if __name__ == "__main__":
     result = forecast_host("192.168.1.100", test_flows)
     print(json.dumps(result, indent=2))
 '''
-    with open(infer_path, 'w') as f:
+    with open(infer_path, 'w', encoding='utf-8') as f:
         f.write(code)
     print(f"    Inference module saved: {infer_path}")
 
