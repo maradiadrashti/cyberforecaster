@@ -1,0 +1,58 @@
+{
+  "version": "v1",
+  "created": "2026-08-30T01:50:49.719284",
+  "stages": [
+    "normal",
+    "reconnaissance",
+    "initial_access",
+    "lateral_movement",
+    "command_control",
+    "exfiltration"
+  ],
+  "num_features": 14,
+  "sequence_length": 10,
+  "model_config": {
+    "input_size": 14,
+    "hidden_size": 64,
+    "num_layers": 2,
+    "num_stages": 6,
+    "dropout": 0.2
+  },
+  "normalizer": {
+    "feature_min": [
+      0.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "feature_max": [
+      300.0,
+      10000.0,
+      5000000.0,
+      65535.0,
+      65535.0,
+      50000.0,
+      1500.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "forecast_horizon_seconds": 30,
+  "test_accuracy": 0.9967629482071713,
+  "training_notes": "Sequences include bootstrapped multi-stage data constructed from real flows in artificial temporal order. This is a TEMPORARY bootstrapping strategy until real multi-stage incidents are captured."
+}

@@ -1,4 +1,5 @@
 import express from "express";
+import "dotenv/config";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
@@ -26,9 +27,10 @@ const io = new Server(httpServer, {
   }
 });
 
-const PORT = 5050;
-const ML_SERVICE_URL = "http://127.0.0.1:8000";
-const MONGO_URI = "mongodb://127.0.0.1:27017/attack_forecasting";
+const PORT = Number(process.env.BACKEND_PORT || 5050);
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://127.0.0.1:8000";
+const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/attack_forecasting";
+const BLOCKCHAIN_RPC_URL = process.env.BLOCKCHAIN_RPC_URL || "http://127.0.0.1:8545";
 
 // Connect to MongoDB
 mongoose.connect(MONGO_URI)
@@ -71,7 +73,7 @@ async function connectBlockchain() {
     const { address, abi } = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
     
     // Connect using standard JSON RPC
-    provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+    provider = new ethers.JsonRpcProvider(BLOCKCHAIN_RPC_URL);
     
     // Use Hardhat Account #0
     const privateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";

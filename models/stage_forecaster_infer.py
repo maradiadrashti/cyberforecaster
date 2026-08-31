@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+stage_forecaster_infer.py - Standalone inference for the GRU stage forecaster.
+
+Usage:
+    from models.stage_forecaster_infer import forecast_host
+
+    result = forecast_host("192.168.1.100", recent_flows=[...])
+    # result = {
+    #     "host": "192.168.1.100",
+    #     "stage_probs": {"normal": 0.1, "reconnaissance": 0.7, ...},
+    #     "predicted_stage": "reconnaissance",
+    #     "risk_score": 0.65,
+    #     "projected_risk_curve": [0.3, 0.45, 0.65, ...]
+    # }
+"""
+
+import os
+import json
+import numpy as np
+import torch
+import torch.nn as nn
+
+_MODELS_DIR = os.path.dirname(os.path.abspath(__file__))
+_model = None
+_meta = None
+
+
+class _StageForecasterGRU(nn.Module):
+    """GRU model architecture - must match training exactly."""
+
+    def __init__(self, input_size=14, hidden_size=64, num_layers=2,
+                 num_classes=6, dropout=0.2):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.gru = nn.GRU(input_size=input_size, hidden_size=hidden_size,
+                          num_layers=num_layers, batch_first=True,
+                          dropout=dropout if num_layers > 1 else 0)
+        self.dropout = nn.Dropout(dropout)
+        self.stage_head = nn.Sequential(
+            nn.Linear(hidden_size, 32), nn.ReLU(),
+            nn.Dropout(dropout), nn.Linear(32, num_classes),
+        )
+        self.risk_head = nn.Sequential(
+            nn.Linear(hidden_size, 16), nn.ReLU(),
+            nn.Linear(16, 1), nn.Sigmoid(),
+        )
+
+    def forward(self, x, hidden=None):
+        gru_out, hidden = self.gru(x, hidden)
+        last = self.dropout(gru_out[:, -1, :])
+        return self.stage_head(last), self.risk_head(last), hidden
+
+
+STAGES = ["normal", "reconnaissance", "initial_access",
+          "lateral_movement", "command_control", "exfiltration"]
+
+FEATURES = ["duration", "packet_count", "byte_count", "src_port", "dst_port",
+            "packets_per_second", "bytes_per_packet",
+            "syn_flag", "ack_flag", "rst_flag", "fin_flag",
+            "protocol_tcp", "protocol_udp", "protocol_other"]
+
+
+def _load_model():
+    global _model, _meta
+    if _model is not None:
+        return
+    model_path = os.path.join(_MODELS_DIR, "stage_forecaster_v1.pth")
+    meta_path = os.path.join(_MODELS_DIR, "stage_forecaster_v1_meta.json")
+    with open(meta_path) as f:
+        _meta = json.load(f)
+    cfg = _meta["model_config"]
+    _model = _StageForecasterGRU(
+        input_size=cfg["input_size"], hidden_size=cfg["hidden_size"],
+        num_layers=cfg["num_layers"], num_classes=cfg["num_stages"],
+        dropout=cfg["dropout"])
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=True)
+    _model.load_state_dict(checkpoint["model_state_dict"])
+    _model.eval()
+
+
+def _flow_to_features(flow):
+    duration = max(float(flow.get("duration", 0)), 0.001)
+    packet_count = max(int(flow.get("packet_count", 1)), 1)
+    byte_count = int(flow.get("byte_count", 0))
+    proto = str(flow.get("protocol", "TCP")).upper()
+    return [
+        duration, packet_count, byte_count,
+        int(flow.get("src_port", 0)), int(flow.get("dst_port", 0)),
+        packet_count / duration, byte_count / packet_count,
+        int(flow.get("syn_flag", 0)), int(flow.get("ack_flag", 0)),
+        int(flow.get("rst_flag", 0)), int(flow.get("fin_flag", 0)),
+        1 if proto == "TCP" else 0, 1 if proto == "UDP" else 0,
+        0 if proto in ("TCP", "UDP") else 1,
+    ]
+
+
+def _normalize(features):
+    norm = _meta["normalizer"]
+    fmin = np.array(norm["feature_min"], dtype=np.float32)
+    fmax = np.array(norm["feature_max"], dtype=np.float32)
+    return (features - fmin) / (fmax - fmin + 1e-8)
+
+
+def forecast_host(host_ip, recent_flows, forecast_steps=6):
+    """Forecast attack stage and risk for a given host."""
+    _load_model()
+    seq_len = _meta["sequence_length"]
+
+    features_list = [_flow_to_features(f) for f in recent_flows]
+    if len(features_list) < seq_len:
+        padding = [[0.0] * len(FEATURES)] * (seq_len - len(features_list))
+        features_list = padding + features_list
+    else:
+        features_list = features_list[-seq_len:]
+
+    features = np.array(features_list, dtype=np.float32)
+    features_norm = _normalize(features)
+    x = torch.tensor(features_norm, dtype=torch.float32).unsqueeze(0)
+
+    with torch.no_grad():
+        stage_probs_tensor, risk_tensor, hidden = _model(x)
+
+    stage_probs = torch.softmax(stage_probs_tensor, dim=-1).squeeze().tolist()
+    risk_score = risk_tensor.squeeze().item()
+
+    stage_probs_dict = {STAGES[i]: round(p, 4) for i, p in enumerate(stage_probs)}
+    predicted_stage = STAGES[int(np.argmax(stage_probs))]
+
+    projected_risk = [round(risk_score, 4)]
+    current_risk = risk_score
+    for step in range(1, forecast_steps):
+        stage_idx = int(np.argmax(stage_probs))
+        if stage_idx >= 2:
+            current_risk = min(1.0, current_risk + 0.05 * (1 - current_risk))
+        else:
+            current_risk = max(0.0, current_risk * 0.85)
+        projected_risk.append(round(current_risk, 4))
+
+    return {
+        "host": host_ip,
+        "stage_probs": stage_probs_dict,
+        "predicted_stage": predicted_stage,
+        "risk_score": round(risk_score, 4),
+        "projected_risk_curve": projected_risk,
+    }
+
+
+if __name__ == "__main__":
+    test_flows = [
+        {"src_port": 54321, "dst_port": 80, "protocol": "TCP",
+         "packet_count": 5, "byte_count": 300, "duration": 0.1,
+         "syn_flag": 1, "ack_flag": 0, "rst_flag": 0, "fin_flag": 0,
+         "label": "port_scan"},
+    ] * 10
+    result = forecast_host("192.168.1.100", test_flows)
+    print(json.dumps(result, indent=2))

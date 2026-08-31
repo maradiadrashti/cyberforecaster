@@ -1,0 +1,10 @@
+mongodb-server/**/*.pdb filter=lfs diff=lfs merge=lfs -text
+mongodb-server/**/*.lock filter=lfs diff=lfs merge=lfs -text
+mongodb-server/**/*.zip filter=lfs diff=lfs merge=lfs -text
+mongodb-server/**/*.bson filter=lfs diff=lfs merge=lfs -text
+mongodb-server/**/*.log filter=lfs diff=lfs merge=lfs -text
+scratch/**/*.pdb filter=lfs diff=lfs merge=lfs -text
+scratch/**/*.exe filter=lfs diff=lfs merge=lfs -text
+mongodb-server/**/*.exe filter=lfs diff=lfs merge=lfs -text
+mongodb-server/**/*.wt filter=lfs diff=lfs merge=lfs -text
+scratch/**/*.zip filter=lfs diff=lfs merge=lfs -text

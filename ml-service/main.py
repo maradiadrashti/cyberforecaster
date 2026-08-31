@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 import torch
 import numpy as np
 import os
+from pathlib import Path
 from model import AttackWorldModel
 from train_simulator import train_model
 
@@ -50,7 +51,7 @@ STAGE_NAMES = [
 
 def load_model():
     global model, feature_min, feature_max
-    model_path = "world_model.pth"
+    model_path = Path(__file__).resolve().parent / "world_model.pth"
     if not os.path.exists(model_path):
         print("Model file not found. Running training first...")
         train_model()
