@@ -425,13 +425,20 @@ def _heuristic_classify(flow_key: str, event: dict):
         severity = "medium"
         attack_type = "Reset Storm"
 
-    # Apply the strongest classification to the flow cache and event
-    severity_order = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-    if severity_order.get(severity, 0) > severity_order.get(flow.get("severity", "none"), 0):
-        flow["severity"] = severity
-        flow["attack_type"] = attack_type
-        event["severity"] = severity
-        event["attack_type"] = attack_type
+    # For multicast/broadcast destinations, explicitly reset stored flow & event state to benign/none
+    if is_multicast:
+        flow["severity"] = "none"
+        flow["attack_type"] = "Benign"
+        event["severity"] = "none"
+        event["attack_type"] = "Benign"
+    else:
+        # Apply the strongest classification to the flow cache and event for unicast traffic
+        severity_order = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+        if severity_order.get(severity, 0) > severity_order.get(flow.get("severity", "none"), 0):
+            flow["severity"] = severity
+            flow["attack_type"] = attack_type
+            event["severity"] = severity
+            event["attack_type"] = attack_type
 
 
 # ---------------------------------------------------------------------------
