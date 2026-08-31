@@ -1067,6 +1067,58 @@ def load_labeled_flows_from_csvs(csv_paths: list[str]) -> list[dict]:
     return all_flows
 
 
+def generate_synthetic_stage_flows(count: int = 5000) -> list[dict]:
+    """Generate synthetic labeled flows across all 6 attack categories."""
+    print(f"[*] Generating {count} synthetic flow events for GRU training...")
+    np.random.seed(42)
+    categories = ['benign', 'port_scan', 'brute_force', 'dos_ddos', 'arp_spoof', 'exfiltration']
+    flows = []
+    per_cat = count // len(categories)
+
+    for cat in categories:
+        for _ in range(per_cat):
+            if cat == 'benign':
+                dur, pkts, bytes_cnt = np.random.uniform(0.01, 10.0), np.random.randint(1, 50), np.random.randint(60, 5000)
+                syn, ack, rst, fin = (1 if np.random.rand() > 0.5 else 0), (1 if np.random.rand() > 0.2 else 0), 0, 0
+                dp = np.random.choice([80, 443, 53, 22])
+            elif cat == 'port_scan':
+                dur, pkts, bytes_cnt = np.random.uniform(0.001, 0.05), np.random.randint(1, 3), np.random.randint(40, 100)
+                syn, ack, rst, fin = 1, 0, (1 if np.random.rand() > 0.5 else 0), 0
+                dp = np.random.randint(1, 65535)
+            elif cat == 'brute_force':
+                dur, pkts, bytes_cnt = np.random.uniform(0.05, 0.5), np.random.randint(5, 30), np.random.randint(200, 1500)
+                syn, ack, rst, fin = 1, 1, 0, 0
+                dp = np.random.choice([22, 21, 3389, 5900])
+            elif cat == 'dos_ddos':
+                dur, pkts, bytes_cnt = np.random.uniform(0.001, 0.2), np.random.randint(100, 1000), np.random.randint(4000, 50000)
+                syn, ack, rst, fin = 1, 0, 0, 0
+                dp = np.random.choice([80, 443])
+            elif cat == 'arp_spoof':
+                dur, pkts, bytes_cnt = np.random.uniform(0.001, 0.1), np.random.randint(10, 50), np.random.randint(600, 3000)
+                syn = ack = rst = fin = 0
+                dp = 0
+            else:  # exfiltration
+                dur, pkts, bytes_cnt = np.random.uniform(2.0, 30.0), np.random.randint(500, 5000), np.random.randint(500000, 10000000)
+                syn, ack, rst, fin = 1, 1, 0, 1
+                dp = np.random.choice([443, 80, 22])
+
+            flows.append({
+                'duration': float(dur),
+                'packet_count': int(pkts),
+                'byte_count': int(bytes_cnt),
+                'src_port': int(np.random.randint(1024, 65535)),
+                'dst_port': int(dp),
+                'protocol': 'TCP' if cat != 'arp_spoof' else 'OTHER',
+                'syn_flag': syn,
+                'ack_flag': ack,
+                'rst_flag': rst,
+                'fin_flag': fin,
+                'label': cat,
+            })
+
+    return flows
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1077,8 +1129,8 @@ def main():
         description="Train GRU stage forecaster for attack stage prediction."
     )
     parser.add_argument(
-        "data", nargs="+",
-        help="Path(s) to labeled CSV files or directories"
+        "data", nargs="*",
+        help="Path(s) to labeled CSV files or directories (optional)"
     )
     parser.add_argument(
         "--output-dir", default="models",
@@ -1104,8 +1156,11 @@ def main():
     HIDDEN_SIZE = args.hidden_size
     SEQUENCE_LENGTH = args.seq_len
 
-    # Load data
-    flows = load_labeled_flows_from_csvs(args.data)
+    # Load data or generate synthetic
+    if args.data:
+        flows = load_labeled_flows_from_csvs(args.data)
+    else:
+        flows = generate_synthetic_stage_flows()
 
     # Train
     train_stage_forecaster(flows, args.output_dir)
@@ -1113,3 +1168,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

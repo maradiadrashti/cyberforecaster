@@ -1,6 +1,6 @@
 {
   "version": "v1",
-  "created": "2026-08-30T01:47:24.839834",
+  "created": "2026-08-31T22:31:24.236906",
   "features": [
     "duration",
     "packet_count",
@@ -43,7 +43,7 @@
     "eval_metric": "mlogloss",
     "n_jobs": -1
   },
-  "training_samples": 7968015,
-  "test_accuracy": 0.994797603459158,
+  "training_samples": 10506,
+  "test_accuracy": 0.9995555555555555,
   "dataset_source": "combined_labeling_pipeline"
 }

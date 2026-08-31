@@ -133,9 +133,18 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
 
   // Generate what-if rollout data dynamically without timeouts to avoid flashing
   const rolloutData = useMemo(() => {
-    if (!isCapturing) return null;
     const hasAttacks = attackFlows && attackFlows.length > 0;
-    if (!hasAttacks) return null;
+
+    // If capturing but no attack flows, return flat zero rollout scenarios
+    if (!hasAttacks) {
+      const zeroSteps = [5, 10, 15, 20, 25, 30].map(s => ({ threat: 0, step: `T+${s}s` }));
+      return {
+        do_nothing: zeroSteps,
+        rate_limit: zeroSteps,
+        block_port: zeroSteps,
+        isolate_host: zeroSteps,
+      };
+    }
 
     if (mlForecast && mlForecast.projected_risk_curve) {
       const curve = mlForecast.projected_risk_curve;
@@ -151,9 +160,9 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
         const base = curve[t];
         const jitter = (t * 0.007) % 0.05;
         scenarios.do_nothing.push({ threat: base, step: `T+${(t + 1) * 5}s` });
-        scenarios.rate_limit.push({ threat: Math.max(0.1, base - t * 0.06 + jitter * 0.6), step: `T+${(t + 1) * 5}s` });
-        scenarios.block_port.push({ threat: Math.max(0.05, base - t * 0.1 + jitter * 0.6), step: `T+${(t + 1) * 5}s` });
-        scenarios.isolate_host.push({ threat: Math.max(0.02, base - t * 0.14 - 0.1 + jitter * 0.4), step: `T+${(t + 1) * 5}s` });
+        scenarios.rate_limit.push({ threat: Math.max(0.0, base - t * 0.06 + jitter * 0.6), step: `T+${(t + 1) * 5}s` });
+        scenarios.block_port.push({ threat: Math.max(0.0, base - t * 0.1 + jitter * 0.6), step: `T+${(t + 1) * 5}s` });
+        scenarios.isolate_host.push({ threat: Math.max(0.0, base - t * 0.14 - 0.1 + jitter * 0.4), step: `T+${(t + 1) * 5}s` });
       }
       return scenarios;
     }
@@ -175,13 +184,26 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
       }
     }
     return generateRolloutData(stage);
-  }, [attackFlows, selectedFlow, isCapturing, mlForecast]);
+  }, [attackFlows, selectedFlow, mlForecast]);
 
   // Build what-if chart data: "Captured Flow" (actual) + "Predicted" (do_nothing scenario)
   const whatIfChartData = useMemo(() => {
-    if (!rolloutData || !isCapturing) return [];
+    if (!rolloutData) {
+      return [5, 10, 15, 20, 25, 30].map(s => ({
+        step: `T+${s}s`,
+        "Captured Flow": 0,
+        "Predicted Flow": 0,
+      }));
+    }
+
     const hasAttacks = attackFlows && attackFlows.length > 0;
-    if (!hasAttacks) return [];
+    if (!hasAttacks) {
+      return [5, 10, 15, 20, 25, 30].map(s => ({
+        step: `T+${s}s`,
+        "Captured Flow": 0,
+        "Predicted Flow": 0,
+      }));
+    }
 
     const recentPkts = (livePackets || []).slice(0, 6).reverse();
     if (recentPkts.length === 0) {
@@ -201,7 +223,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
         "Predicted Flow": Math.round(rolloutData.do_nothing[i].threat * 100),
       };
     });
-  }, [rolloutData, livePackets, isCapturing, attackFlows]);
+  }, [rolloutData, livePackets, attackFlows]);
 
   // Compute defense state for current interface
   const currentDefense = useMemo(() => {

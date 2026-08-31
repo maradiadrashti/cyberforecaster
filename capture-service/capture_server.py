@@ -290,20 +290,13 @@ def _packet_to_flow_event(pkt) -> dict | None:
     pkt_len = len(pkt)
     now = datetime.utcnow().isoformat()
 
-    # Severity heuristic
+    pkt_len = len(pkt)
+    now = datetime.utcnow().isoformat()
+
+    # Default all single packets to Benign (none severity)
+    # Attack classification requires ML flow classification or multi-packet heuristic rules
     severity = "none"
     attack_type = "Benign"
-    suspicious_ports = {23, 445, 3389, 1433, 3306, 5432, 6379, 27017, 135, 139, 5900}
-
-    if dport in suspicious_ports and proto_name == "TCP" and syn:
-        severity = "medium"
-        attack_type = "Port Scan"
-    elif rst and proto_name == "TCP":
-        severity = "low"
-        attack_type = "Connection Reset"
-    elif proto_name == "ICMP":
-        severity = "low"
-        attack_type = "ICMP Probe"
 
     return {
         "id": f"{now}-{ip.src}-{ip.dst}-{sport}-{dport}",
@@ -366,15 +359,15 @@ def _heuristic_classify(flow_key: str, event: dict):
     unique_ports = len(_ip_ports[src_ip])
     dst_flow_count = _ip_dst[src_ip].get(dst_ip, 0)
 
+    severity = "none"
+    attack_type = "Benign"
+
     # --- Port Scan Detection ---
     # Many unique destination ports from same source in short window
     if unique_ports >= 10 and recent_flows >= 10:
         severity = "high"
         attack_type = "Port Scan"
-    elif unique_ports >= 5 and recent_flows >= 5 and dport in {
-        21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 993, 995,
-        1433, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 27017
-    }:
+    elif unique_ports >= 5 and recent_flows >= 5:
         severity = "medium"
         attack_type = "Port Scan"
 
@@ -383,7 +376,7 @@ def _heuristic_classify(flow_key: str, event: dict):
     if pps > 100 or dst_flow_count > 50:
         severity = "critical"
         attack_type = "DDoS"
-    elif pps > 30 or dst_flow_count > 20:
+    elif pps > 40 or dst_flow_count > 25:
         severity = "high"
         attack_type = "DDoS"
 

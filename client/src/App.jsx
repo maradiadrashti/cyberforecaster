@@ -76,8 +76,11 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Simulate live traffic for demo pages
+  // Simulate live traffic for demo pages (only when capture server is not running)
   useEffect(() => {
+    const isCapturing = captureStats.active_captures && Object.values(captureStats.active_captures).some(Boolean);
+    if (isCapturing) return;
+
     const interval = setInterval(() => {
       tickRef.current++;
       setTick(tickRef.current);
@@ -97,7 +100,7 @@ export default function App() {
     }, 1800);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [captureStats.active_captures]);
 
   // Callbacks for LiveTraffic to lift state up
   const handleInterfaceChange = useCallback((iface, ifaceInfo) => {

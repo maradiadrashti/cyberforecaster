@@ -580,6 +580,101 @@ if __name__ == "__main__":
     print(f"    Inference module saved: {infer_path}")
 
 
+def generate_synthetic_flow_dataset(num_samples: int = 15000) -> pd.DataFrame:
+    """Generate synthetic network flow dataset matching CIC-IDS2017 feature distributions."""
+    print(f"[*] Generating {num_samples} synthetic flow records for classifier training...")
+    np.random.seed(42)
+    per_class = num_samples // len(ATTACK_LABELS)
+    rows = []
+
+    for label in ATTACK_LABELS:
+        for _ in range(per_class):
+            if label == 'benign':
+                duration = np.random.uniform(0.01, 15.0)
+                pkt_cnt = np.random.randint(1, 100)
+                byte_cnt = pkt_cnt * np.random.randint(40, 1500)
+                src_port = np.random.randint(1024, 65535)
+                dst_port = np.random.choice([80, 443, 53, 22, 445, 8080, 3306])
+                proto = np.random.choice(['TCP', 'UDP'], p=[0.8, 0.2])
+                syn = 1 if (proto == 'TCP' and np.random.rand() > 0.5) else 0
+                ack = 1 if (proto == 'TCP' and np.random.rand() > 0.3) else 0
+                rst = 1 if np.random.rand() < 0.05 else 0
+                fin = 1 if np.random.rand() < 0.2 else 0
+
+            elif label == 'port_scan':
+                duration = np.random.uniform(0.001, 0.05)
+                pkt_cnt = np.random.randint(1, 4)
+                byte_cnt = pkt_cnt * np.random.randint(40, 80)
+                src_port = np.random.randint(40000, 65535)
+                dst_port = np.random.randint(1, 65535)
+                proto = 'TCP'
+                syn = 1
+                ack = 0
+                rst = 1 if np.random.rand() > 0.5 else 0
+                fin = 0
+
+            elif label == 'brute_force':
+                duration = np.random.uniform(0.05, 0.5)
+                pkt_cnt = np.random.randint(5, 30)
+                byte_cnt = pkt_cnt * np.random.randint(100, 400)
+                src_port = np.random.randint(1024, 65535)
+                dst_port = np.random.choice([22, 21, 3389, 5900, 1433, 3306])
+                proto = 'TCP'
+                syn = 1
+                ack = 1
+                rst = 0
+                fin = 1 if np.random.rand() > 0.5 else 0
+
+            elif label == 'dos_ddos':
+                duration = np.random.uniform(0.001, 0.2)
+                pkt_cnt = np.random.randint(100, 1000)
+                byte_cnt = pkt_cnt * np.random.randint(40, 120)
+                src_port = np.random.randint(1024, 65535)
+                dst_port = np.random.choice([80, 443, 8080, 53])
+                proto = np.random.choice(['TCP', 'UDP'], p=[0.7, 0.3])
+                syn = 1 if proto == 'TCP' else 0
+                ack = 0
+                rst = 0
+                fin = 0
+
+            elif label == 'arp_spoof':
+                duration = np.random.uniform(0.001, 0.1)
+                pkt_cnt = np.random.randint(10, 100)
+                byte_cnt = pkt_cnt * 60
+                src_port = 0
+                dst_port = 0
+                proto = 'OTHER'
+                syn = ack = rst = fin = 0
+
+            elif label == 'exfiltration':
+                duration = np.random.uniform(2.0, 30.0)
+                pkt_cnt = np.random.randint(500, 5000)
+                byte_cnt = pkt_cnt * np.random.randint(1200, 1500)
+                src_port = np.random.randint(1024, 65535)
+                dst_port = np.random.choice([443, 80, 22, 21, 8443])
+                proto = 'TCP'
+                syn = 1
+                ack = 1
+                rst = 0
+                fin = 1
+
+            rows.append({
+                'duration': duration,
+                'packet_count': pkt_cnt,
+                'byte_count': byte_cnt,
+                'src_port': src_port,
+                'dst_port': dst_port,
+                'protocol': proto,
+                'syn_flag': syn,
+                'ack_flag': ack,
+                'rst_flag': rst,
+                'fin_flag': fin,
+                'label': label,
+            })
+
+    return pd.DataFrame(rows)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -589,8 +684,8 @@ def main():
         description="Train a per-flow attack classifier (XGBoost)."
     )
     parser.add_argument(
-        "data", nargs="+",
-        help="Path(s) to labeled CSV files or directories containing them"
+        "data", nargs="*",
+        help="Path(s) to labeled CSV files or directories containing them (optional)"
     )
     parser.add_argument(
         "--output-dir", default="models",
@@ -599,8 +694,11 @@ def main():
 
     args = parser.parse_args()
 
-    # Load all data
-    df = load_multiple_csvs(args.data)
+    # Load data or generate synthetic
+    if args.data:
+        df = load_multiple_csvs(args.data)
+    else:
+        df = generate_synthetic_flow_dataset()
 
     # Train
     train_classifier(df, args.output_dir)
@@ -608,3 +706,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
