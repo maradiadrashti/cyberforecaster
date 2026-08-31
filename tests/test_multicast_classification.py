@@ -75,9 +75,9 @@ class TestMulticastClassification(unittest.TestCase):
             "src_port": 12345,
             "dst_port": 80,
             "protocol": "TCP",
-            "packet_count": 60,
+            "packet_count": 450,
             "byte_count": 60000,
-            "first_seen_ts": now - 0.2,  # 300 PPS (> 120 PPS threshold)
+            "first_seen_ts": now - 1.5,  # 300 PPS (> 120 PPS threshold, duration >= 1.0s)
             "severity": "none",
             "attack_type": "Benign",
         }

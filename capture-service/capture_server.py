@@ -429,8 +429,12 @@ def _heuristic_classify(flow_key: str, event: dict):
 
     # For multicast/broadcast destinations, explicitly reset stored flow & event state to benign/none
     if is_multicast:
+        severity = "none"
+        attack_type = "Benign"
+
         flow["severity"] = "none"
         flow["attack_type"] = "Benign"
+
         event["severity"] = "none"
         event["attack_type"] = "Benign"
     else:
@@ -452,6 +456,15 @@ def stop_all_captures_except(keep_iface: str = None):
     for iface in list(active_captures.keys()):
         if keep_iface is None or iface != keep_iface:
             active_captures[iface] = False
+
+def reset_backend_state():
+    """Fully clear all accumulated flow and attack state on the backend."""
+    with flow_lock:
+        flow_cache.clear()
+        _ip_flows.clear()
+        _ip_ports.clear()
+        _ip_bytes.clear()
+        _ip_dst.clear()
 
 
 def _start_iface_capture(iface: str) -> bool:
@@ -753,12 +766,14 @@ async def switch_capture(iface: str):
 @app.post("/api/capture/stop/{iface}")
 async def stop_capture(iface: str):
     active_captures[iface] = False
+    reset_backend_state()
     return {"status": "stopped", "iface": iface}
 
 
 @app.post("/api/capture/stop_all")
 async def stop_all_captures():
     stop_all_captures_except(None)
+    reset_backend_state()
     return {"status": "all_stopped"}
 
 
@@ -798,9 +813,11 @@ async def websocket_live(ws: WebSocket):
                     iface = cmd.get("interface")
                     if iface:
                         active_captures[iface] = False
+                        reset_backend_state()
                         await ws.send_text(json.dumps({"type": "capture_stopped", "interface": iface}))
                 elif action == "stop_all":
                     stop_all_captures_except(None)
+                    reset_backend_state()
                     await ws.send_text(json.dumps({"type": "all_captures_stopped"}))
                 elif action == "get_flows":
                     target_iface = cmd.get("interface")
