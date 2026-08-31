@@ -1,8 +1,7 @@
 # Integration Plan — ML Models into Live Capture Pipeline
 
-> **STATUS: DESIGN ONLY — DO NOT IMPLEMENT**
-> This plan is for review and approval before any code touches the existing
-> capture pipeline files.
+> **STATUS: IMPLEMENTED & LIVE**
+> Flow Classifier and Stage Forecaster ML models are active in `capture-service/capture_server.py`.
 
 ## Overview
 

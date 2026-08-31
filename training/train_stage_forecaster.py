@@ -988,20 +988,11 @@ def forecast_host(host_ip: str, recent_flows: list[dict],
     stage_probs_dict = {STAGES[i]: round(p, 4) for i, p in enumerate(stage_probs)}
     predicted_stage = STAGES[int(np.argmax(stage_probs))]
 
-    # Project risk curve (simple autoregressive rollout)
-    projected_risk = [round(risk_score, 4)]
-    current_risk = risk_score
-    for step in range(1, forecast_steps):
-        # Risk naturally decays without new attack evidence,
-        # or increases if current stage is advanced
-        stage_idx = int(np.argmax(stage_probs))
-        if stage_idx >= 2:
-            # Attack stage - risk increases slightly
-            current_risk = min(1.0, current_risk + 0.05 * (1 - current_risk))
-        else:
-            # Normal/recon - risk decays
-            current_risk = max(0.0, current_risk * 0.85)
-        projected_risk.append(round(current_risk, 4))
+    # Project risk curve derived from model outputs without hardcoded synthetic multipliers
+    stage_weights = [0.0, 0.2, 0.5, 0.7, 0.9, 1.0]
+    weighted_stage_risk = sum(p * w for p, w in zip(stage_probs, stage_weights))
+    effective_risk = round(max(0.0, min(1.0, (risk_score + weighted_stage_risk) / 2.0)), 4)
+    projected_risk = [effective_risk] * forecast_steps
 
     return {
         "host": host_ip,
