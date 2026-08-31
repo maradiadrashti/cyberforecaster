@@ -111,8 +111,13 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
 
   // Poll real-time forecasts from window.__mlStageForecasts updated by WebSocket
   useEffect(() => {
-    // Reset history when switching target IP to prevent stale graph
+    // Reset history when switching target IP or when capture is inactive
     setRiskHistory([]);
+    
+    if (!isCapturing) {
+      setMlForecast(null);
+      return;
+    }
     
     const checkForecast = () => {
       let currentForecast = null;
@@ -128,8 +133,12 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
         setMlForecast(null);
       }
       
-      // Record history point for smooth moving graph synced with real-time
+      // Record history point ONLY when capture is active AND live packets are captured
       setRiskHistory(prev => {
+        if (!livePackets || livePackets.length === 0) {
+          return []; // Stop moving graph when no packets captured
+        }
+        
         const now = new Date();
         const timeStr = now.toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
         let riskVal = 0;
@@ -143,7 +152,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     checkForecast();
     const interval = setInterval(checkForecast, 1000);
     return () => clearInterval(interval);
-  }, [targetIp]);
+  }, [targetIp, isCapturing, livePackets]);
 
   // Fetch defense state
   useEffect(() => {
@@ -199,10 +208,19 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
 
   // Build what-if chart data: "Captured Flow" (baseline risk %) + "Predicted Flow" (ML projected risk %)
   const whatIfChartData = useMemo(() => {
-    const isReady = mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0 &&
+    const isReady = isCapturing && livePackets && livePackets.length > 0 &&
+      mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0 &&
       (mlForecast.windows_collected === undefined || mlForecast.windows_collected >= (mlForecast.min_windows_required || 10));
 
-    const baselineRiskPct = isReady ? Math.round((mlForecast.risk_score || 0) * 100) : 0;
+    if (!isCapturing || !livePackets || livePackets.length === 0 || !isReady || !rolloutData) {
+      return [5, 10, 15, 20, 25, 30].map(s => ({
+        step: `T+${s}s`,
+        "Captured Flow": 0,
+        "Predicted Flow": 0,
+      }));
+    }
+
+    const baselineRiskPct = Math.round((mlForecast.risk_score || 0) * 100);
     
     // Start with historical sliding window
     const combinedData = [...riskHistory];
@@ -210,17 +228,6 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     // Fallback if empty
     if (combinedData.length === 0) {
       combinedData.push({ step: "Now", "Captured Flow": baselineRiskPct, "Predicted Flow": baselineRiskPct });
-    }
-
-    if (!isReady || !rolloutData) {
-      [5, 10, 15, 20, 25, 30].forEach(s => {
-        combinedData.push({
-          step: `+${s}s`,
-          "Captured Flow": 0,
-          "Predicted Flow": 0,
-        });
-      });
-      return combinedData;
     }
 
     rolloutData.do_nothing.forEach((d, i) => {
@@ -232,7 +239,7 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     });
 
     return combinedData;
-  }, [rolloutData, mlForecast, riskHistory]);
+  }, [isCapturing, livePackets, rolloutData, mlForecast, riskHistory]);
 
   // Compute defense state for current interface
   const currentDefense = useMemo(() => {
