@@ -1,4 +1,4 @@
-# Node.js dependencies
+3333# Node.js dependencies
 **/node_modules/
 /client/dist/
 /client/dist-ssr/
@@ -26,6 +26,7 @@ ENV/
 
 # Debug Symbol Files & Binary Executables
 *.pdb
+*.mdmp
 /mongodb-server/*.pdb
 /mongodb-server/mongos.exe
 /mongodb-server/vc_redist.x64.exe

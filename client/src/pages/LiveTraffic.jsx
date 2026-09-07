@@ -382,6 +382,10 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
             const data = JSON.parse(event.data);
             if (data.type === "connected" || data.type === "capture_started" || data.type === "interface_switched") return;
 
+            if (data.type === "capture_stopped" || data.type === "all_captures_stopped") {
+              return;
+            }
+
             // Stage forecaster forecasts from ML background task
             if (data.type === "stage_forecasts" && data.data) {
               try { window.__mlStageForecasts = data.data; } catch (_) {}

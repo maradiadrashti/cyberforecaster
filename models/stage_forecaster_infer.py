@@ -168,18 +168,44 @@ def forecast_host(host_ip: str, recent_flows: list[dict], forecast_steps: int = 
     weighted_stage_risk = sum(p * w for p, w in zip(stage_probs, stage_weights))
     effective_risk = round(max(0.0, min(1.0, (risk_score + weighted_stage_risk) / 2.0)), 4)
 
-    # Derive linear trend slope from real historical risk trajectory
+    # Derive trend from historical risk trajectory (if available)
+    slope = 0.0
     if risk_history and len(risk_history) >= 3:
         y = np.array(list(risk_history) + [effective_risk], dtype=np.float32)
         x_idx = np.arange(len(y), dtype=np.float32)
-        slope = float(np.polyfit(x_idx, y, 1)[0])
-    else:
-        slope = 0.0
+        try:
+            slope = float(np.polyfit(x_idx, y, 1)[0])
+        except Exception:
+            slope = 0.0
 
+    # Project risk curve using stage-probability-driven model
+    # If threat is low and no upward trend, project flat/low
+    # If threat is moderate/high, project based on stage progression tendency
     projected_risk = [effective_risk]
     current = effective_risk
-    for _ in range(1, forecast_steps):
-        current = min(1.0, max(0.0, current + slope))
+
+    # Stage transition tendency: if attacker is in an early stage,
+    # risk tends to increase over time without intervention
+    stage_advancement_rate = 0.0
+    if predicted_stage == "reconnaissance":
+        stage_advancement_rate = 0.03  # Recon tends to progress to access
+    elif predicted_stage == "initial_access":
+        stage_advancement_rate = 0.04  # Access tends to progress to lateral
+    elif predicted_stage == "lateral_movement":
+        stage_advancement_rate = 0.05  # Lateral tends to progress to exfil
+    elif predicted_stage == "command_control":
+        stage_advancement_rate = 0.03
+    elif predicted_stage == "exfiltration":
+        stage_advancement_rate = 0.01  # Already at peak
+    # For normal, no advancement
+
+    for step in range(1, forecast_steps):
+        # Combine historical slope with stage-based tendency
+        projected_slope = slope + stage_advancement_rate
+        # Add diminishing effect: changes slow down over time
+        decay = 1.0 / (1.0 + step * 0.1)
+        current = current + projected_slope * decay
+        current = min(1.0, max(0.0, current))
         projected_risk.append(round(current, 4))
 
     return {

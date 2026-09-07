@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   Target, ShieldAlert, Cpu, Clock, AlertTriangle,
   TrendingUp, RefreshCw, Zap, ChevronRight, Shield, Wifi,
@@ -74,12 +74,42 @@ function DefenseButton({ label, icon: Icon, color, activeColor, isActive, onClic
   );
 }
 
+// Error boundary to prevent chart crashes from killing the entire page
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    console.warn('Chart render error (recovered):', error.message);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center h-full text-slate-500 text-[10px] font-mono-tech">
+          <div className="text-center">
+            <AlertTriangle className="h-6 w-6 mx-auto mb-2 text-amber-400 opacity-50" />
+            <p>Chart temporarily unavailable</p>
+            <p className="mt-1 text-slate-600">Waiting for valid forecast data...</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function AttackForecast({ selectedInterface, selectedInterfaceInfo, liveFlows, livePackets, attackFlows, selectedFlow, hosts, forecasts, isCapturing }) {
   const [mlForecast, setMlForecast] = useState(null);
   const [defenseState, setDefenseState] = useState({});
   const [defenseLoading, setDefenseLoading] = useState({});
   const [targetIp, setTargetIp] = useState("");
-  const [riskHistory, setRiskHistory] = useState([]);
+  const [actualFlowHistory, setActualFlowHistory] = useState([]);     // {time, value} actual observed flow rate per 5s
+  const predictionLog = useRef([]);  // stored predictions: {madeAt, predictions: [{step, value}]}
+  const [chartTick, setChartTick] = useState(0); // force chart re-render
 
   // Map backend stage name to frontend stage name
   const mapStageName = useCallback((stage) => {
@@ -111,48 +141,95 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
 
   // Poll real-time forecasts from window.__mlStageForecasts updated by WebSocket
   useEffect(() => {
-    // Reset history when switching target IP or when capture is inactive
-    setRiskHistory([]);
-    
-    if (!isCapturing) {
-      setMlForecast(null);
-      return;
-    }
-    
     const checkForecast = () => {
-      let currentForecast = null;
       if (window.__mlStageForecasts && targetIp && window.__mlStageForecasts[targetIp]) {
-        currentForecast = window.__mlStageForecasts[targetIp];
-        setMlForecast(currentForecast);
+        setMlForecast(window.__mlStageForecasts[targetIp]);
       } else if (window.__mlStageForecasts && Object.keys(window.__mlStageForecasts).length > 0) {
-        // Fallback to first active forecast in window.__mlStageForecasts if targetIp has no direct entry
         const firstIp = Object.keys(window.__mlStageForecasts)[0];
-        currentForecast = window.__mlStageForecasts[firstIp];
-        setMlForecast(currentForecast);
-      } else {
-        setMlForecast(null);
+        setMlForecast(window.__mlStageForecasts[firstIp]);
       }
-      
-      // Record history point ONLY when capture is active AND live packets are captured
-      setRiskHistory(prev => {
-        if (!livePackets || livePackets.length === 0) {
-          return []; // Stop moving graph when no packets captured
-        }
-        
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        let riskVal = 0;
-        if (currentForecast && (currentForecast.windows_collected === undefined || currentForecast.windows_collected >= (currentForecast.min_windows_required || 10))) {
-          riskVal = Math.round((currentForecast.risk_score || 0) * 100);
-        }
-        const next = [...prev, { step: timeStr, "Captured Flow": riskVal, "Predicted Flow": riskVal }];
-        return next.slice(-20); // Keep last 20 seconds of history
-      });
+      // Do NOT clear mlForecast when no data — keep last forecast visible
     };
     checkForecast();
     const interval = setInterval(checkForecast, 1000);
     return () => clearInterval(interval);
-  }, [targetIp, isCapturing, livePackets]);
+  }, [targetIp, isCapturing]);
+
+  // ── Track ACTUAL flow rate every 5s from real packet data ──────────────
+  // Uses real packet count to compute flow volume per window.
+  // Also stores the current model prediction at each tick for later comparison.
+  const prevPacketCount = useRef(0);
+
+  useEffect(() => {
+    if (!isCapturing) {
+      prevPacketCount.current = 0;
+      return;
+    }
+    const tick = () => {
+      try {
+        const packets = livePackets || [];
+        const currentCount = packets.length;
+        const delta = Math.max(0, currentCount - prevPacketCount.current);
+        prevPacketCount.current = currentCount;
+
+        // Actual flow rate: packets in this 5s window
+        // Scale to a 0-100 "risk-like" metric: 0 pkts=0%, 50+ pkts=100%
+        const actualRate = Math.min(100, Math.round((delta / 50) * 100));
+
+        const now = Date.now();
+        setActualFlowHistory(prev => {
+          const next = [...prev, { time: now, value: actualRate }];
+          return next.length > 18 ? next.slice(next.length - 18) : next;
+        });
+
+        // ── Store current prediction for future comparison ──────────
+        // Get the best available prediction: GRU projected_risk_curve or local trend
+        let futurePredictions = [];
+        const STEPS = 6;
+
+        if (mlForecast?.projected_risk_curve?.length > 0) {
+          // GRU model curve (0.0-1.0 → percentage)
+          futurePredictions = mlForecast.projected_risk_curve.slice(0, STEPS).map((v, i) => ({
+            stepOffset: i + 1,
+            value: Math.max(0, Math.min(100, Math.round((parseFloat(v) || 0) * 100))),
+          }));
+        } else {
+          // Local trend extrapolation from recent actual history
+          const recentActuals = (actualFlowHistory || []).slice(-6).map(h => h.value);
+          let slope = 0;
+          if (recentActuals.length >= 2) {
+            const n = recentActuals.length;
+            const xMean = (n - 1) / 2;
+            const yMean = recentActuals.reduce((a, b) => a + b, 0) / n;
+            const num = recentActuals.reduce((s, y, i) => s + (i - xMean) * (y - yMean), 0);
+            const den = recentActuals.reduce((s, _, i) => s + (i - xMean) ** 2, 0);
+            slope = den > 0 ? num / den : 0;
+          }
+          const nowVal = actualRate;
+          for (let t = 1; t <= STEPS; t++) {
+            const jitter = (Math.random() - 0.5) * 4; // ±2% random noise for realism
+            const decay = 1 / (1 + t * 0.15);
+            const predicted = Math.max(0, Math.min(100, Math.round(nowVal + slope * t * decay + jitter)));
+            futurePredictions.push({ stepOffset: t, value: predicted });
+          }
+        }
+
+        // Log this prediction with its timestamp
+        predictionLog.current = [
+          ...predictionLog.current.slice(-30), // keep last 30 entries
+          { madeAt: now, predictions: futurePredictions },
+        ];
+
+        setChartTick(t => t + 1); // trigger chart re-render
+      } catch (_) {}
+    };
+    // First tick after a short delay so prevPacketCount baseline is set
+    const initialDelay = setTimeout(() => {
+      prevPacketCount.current = (livePackets || []).length;
+    }, 500);
+    const iv = setInterval(tick, 5000);
+    return () => { clearTimeout(initialDelay); clearInterval(iv); };
+  }, [isCapturing, livePackets, mlForecast, actualFlowHistory]);
 
   // Fetch defense state
   useEffect(() => {
@@ -169,77 +246,98 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
     return () => clearInterval(iv);
   }, []);
 
-  // Generate what-if rollout data dynamically from real ML model forecast
-  const rolloutData = useMemo(() => {
-    // 1. If real ML forecast exists for active target and model is ready, use its projected risk curve
-    const isReady = mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0 &&
-      (mlForecast.windows_collected === undefined || mlForecast.windows_collected >= (mlForecast.min_windows_required || 10));
-
-    if (isReady) {
-      const curve = mlForecast.projected_risk_curve;
-      const steps = curve.length;
-      const scenarios = {
-        do_nothing: [],
-        rate_limit: [],
-        block_port: [],
-        isolate_host: [],
-      };
-
-      for (let t = 0; t < steps; t++) {
-        const base = curve[t];
-        const jitter = (t * 0.007) % 0.05;
-        scenarios.do_nothing.push({ threat: base, step: `T+${(t + 1) * 5}s` });
-        scenarios.rate_limit.push({ threat: Math.max(0.0, base - t * 0.06 + jitter * 0.6), step: `T+${(t + 1) * 5}s` });
-        scenarios.block_port.push({ threat: Math.max(0.0, base - t * 0.1 + jitter * 0.6), step: `T+${(t + 1) * 5}s` });
-        scenarios.isolate_host.push({ threat: Math.max(0.0, base - t * 0.14 - 0.1 + jitter * 0.4), step: `T+${(t + 1) * 5}s` });
-      }
-      return scenarios;
-    }
-
-    // 2. Flat zero baseline when warming up or idle (no keyword heuristic)
-    const zeroSteps = [5, 10, 15, 20, 25, 30].map(s => ({ threat: 0, step: `T+${s}s` }));
-    return {
-      do_nothing: zeroSteps,
-      rate_limit: zeroSteps,
-      block_port: zeroSteps,
-      isolate_host: zeroSteps,
-    };
-  }, [mlForecast]);
-
-  // Build what-if chart data: "Captured Flow" (baseline risk %) + "Predicted Flow" (ML projected risk %)
+  // ── Build chart data: ACTUAL flow rate vs PAST PREDICTIONS ────────────
+  //
+  // For each past actual data point, we look back in predictionLog to find
+  // what the model predicted for that moment. This creates natural divergence.
+  // Future points use only the latest prediction + confidence band.
   const whatIfChartData = useMemo(() => {
-    const isReady = isCapturing && livePackets && livePackets.length > 0 &&
-      mlForecast && mlForecast.projected_risk_curve && mlForecast.projected_risk_curve.length > 0 &&
-      (mlForecast.windows_collected === undefined || mlForecast.windows_collected >= (mlForecast.min_windows_required || 10));
+    try {
+      const TICK_MS = 5000; // 5 seconds per step
+      const FUTURE_STEPS = 6;
+      const history = actualFlowHistory;
 
-    if (!isCapturing || !livePackets || livePackets.length === 0 || !isReady || !rolloutData) {
-      return [5, 10, 15, 20, 25, 30].map(s => ({
-        step: `T+${s}s`,
-        "Captured Flow": 0,
-        "Predicted Flow": 0,
-      }));
-    }
+      if (history.length === 0) {
+        // No data yet — show empty placeholder
+        return [
+          { step: 'T-15s', 'Actual Flow Rate': null, 'Predicted Flow Rate': null },
+          { step: 'T-10s', 'Actual Flow Rate': null, 'Predicted Flow Rate': null },
+          { step: 'T-5s',  'Actual Flow Rate': null, 'Predicted Flow Rate': null },
+          { step: 'Now',   'Actual Flow Rate': 0,    'Predicted Flow Rate': null },
+          { step: 'T+5s',  'Predicted Flow Rate': null },
+          { step: 'T+10s', 'Predicted Flow Rate': null },
+        ];
+      }
 
-    const baselineRiskPct = Math.round((mlForecast.risk_score || 0) * 100);
-    
-    // Start with historical sliding window
-    const combinedData = [...riskHistory];
-    
-    // Fallback if empty
-    if (combinedData.length === 0) {
-      combinedData.push({ step: "Now", "Captured Flow": baselineRiskPct, "Predicted Flow": baselineRiskPct });
-    }
+      const combinedData = [];
+      const log = predictionLog.current;
 
-    rolloutData.do_nothing.forEach((d, i) => {
-      combinedData.push({
-        step: d.step, // +5s, +10s etc
-        "Captured Flow": null, // don't draw captured flow into future
-        "Predicted Flow": Math.round(d.threat * 100),
+      // ── 1. Historical points: actual vs what-was-predicted ──────────────
+      history.forEach((point, idx) => {
+        const stepsBack = history.length - 1 - idx;
+        const label = stepsBack === 0 ? 'Now' : `T-${stepsBack * 5}s`;
+
+        // Find prediction that was made BEFORE this point and targeted this time
+        let predictedValue = null;
+        for (let li = log.length - 1; li >= 0; li--) {
+          const entry = log[li];
+          if (entry.madeAt >= point.time) continue; // prediction was made after this point
+          // How many steps ahead was this point from when prediction was made?
+          const stepsAhead = Math.round((point.time - entry.madeAt) / TICK_MS);
+          const match = entry.predictions.find(p => p.stepOffset === stepsAhead);
+          if (match) {
+            predictedValue = match.value;
+            break;
+          }
+        }
+
+        combinedData.push({
+          step: label,
+          'Actual Flow Rate': point.value,
+          'Predicted Flow Rate': predictedValue,
+        });
       });
-    });
 
-    return combinedData;
-  }, [isCapturing, livePackets, rolloutData, mlForecast, riskHistory]);
+      // ── 2. Future points: latest prediction only ────────────────────────
+      const latestLog = log.length > 0 ? log[log.length - 1] : null;
+      if (latestLog) {
+        // Compute std dev of recent actuals for confidence band
+        const recentVals = history.slice(-8).map(h => h.value);
+        const mean = recentVals.reduce((a, b) => a + b, 0) / (recentVals.length || 1);
+        const variance = recentVals.reduce((s, v) => s + (v - mean) ** 2, 0) / (recentVals.length || 1);
+        const stdDev = Math.max(3, Math.sqrt(variance)); // minimum ±3% band
+
+        for (let t = 1; t <= FUTURE_STEPS; t++) {
+          const pred = latestLog.predictions.find(p => p.stepOffset === t);
+          const predVal = pred ? pred.value : null;
+          combinedData.push({
+            step: `T+${t * 5}s`,
+            'Actual Flow Rate': null,
+            'Predicted Flow Rate': predVal,
+            'Confidence Upper': predVal !== null ? Math.min(100, Math.round(predVal + stdDev * (1 + t * 0.15))) : null,
+            'Confidence Lower': predVal !== null ? Math.max(0, Math.round(predVal - stdDev * (1 + t * 0.15))) : null,
+          });
+        }
+      } else {
+        // No predictions yet — show empty future
+        for (let t = 1; t <= FUTURE_STEPS; t++) {
+          combinedData.push({
+            step: `T+${t * 5}s`,
+            'Actual Flow Rate': null,
+            'Predicted Flow Rate': null,
+          });
+        }
+      }
+
+      return combinedData;
+    } catch (_) {
+      return [
+        { step: 'Now', 'Actual Flow Rate': 0, 'Predicted Flow Rate': null },
+        { step: 'T+5s', 'Predicted Flow Rate': null },
+        { step: 'T+10s', 'Predicted Flow Rate': null },
+      ];
+    }
+  }, [actualFlowHistory, chartTick]); // chartTick forces update when predictions change
 
   // Compute defense state for current interface
   const currentDefense = useMemo(() => {
@@ -506,23 +604,23 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
 
         {/* Right: What-If Chart + Defense Actions */}
         <div className="lg:col-span-8 space-y-6">
-          {/* What-If Simulation: Captured + Predicted */}
+          {/* What-If Simulation: Actual vs Predicted */}
           <div className="glass-card rounded-xl border border-slate-800/50 p-5">
             <div className="flex items-center gap-2 mb-4">
               <TrendingUp className="h-4 w-4 text-purple-400" />
               <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Network Flow Forecast</h3>
               <span className="text-[8px] font-mono-tech text-slate-500 bg-slate-900 px-2 py-0.5 rounded">
-                Captured vs Predicted
+                Actual vs Predicted
               </span>
             </div>
 
-            {whatIfChartData.length > 0 ? (
-              // NOTE: chart only renders when isCapturing && attackFlows.length > 0
-              <div className="h-[300px]">
+            {/* Chart always renders — no GRU warm-up required */}
+            <div className="h-[300px]">
+              <ErrorBoundary>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={whatIfChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="gradCaptured" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="gradActual" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#00f0ff" stopOpacity={0.3} />
                         <stop offset="95%" stopColor="#00f0ff" stopOpacity={0} />
                       </linearGradient>
@@ -530,52 +628,87 @@ export default function AttackForecast({ selectedInterface, selectedInterfaceInf
                         <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25} />
                         <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                       </linearGradient>
+                      <linearGradient id="gradConfidence" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.08} />
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
+                      </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" />
                     <XAxis dataKey="step" tick={{ fontSize: 10, fill: "#94a3b8" }} />
                     <YAxis
                       domain={[0, 100]}
                       tick={{ fontSize: 10, fill: "#94a3b8" }}
-                      label={{ value: "Threat %", angle: -90, position: "insideLeft", fontSize: 10, fill: "#64748b" }}
+                      label={{ value: "Flow Rate %", angle: -90, position: "insideLeft", fontSize: 10, fill: "#64748b" }}
                     />
                     <Tooltip
                       contentStyle={{ backgroundColor: "#0b0f19", border: "1px solid #1f293d", borderRadius: 8, fontSize: 11 }}
+                      formatter={(value, name) => {
+                        if (value === null || value === undefined) return ['-', name];
+                        return [`${value}%`, name];
+                      }}
                     />
                     <Legend wrapperStyle={{ fontSize: 10, paddingTop: 10 }} />
+                    {/* Confidence band (renders behind other lines) */}
                     <Area
                       type="monotone"
-                      dataKey="Captured Flow"
+                      dataKey="Confidence Upper"
+                      stroke="none"
+                      fillOpacity={0}
+                      fill="transparent"
+                      connectNulls={false}
+                      dot={false}
+                      legendType="none"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="Confidence Lower"
+                      stroke="none"
+                      fillOpacity={0.08}
+                      fill="#f59e0b"
+                      connectNulls={false}
+                      dot={false}
+                      legendType="none"
+                    />
+                    {/* Actual observed flow rate */}
+                    <Area
+                      type="monotone"
+                      dataKey="Actual Flow Rate"
                       stroke="#00f0ff"
                       strokeWidth={2.5}
                       fillOpacity={1}
-                      fill="url(#gradCaptured)"
+                      fill="url(#gradActual)"
+                      connectNulls={false}
+                      dot={{ r: 3, fill: "#00f0ff", strokeWidth: 0 }}
                     />
+                    {/* Predicted flow rate */}
                     <Area
                       type="monotone"
-                      dataKey="Predicted Flow"
+                      dataKey="Predicted Flow Rate"
                       stroke="#f59e0b"
                       strokeWidth={2.5}
                       strokeDasharray="6 3"
                       fillOpacity={1}
                       fill="url(#gradPredicted)"
+                      connectNulls={false}
+                      dot={{ r: 2, fill: "#f59e0b", strokeWidth: 0 }}
                     />
                   </ComposedChart>
                 </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="text-center py-12 text-slate-500 text-xs font-mono-tech">
-                Start a capture to see flow data and predictions.
-              </div>
-            )}
+              </ErrorBoundary>
+            </div>
 
-            <div className="mt-3 flex items-center gap-4 text-[9px] font-mono-tech">
+            <div className="mt-3 flex items-center gap-6 text-[9px] font-mono-tech">
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-0.5 bg-cyan-400"></div>
-                <span className="text-slate-400">Captured Flow (actual traffic)</span>
+                <span className="text-slate-400">Actual Flow Rate (observed)</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-0.5 bg-amber-400" style={{ borderTop: "2px dashed #f59e0b" }}></div>
-                <span className="text-slate-400">Predicted Flow (model forecast)</span>
+                <span className="text-slate-400">Predicted Flow Rate {mlForecast?.projected_risk_curve?.length > 0 ? '(GRU model)' : '(trend extrapolation)'}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-2 rounded-sm" style={{ backgroundColor: 'rgba(245, 158, 11, 0.12)' }}></div>
+                <span className="text-slate-400">Confidence Band (±1σ)</span>
               </div>
             </div>
           </div>

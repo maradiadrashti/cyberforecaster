@@ -15,9 +15,13 @@ from datetime import datetime
 
 def _is_multicast_or_broadcast(ip_str: str) -> bool:
     """Check if an IP address is multicast or subnet broadcast."""
+    if not ip_str:
+        return False
     try:
+        if ip_str == "255.255.255.255" or ip_str.endswith(".255"):
+            return True
         ip = ipaddress.ip_address(ip_str)
-        return ip.is_multicast or ip_str.endswith(".255")
+        return ip.is_multicast or ip.is_reserved or ip.is_loopback
     except ValueError:
         return False
 
@@ -30,6 +34,88 @@ from typing import Optional
 from scapy.all import sniff, get_if_list, get_if_addr, conf
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether
+import csv
+import hashlib
+
+# Live data collection for retraining
+_LIVE_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'logs')
+_LIVE_FLOWS_CSV = os.path.join(_LIVE_DATA_DIR, 'live_flows_for_training.csv')
+_live_flow_writer = None
+_live_flow_file = None
+_LIVE_FLOW_LOCK = threading.Lock()
+_LIVE_FLOW_COUNT = 0
+_MAX_LIVE_FLOWS = 100000  # Rotate after 100k flows
+
+def _init_live_flow_writer():
+    """Initialize CSV writer for live flow data collection."""
+    global _live_flow_writer, _live_flow_file
+    try:
+        os.makedirs(_LIVE_DATA_DIR, exist_ok=True)
+        write_header = not os.path.exists(_LIVE_FLOWS_CSV)
+        _live_flow_file = open(_LIVE_FLOWS_CSV, 'a', newline='')
+        _live_flow_writer = csv.writer(_live_flow_file)
+        if write_header:
+            _live_flow_writer.writerow([
+                'src_ip', 'src_port', 'dst_ip', 'dst_port', 'protocol',
+                'packet_count', 'byte_count', 'duration', 'syn_flag',
+                'ack_flag', 'rst_flag', 'fin_flag', 'label'
+            ])
+            _live_flow_file.flush()
+        print(f'[Live] Flow data collection initialized: {_LIVE_FLOWS_CSV}')
+    except Exception as e:
+        print(f'[Live] Could not init flow writer: {e}')
+        _live_flow_writer = None
+
+def _log_live_flow(flow_data: dict):
+    """Log a completed flow to CSV for future model retraining."""
+    global _live_flow_file, _live_flow_writer, _LIVE_FLOW_COUNT
+    if not _live_flow_writer:
+        return
+    try:
+        with _LIVE_FLOW_LOCK:
+            _LIVE_FLOW_COUNT += 1
+            if _LIVE_FLOW_COUNT > _MAX_LIVE_FLOWS:
+                # Rotate file
+                if _live_flow_file:
+                    _live_flow_file.close()
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                rotated = os.path.join(_LIVE_DATA_DIR, f'live_flows_{ts}.csv')
+                os.rename(_LIVE_FLOWS_CSV, rotated)
+                _init_live_flow_writer()
+
+            # Determine label from current severity
+            sev = flow_data.get('severity', 'none')
+            atk = flow_data.get('attack_type', 'Benign')
+            label = 'benign'
+            if sev != 'none':
+                label_map = {
+                    'Port Scan': 'port_scan', 'DDoS': 'dos_ddos',
+                    'SYN Flood': 'dos_ddos', 'Brute Force': 'brute_force',
+                    'ICMP Flood': 'dos_ddos', 'Data Exfiltration': 'exfiltration',
+                    'Large Transfer': 'benign',  # Not necessarily malicious
+                    'Reset Storm': 'benign',
+                }
+                label = label_map.get(atk, 'benign')
+
+            _live_flow_writer.writerow([
+                flow_data.get('src_ip', ''),
+                flow_data.get('src_port', 0),
+                flow_data.get('dst_ip', ''),
+                flow_data.get('dst_port', 0),
+                flow_data.get('protocol', 'TCP'),
+                flow_data.get('packet_count', 1),
+                flow_data.get('byte_count', 0),
+                round(flow_data.get('duration', 0.001), 6),
+                flow_data.get('syn_flag', 0),
+                flow_data.get('ack_flag', 0),
+                flow_data.get('rst_flag', 0),
+                flow_data.get('fin_flag', 0),
+                label,
+            ])
+            if _LIVE_FLOW_COUNT % 500 == 0:
+                _live_flow_file.flush()
+    except Exception:
+        pass
 
 # ML inference (lazy-loaded on first use)
 _ml_predict_flow = None
@@ -78,8 +164,17 @@ async def _on_startup():
     global _main_loop
     _main_loop = asyncio.get_event_loop()
     _build_scapy_map()
+    _init_live_flow_writer()
     print(f"[Startup] Scapy device map built: {len(iface_to_scapy)} Npcap devices found.")
     asyncio.create_task(_stage_forecast_loop())
+
+
+@app.on_event("shutdown")
+async def _on_shutdown():
+    """Stop all capture threads and kill WSL processes on server shutdown."""
+    print("[Shutdown] Stopping all packet capture processes...")
+    stop_all_captures_except(None)
+    reset_backend_state()
 
 app.add_middleware(
     CORSMiddleware,
@@ -94,6 +189,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 active_captures: dict[str, bool] = {}           # iface -> is_capturing
 capture_threads: dict[str, threading.Thread] = {}
+wsl_processes: dict[str, subprocess.Popen] = {}
 connected_clients: list[WebSocket] = []
 flow_cache: dict[str, dict] = {}                 # 5-tuple -> aggregated flow
 flow_lock = threading.Lock()
@@ -196,9 +292,55 @@ def _resolve_scapy_iface(friendly_name: str) -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _get_wsl_interfaces() -> list[dict]:
+    """Detect active WSL interface and IP address."""
+    if sys.platform != "win32":
+        return []
+    try:
+        res_route = subprocess.run(
+            ["wsl.exe", "ip", "-4", "route", "show", "default"],
+            capture_output=True, text=True, timeout=5
+        )
+        if res_route.returncode == 0 and res_route.stdout:
+            parts = res_route.stdout.strip().split()
+            if "dev" in parts:
+                idx = parts.index("dev")
+                wsl_iface = parts[idx + 1]
+                res_ip = subprocess.run(
+                    ["wsl.exe", "ip", "-4", "addr", "show", wsl_iface],
+                    capture_output=True, text=True, timeout=5
+                )
+                wsl_ip = "172.31.195.203"
+                for line in res_ip.stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith("inet "):
+                        wsl_ip = line.split()[1].split("/")[0]
+                        break
+                name = f"WSL ({wsl_iface})"
+                return [{
+                    "name": name,
+                    "display_name": name,
+                    "ip": wsl_ip,
+                    "mac": "N/A",
+                    "type": "Virtual",
+                    "is_up": True,
+                    "bytes_sent": 0,
+                    "bytes_recv": 0,
+                    "is_wsl": True,
+                    "wsl_iface": wsl_iface,
+                }]
+    except Exception as e:
+        print(f"[WSL Discovery] Error: {e}")
+    return []
+
+
 def get_real_interfaces() -> list[dict]:
-    """Detect real network interfaces using psutil + scapy."""
+    """Detect real network interfaces using psutil + scapy + WSL auto-discovery."""
     interfaces = []
+    wsl_ifaces = _get_wsl_interfaces()
+    for w_if in wsl_ifaces:
+        interfaces.append(w_if)
+
     addrs = psutil.net_if_addrs()
     stats = psutil.net_if_stats()
     io_counters = psutil.net_io_counters(pernic=True)
@@ -250,7 +392,7 @@ def get_real_interfaces() -> list[dict]:
 
     # Sort: connected first, then by type priority
     priority = {"WiFi": 0, "Ethernet": 1, "VPN": 2, "Bluetooth": 3, "Virtual": 4, "Unknown": 5}
-    interfaces.sort(key=lambda x: (not x["is_up"], priority.get(x["type"], 99)))
+    interfaces.sort(key=lambda x: (not x.get("is_up", False), priority.get(x.get("type", "Unknown"), 99)))
     return interfaces
 
 
@@ -364,69 +506,90 @@ def _heuristic_classify(flow_key: str, event: dict):
     _ip_flows[src_ip] = [t for t in _ip_flows[src_ip] if t > cutoff]
 
     # ── Detection rules ─────────────────────────────────────────────────
+    # Thresholds are deliberately conservative to avoid false positives
+    # on normal traffic. Multiple signals must agree for escalation.
     first_seen_ts = flow.get("first_seen_ts", now)
     flow_duration = max(now - first_seen_ts, 0.001)
-    pps = flow["packet_count"] / flow_duration
+    pps = flow["packet_count"] / max(flow_duration, 1.0)
     bpp = flow["byte_count"] / max(flow["packet_count"], 1)
     recent_flows = len(_ip_flows[src_ip])
     unique_ports = len(_ip_ports[src_ip])
     dst_flow_count = _ip_dst[src_ip].get(dst_ip, 0)
-    is_multicast = _is_multicast_or_broadcast(dst_ip)
+    is_multicast = _is_multicast_or_broadcast(dst_ip) or _is_multicast_or_broadcast(src_ip)
 
     severity = "none"
     attack_type = "Benign"
 
     # --- Port Scan Detection ---
-    # Many unique destination ports from same source in short window
-    if unique_ports >= 10 and recent_flows >= 10:
-        severity = "high"
-        attack_type = "Port Scan"
-    elif unique_ports >= 5 and recent_flows >= 5:
-        severity = "medium"
-        attack_type = "Port Scan"
+    # Require multiple unique non-standard ports AND packet rate over window
+    if not is_multicast and flow_duration >= 1.0:
+        standard_ports = {80, 443, 53, 123, 8080, 8443, 3000, 5000, 5050, 5173, 8000, 8545, 27017}
+        non_std_ports = {p for p in _ip_ports[src_ip] if p not in standard_ports}
+        if len(non_std_ports) >= 20 and recent_flows >= 15 and pps > 15:
+            severity = "high"
+            attack_type = "Port Scan"
+        elif len(non_std_ports) >= 10 and recent_flows >= 10 and pps > 5:
+            severity = "medium"
+            attack_type = "Port Scan"
 
     # --- DDoS / Flood Detection ---
-    # High packet rate to same destination (skip for multicast/broadcast)
+    # High packet rate to same destination, calibrated for live Scapy capture rate
     if not is_multicast:
-        # Require flow to be active for at least 1.0 second to avoid flagging rapid short bursts
-        if flow_duration >= 1.0:
-            if pps > 120 and flow["packet_count"] >= 120:
+        if flow_duration >= 0.5:
+            if pps > 150 and flow["packet_count"] >= 200:
                 severity = "critical"
                 attack_type = "DDoS"
-            elif pps > 50 and flow["packet_count"] >= 50:
+            elif pps > 40 and flow["packet_count"] >= 50:
                 severity = "high"
                 attack_type = "DDoS"
 
-    # --- SYN Flood Detection --- (skip for multicast/broadcast)
-    if not is_multicast and flow.get("syn_flag", 0) > 20 and flow.get("ack_flag", 0) < 3:
-        severity = "critical"
-        attack_type = "SYN Flood"
+    # --- SYN Flood Detection ---
+    # SYN count significantly higher than ACK responses
+    if not is_multicast:
+        syn_flag = flow.get("syn_flag", 0)
+        ack_flag = flow.get("ack_flag", 0)
+        if syn_flag > 30 and ack_flag < 3 and flow_duration >= 0.5:
+            severity = "critical"
+            attack_type = "SYN Flood"
+        elif syn_flag > 15 and ack_flag < 2 and flow_duration >= 0.5 and pps > 10:
+            severity = "high"
+            attack_type = "SYN Flood"
 
     # --- Brute Force Detection ---
-    # Many flows to the same auth port from same source
-    auth_ports = {21, 22, 23, 25, 110, 143, 3389, 5900}
-    if dport in auth_ports and dst_flow_count >= 10:
-        severity = "high"
-        attack_type = "Brute Force"
-    elif dport in auth_ports and dst_flow_count >= 5:
-        severity = "medium"
-        attack_type = "Brute Force"
+    # Repeated attempts or packet bursts to auth/app ports (SSH, RDP, Web, DB)
+    auth_ports = {21, 22, 23, 25, 110, 143, 3389, 5900, 1433, 3306, 5432, 80, 443, 8080, 8443, 3000, 5000, 5173, 8000, 5050}
+    if not is_multicast and dport in auth_ports and flow_duration < 15.0:
+        if dst_flow_count >= 8 or (flow["packet_count"] >= 15 and syn_flag >= 5):
+            severity = "high"
+            attack_type = "Brute Force"
+        elif dst_flow_count >= 4 or (flow["packet_count"] >= 8 and syn_flag >= 3):
+            severity = "medium"
+            attack_type = "Brute Force"
 
-    # --- ICMP Flood Detection --- (skip for multicast/broadcast)
-    if not is_multicast and proto == "ICMP" and flow["packet_count"] > 50:
-        severity = "high"
-        attack_type = "ICMP Flood"
+    # --- ICMP Flood Detection ---
+    if not is_multicast and proto == "ICMP":
+        if flow["packet_count"] > 50 and pps > 20 and flow_duration >= 0.5:
+            severity = "high"
+            attack_type = "ICMP Flood"
+        elif flow["packet_count"] > 20 and pps > 10 and flow_duration >= 0.5:
+            severity = "medium"
+            attack_type = "ICMP Flood"
 
-    # --- Large Data Transfer (potential exfiltration) ---
-    if flow["byte_count"] > 5_000_000 and proto == "TCP" and bpp > 1000:
-        severity = "high"
-        attack_type = "Data Exfiltration"
-    elif flow["byte_count"] > 1_000_000 and bpp > 1000:
+    # --- Data Exfiltration Detection ---
+    # Large volume transfers with high bytes-per-packet
+    if not is_multicast and proto == "TCP" and bpp > 800:
+        if flow["byte_count"] > 2_000_000 and flow_duration > 1.0:
+            severity = "high"
+            attack_type = "Data Exfiltration"
+        elif flow["byte_count"] > 500_000 and flow_duration > 0.5:
+            severity = "medium"
+            attack_type = "Data Exfiltration"
+    elif not is_multicast and flow["byte_count"] > 10_000_000 and proto == "TCP" and bpp > 1200 and flow_duration > 10.0:
         severity = "medium"
         attack_type = "Large Transfer"
 
-    # --- Connection Reset Storm (may indicate scan response) ---
-    if flow.get("rst_flag", 0) > 15:
+    # --- Connection Reset Storm ---
+    if not is_multicast and flow.get("rst_flag", 0) > 50 and pps > 20 and flow_duration >= 2.0:
         severity = "medium"
         attack_type = "Reset Storm"
 
@@ -455,10 +618,20 @@ def _heuristic_classify(flow_key: str, event: dict):
 # ---------------------------------------------------------------------------
 
 def stop_all_captures_except(keep_iface: str = None):
-    """Stop active capture threads on all interfaces except the specified one."""
+    """Stop active capture threads and WSL processes on all interfaces except the specified one."""
     for iface in list(active_captures.keys()):
         if keep_iface is None or iface != keep_iface:
             active_captures[iface] = False
+            proc = wsl_processes.pop(iface, None)
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
 
 def reset_backend_state():
     """Fully clear all accumulated flow and attack state on the backend."""
@@ -476,114 +649,237 @@ def _start_iface_capture(iface: str) -> bool:
     stop_all_captures_except(iface)
     if active_captures.get(iface):
         return True
-    t = threading.Thread(target=_capture_loop, args=(iface,), daemon=True)
+
+    is_wsl = "wsl" in iface.lower()
+    target_fn = _wsl_capture_loop if is_wsl else _capture_loop
+
+    t = threading.Thread(target=target_fn, args=(iface,), daemon=True)
     capture_threads[iface] = t
     t.start()
     return True
 
 
-def _capture_loop(iface: str):
-    """Sniff packets on the given interface and broadcast to WebSocket clients."""
+def _process_flow_event(event: dict, iface: str):
+    """Process a parsed flow event through flow aggregation, heuristics, ML classification, and WebSocket broadcast."""
+    if event is None:
+        return
+
+    capture_stats["total_packets"] += 1
+    event["interface"] = iface
+
+    src = event.get("src_ip", "")
+    dst = event.get("dst_ip", "")
+    sport = event.get("src_port", 0)
+    dport = event.get("dst_port", 0)
+    proto = event.get("protocol", "TCP")
+    key = f"{src}:{sport}-{dst}:{dport}-{proto}"
+
+    with flow_lock:
+        if key in flow_cache:
+            flow_cache[key]["packet_count"] += 1
+            flow_cache[key]["byte_count"] += event.get("length", 0)
+            flow_cache[key]["last_seen"] = event["timestamp"]
+            flow_cache[key]["syn_flag"] = flow_cache[key].get("syn_flag", 0) + event.get("syn", 0)
+            flow_cache[key]["ack_flag"] = flow_cache[key].get("ack_flag", 0) + event.get("ack", 0)
+            flow_cache[key]["rst_flag"] = flow_cache[key].get("rst_flag", 0) + event.get("rst", 0)
+            flow_cache[key]["fin_flag"] = flow_cache[key].get("fin_flag", 0) + event.get("fin", 0)
+            try:
+                t1 = datetime.fromisoformat(flow_cache[key]["first_seen"])
+                t2 = datetime.fromisoformat(flow_cache[key]["last_seen"])
+                flow_cache[key]["duration"] = max((t2 - t1).total_seconds(), 0.001)
+            except Exception:
+                flow_cache[key]["duration"] = 0.001
+        else:
+            flow_cache[key] = {
+                "src_ip": src,
+                "dst_ip": dst,
+                "src_port": sport,
+                "dst_port": dport,
+                "protocol": proto,
+                "packet_count": 1,
+                "byte_count": event.get("length", 0),
+                "first_seen": event["timestamp"],
+                "first_seen_ts": time.time(),
+                "last_seen": event["timestamp"],
+                "duration": 0.001,
+                "severity": event.get("severity", "none"),
+                "attack_type": event.get("attack_type", "Benign"),
+                "interface": iface,
+                "syn_flag": event.get("syn", 0),
+                "ack_flag": event.get("ack", 0),
+                "rst_flag": event.get("rst", 0),
+                "fin_flag": event.get("fin", 0),
+            }
+
+    # Flow-level heuristic classification
+    _heuristic_classify(key, event)
+
+    # ML classification
+    if not _ml_loaded:
+        _lazy_load_ml()
+
+    is_mcast = _is_multicast_or_broadcast(dst) or _is_multicast_or_broadcast(src)
+    if is_mcast:
+        event["severity"] = "none"
+        event["attack_type"] = "Benign"
+        with flow_lock:
+            if key in flow_cache:
+                flow_cache[key]["severity"] = "none"
+                flow_cache[key]["attack_type"] = "Benign"
+    elif _ml_predict_flow:
+        try:
+            ml_label, ml_confidence = _ml_predict_flow(flow_cache[key])
+            now_ts   = time.time()
+            src_ip   = event.get("src_ip", "")
+            flow     = flow_cache.get(key, {})
+            duration = max(now_ts - flow.get("first_seen_ts", now_ts), 0.001)
+
+            recent_flow_count = len([t for t in _ip_flows.get(src_ip, []) if t > now_ts - _TRACKING_WINDOW])
+
+            accept_ml = False
+            if ml_label == "port_scan":
+                standard_ports = {80, 443, 53, 123, 137, 8080, 8443, 3000, 5000, 5173,
+                                  5353, 1900, 445, 139, 5050, 27017, 6379, 5432, 3306, 22}
+                non_std = {p for p in _ip_ports.get(src_ip, set()) if p not in standard_ports}
+                accept_ml = len(non_std) >= 5 and recent_flow_count >= 5
+            elif ml_label == "brute_force":
+                auth_ports = {21, 22, 23, 25, 110, 143, 3389, 5900, 1433, 3306, 5432, 80, 443, 8080, 8443, 3000, 5000, 5173, 8000, 5050}
+                dst_port   = int(event.get("dst_port", 0))
+                accept_ml  = dst_port in auth_ports and (recent_flow_count >= 3 or flow.get("packet_count", 0) >= 8)
+            elif ml_label == "dos_ddos":
+                accept_ml = (flow.get("packet_count", 0) >= 30 and duration >= 0.5)
+            elif ml_label == "exfiltration":
+                accept_ml = (flow.get("byte_count", 0) >= 500_000 and duration >= 0.5)
+            elif ml_label not in (None, "benign"):
+                accept_ml = recent_flow_count >= 3
+
+            if accept_ml and ml_confidence > 0.90:
+                event["ml_label"]      = ml_label
+                event["ml_confidence"] = round(ml_confidence, 4)
+                event["attack_type"]   = ml_label.replace("_", " ").title()
+                event["severity"]      = "high" if ml_confidence > 0.95 else "medium"
+                with flow_lock:
+                    if key in flow_cache:
+                        flow_cache[key]["attack_type"] = event["attack_type"]
+                        flow_cache[key]["severity"]    = event["severity"]
+        except Exception:
+            pass
+
+    if key in flow_cache and flow_cache[key].get("packet_count", 0) % 10 == 1:
+        try:
+            _log_live_flow(flow_cache[key])
+        except Exception:
+            pass
+
+    msg = json.dumps(event)
+    if _main_loop and not _main_loop.is_closed():
+        async def _send_all(message: str):
+            dead = []
+            for ws in list(connected_clients):
+                try:
+                    await ws.send_text(message)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                if ws in connected_clients:
+                    connected_clients.remove(ws)
+        _main_loop.call_soon_threadsafe(
+            lambda m=msg: asyncio.ensure_future(_send_all(m), loop=_main_loop)
+        )
+
+
+def _wsl_capture_loop(iface: str):
+    """Sniff packets inside WSL environment using wsl_sniffer.py and process through main pipeline."""
     active_captures[iface] = True
     capture_stats["start_time"] = time.time()
     capture_stats["total_packets"] = 0
 
-    # Resolve friendly name to Scapy Npcap device
+    wsl_internal_iface = "eth0"
+    if "(" in iface and ")" in iface:
+        wsl_internal_iface = iface.split("(")[1].split(")")[0]
+
+    script_win_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "wsl_sniffer.py"))
+    wsl_script_path = f"/mnt/c/{script_win_path[3:].replace('\\', '/')}"
+    try:
+        res = subprocess.run(
+            ["wsl.exe", "wslpath", "-u", script_win_path.replace("\\", "/")],
+            capture_output=True, text=True, timeout=5
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            wsl_script_path = res.stdout.strip()
+    except Exception:
+        pass
+
+    cmd = ["wsl.exe", "-u", "root", "python3", "-u", wsl_script_path, wsl_internal_iface]
+    print(f"[WSL Capture] Launching: {' '.join(cmd)}")
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
+        wsl_processes[iface] = proc
+
+        while active_captures.get(iface):
+            line = proc.stdout.readline()
+            if not line:
+                if proc.poll() is not None:
+                    break
+                continue
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                if "error" in event:
+                    print(f"[WSL Capture Error] {event['error']}")
+                    break
+                _process_flow_event(event, iface)
+            except json.JSONDecodeError:
+                pass
+    except Exception as e:
+        print(f"[WSL Capture Exception] {iface}: {e}")
+    finally:
+        active_captures[iface] = False
+        proc = wsl_processes.pop(iface, None)
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        try:
+            subprocess.run(["wsl.exe", "-u", "root", "pkill", "-f", "wsl_sniffer.py"], capture_output=True, timeout=3)
+        except Exception:
+            pass
+        print(f"[WSL Capture] Terminated on {iface}")
+
+
+def _capture_loop(iface: str):
+    """Sniff packets on the given interface via Windows Npcap and broadcast to WebSocket clients."""
+    active_captures[iface] = True
+    capture_stats["start_time"] = time.time()
+    capture_stats["total_packets"] = 0
+
     scapy_iface = _resolve_scapy_iface(iface)
     print(f"[Capture] Sniffing on {iface} -> {scapy_iface}")
 
     def process_packet(pkt):
         if not active_captures.get(iface):
-            return False  # Stop sniffing
+            return False
 
         try:
-            capture_stats["total_packets"] += 1
             event = _packet_to_flow_event(pkt)
             if event is None:
                 return
-
-            # Tag event with the interface it was captured on
-            event["interface"] = iface
-
-            # Aggregate into flows
-            key = _build_flow_key(pkt)
-            if key:
-                with flow_lock:
-                    if key in flow_cache:
-                        flow_cache[key]["packet_count"] += 1
-                        flow_cache[key]["byte_count"] += event["length"]
-                        flow_cache[key]["last_seen"] = event["timestamp"]
-                        flow_cache[key]["syn_flag"] = flow_cache[key].get("syn_flag", 0) + event.get("syn", 0)
-                        flow_cache[key]["ack_flag"] = flow_cache[key].get("ack_flag", 0) + event.get("ack", 0)
-                        flow_cache[key]["rst_flag"] = flow_cache[key].get("rst_flag", 0) + event.get("rst", 0)
-                        flow_cache[key]["fin_flag"] = flow_cache[key].get("fin_flag", 0) + event.get("fin", 0)
-                        try:
-                            t1 = datetime.fromisoformat(flow_cache[key]["first_seen"])
-                            t2 = datetime.fromisoformat(flow_cache[key]["last_seen"])
-                            flow_cache[key]["duration"] = max((t2 - t1).total_seconds(), 0.001)
-                        except Exception:
-                            flow_cache[key]["duration"] = 0.001
-                    else:
-                        flow_cache[key] = {
-                            "src_ip": event["src_ip"],
-                            "dst_ip": event["dst_ip"],
-                            "src_port": event["src_port"],
-                            "dst_port": event["dst_port"],
-                            "protocol": event["protocol"],
-                            "packet_count": 1,
-                            "byte_count": event["length"],
-                            "first_seen": event["timestamp"],
-                            "first_seen_ts": time.time(),
-                            "last_seen": event["timestamp"],
-                            "duration": 0.001,
-                            "severity": event["severity"],
-                            "attack_type": event["attack_type"],
-                            "interface": iface,
-                            "syn_flag": event.get("syn", 0),
-                            "ack_flag": event.get("ack", 0),
-                            "rst_flag": event.get("rst", 0),
-                            "fin_flag": event.get("fin", 0),
-                        }
-
-                # ── Flow-level heuristic classification ────────────────────────
-                _heuristic_classify(key, event)
-
-                # ML classification (lazy-loaded, never blocks capture)
-                # Only override when ML detects an actual attack, never downgrade
-                # Prevent ML predictions from overriding benign multicast/broadcast traffic
-                if not _ml_loaded:
-                    _lazy_load_ml()
-                if _ml_predict_flow and not _is_multicast_or_broadcast(event.get("dst_ip", "")):
-                    try:
-                        ml_label, ml_confidence = _ml_predict_flow(flow_cache[key])
-                        # Only use ML label if it detected something (not benign)
-                        if ml_label and ml_label != "benign":
-                            event["ml_label"] = ml_label
-                            event["ml_confidence"] = round(ml_confidence, 4)
-                            # ML overrides heuristic if confidence is high
-                            if ml_confidence > 0.7:
-                                event["attack_type"] = ml_label.replace("_", " ").title()
-                                event["severity"] = "high" if ml_confidence > 0.9 else "medium"
-                    except Exception:
-                        pass
-
-            # Broadcast to all connected WebSocket clients.
-            msg = json.dumps(event)
-            if _main_loop and not _main_loop.is_closed():
-                async def _send_all(message: str):
-                    dead = []
-                    for ws in list(connected_clients):
-                        try:
-                            await ws.send_text(message)
-                        except Exception:
-                            dead.append(ws)
-                    for ws in dead:
-                        if ws in connected_clients:
-                            connected_clients.remove(ws)
-                _main_loop.call_soon_threadsafe(
-                    lambda m=msg: asyncio.ensure_future(_send_all(m), loop=_main_loop)
-                )
-        except Exception as e:
+            _process_flow_event(event, iface)
+        except Exception:
             pass
 
     try:
@@ -652,6 +948,7 @@ async def _stage_forecast_loop():
                     forecast = _stage_forecaster(ip, recent, risk_history=history)
                     if forecast and "risk_score" in forecast:
                         _host_risk_history[ip].append(forecast["risk_score"])
+                        forecast["recent_risk_history"] = [round(float(r), 4) for r in list(_host_risk_history[ip])]
                     forecasts[ip] = forecast
                 except Exception:
                     pass
