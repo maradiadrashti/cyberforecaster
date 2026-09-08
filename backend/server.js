@@ -328,8 +328,11 @@ app.post("/api/traffic-event", async (req, res) => {
       // Emit live forecast to socket
       io.emit("forecast_update", forecast);
 
-      // 5. Generate high threat alerts (predicted stage is not Normal, confidence > 50%)
-      if (predicted_stage !== "Normal" && confidence >= 0.50) {
+      // 5. Generate high threat alerts (predicted stage is not Normal, confidence > 85%)
+      // CRITICAL: Only generate alerts from LIVE captured traffic, never from simulator.
+      // The simulator posts with source='simulator' — those never produce alerts.
+      const isLiveTraffic = !req.body.source || req.body.source === 'live';
+      if (predicted_stage !== "Normal" && confidence >= 0.85 && isLiveTraffic) {
         // Let's create an alert
         const severity = (predicted_stage === "Data Exfiltration" || predicted_stage === "Lateral Movement") ? "HIGH" : "MEDIUM";
         

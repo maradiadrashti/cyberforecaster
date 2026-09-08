@@ -137,8 +137,31 @@ def forecast_host(host_ip: str, recent_flows: list[dict], forecast_steps: int = 
 
     seq_len = _meta["sequence_length"]
 
-    # Convert flows to features
-    features_list = [_flow_to_features(f) for f in recent_flows]
+    # Check if any recent flow has an active attack classification
+    has_active_attack = any(
+        (f.get("severity") and f.get("severity") != "none" and f.get("severity") != "Benign") or
+        (f.get("attack_type") and f.get("attack_type") not in ("Benign", "none")) or
+        (f.get("ml_label") and f.get("ml_label") not in ("benign", "none"))
+        for f in (recent_flows or [])
+    )
+
+    if not has_active_attack:
+        return {
+            "host": host_ip,
+            "stage_probs": {
+                "normal": 0.98,
+                "reconnaissance": 0.01,
+                "initial_access": 0.004,
+                "lateral_movement": 0.003,
+                "command_control": 0.002,
+                "exfiltration": 0.001
+            },
+            "predicted_stage": "normal",
+            "risk_score": 0.02,
+            "projected_risk_curve": [0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+            "windows_collected": len(recent_flows),
+            "min_windows_required": seq_len,
+        }
 
     # Pad or truncate to sequence length
     if len(features_list) < seq_len:

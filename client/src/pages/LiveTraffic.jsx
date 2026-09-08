@@ -630,6 +630,96 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     [flows]
   );
 
+  const consolidatedAlerts = useMemo(() => {
+    const map = new Map();
+    const bruteForcePairs = new Set();
+    const portScanPairs = new Set();
+    const sevOrder = { critical: 4, high: 3, medium: 2, low: 1 };
+
+    // First identify threat types per src_ip|dst_ip pair
+    attackFlows.forEach(flow => {
+      if (flow.attack_type === 'Brute Force' || flow.ml_label === 'brute_force') {
+        bruteForcePairs.add(`${flow.src_ip}|${flow.dst_ip}`);
+      }
+      if (flow.attack_type === 'Port Scan' || flow.ml_label === 'port_scan') {
+        portScanPairs.add(`${flow.src_ip}|${flow.dst_ip}`);
+      }
+    });
+
+    attackFlows.forEach(flow => {
+      let displayType = flow.attack_type && flow.attack_type !== 'Benign'
+        ? flow.attack_type
+        : (flow.ml_label && flow.ml_label !== 'benign'
+          ? flow.ml_label.replace(/_/g, ' ')
+          : 'Unknown');
+
+      // Standardize ICMP attack display name so ALL ICMP threats consolidate into a single ICMP Flood card
+      if (flow.protocol === 'ICMP') {
+        displayType = 'ICMP Flood';
+      }
+
+      // Suppress duplicate Port Scan card if a host is performing a targeted single-port Brute Force attack (unique ports < 4)
+      if (displayType === 'Port Scan' && bruteForcePairs.has(`${flow.src_ip}|${flow.dst_ip}`)) {
+        const allHostFlows = Object.values(flows).filter(f => f.src_ip === flow.src_ip && f.dst_ip === flow.dst_ip);
+        const uniquePorts = new Set(allHostFlows.map(f => f.dst_port)).size;
+        if (uniquePorts < 4) {
+          return;
+        }
+      }
+
+      // Suppress transient Brute Force card if host is executing a multi-port Nmap scan (unless >= 8 attempts on a single auth port)
+      if (displayType === 'Brute Force' && portScanPairs.has(`${flow.src_ip}|${flow.dst_ip}`)) {
+        const samePortPkts = attackFlows
+          .filter(f => f.src_ip === flow.src_ip && f.dst_ip === flow.dst_ip && f.dst_port === flow.dst_port)
+          .reduce((sum, f) => sum + (f.packet_count || 1), 0);
+        if (samePortPkts < 8) {
+          return;
+        }
+      }
+
+      const sev = flow.severity || 'low';
+      // Group by Source IP + Destination IP + Attack Type (severity upgrades dynamically)
+      const key = `${flow.src_ip}|${flow.dst_ip}|${displayType}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          src_ip: flow.src_ip,
+          dst_ip: flow.dst_ip,
+          dst_port: flow.dst_port,
+          protocol: flow.protocol,
+          attack_type: flow.attack_type,
+          ml_label: flow.ml_label,
+          ml_confidence: flow.ml_confidence,
+          displayType,
+          severity: sev,
+          count: 1,
+          last_seen: flow.last_seen || flow.timestamp,
+          latestFlow: flow,
+          allFlows: [flow],
+        });
+      } else {
+        const existing = map.get(key);
+        existing.count += 1;
+        existing.allFlows.push(flow);
+        // Dynamically upgrade to highest severity level seen for this threat
+        if ((sevOrder[sev] || 0) > (sevOrder[existing.severity] || 0)) {
+          existing.severity = sev;
+        }
+        if (flow.last_seen && flow.last_seen > existing.last_seen) {
+          existing.last_seen = flow.last_seen;
+          existing.latestFlow = flow;
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      if ((sevOrder[b.severity] || 0) !== (sevOrder[a.severity] || 0)) {
+        return (sevOrder[b.severity] || 0) - (sevOrder[a.severity] || 0);
+      }
+      return b.count - a.count;
+    });
+  }, [attackFlows]);
+
   const topoNodeList = useMemo(() => Object.values(topoNodes), [topoNodes]);
   const topoLinks = useMemo(() => {
     const links = [];
@@ -895,58 +985,72 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               <ShieldAlert className="h-4 w-4 text-rose-400 animate-pulse" />
               <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech text-rose-400">Attack Alerts</h3>
             </div>
-            {attackFlows.length > 0 && (
+            {consolidatedAlerts.length > 0 && (
               <span className="text-[8px] font-mono-tech text-rose-400 bg-rose-950/30 px-1.5 py-0.5 rounded border border-rose-900/50">
-                {attackFlows.length} threats
+                {consolidatedAlerts.length} {consolidatedAlerts.length === 1 ? "threat" : "threats"}
               </span>
             )}
           </div>
-          {attackFlows.length === 0 ? (
+          {consolidatedAlerts.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-2 py-6">
               <CheckCircle2 className="h-6 w-6 opacity-20 text-emerald-400" />
               <span className="text-[10px] font-mono-tech">No attacks detected — all clear</span>
             </div>
           ) : (
             <div className="space-y-1.5 flex-1 overflow-y-auto max-h-[320px] pr-1">
-              {attackFlows.slice(0, 15).map((flow, idx) => {
-                const aKey = `${flow.src_ip}-${flow.dst_ip}-${flow.dst_port}-${idx}`;
+              {consolidatedAlerts.map((alert) => {
+                const aKey = alert.key;
                 const isExpanded = expandedAlertKey === aKey;
+                const flow = alert.latestFlow;
                 const ifaceD = localDefenseState[selectedIface] || {};
                 return (
-                  <div key={idx}>
+                  <div key={aKey}>
                     <button
                       onClick={() => setExpandedAlertKey(isExpanded ? null : aKey)}
-                      className={`w-full text-left flex items-center justify-between p-2 rounded-lg border transition-all ${
+                      className={`w-full text-left p-2 rounded-lg border transition-all ${
                         isExpanded ? "bg-slate-900/60" : "hover:bg-slate-900/40"
                       } ${
-                        flow.severity === "critical"
+                        alert.severity === "critical"
                           ? "border-rose-800/40 bg-rose-950/10"
-                          : flow.severity === "high"
+                          : alert.severity === "high"
                           ? "border-amber-800/40 bg-amber-950/10"
                           : "border-slate-800/40 bg-slate-950/20"
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`px-1 py-0.5 rounded text-[7px] font-bold uppercase shrink-0 ${
-                          flow.severity === "critical" ? "bg-rose-950/50 text-rose-400 border border-rose-900/50 pulse-red" :
-                          flow.severity === "high" ? "bg-amber-950/50 text-amber-400 border border-amber-900/50" :
-                          flow.severity === "medium" ? "bg-yellow-950/50 text-yellow-400 border border-yellow-900/50" :
-                          "bg-cyan-950/50 text-cyan-400 border border-cyan-900/50"
-                        }`}>
-                          {flow.severity?.toUpperCase()?.slice(0, 4)}
-                        </span>
-                        <div className="font-mono-tech text-[9px] min-w-0">
-                          <span className="text-cyan-400 font-bold">{flow.src_ip}</span>
-                          <span className="text-slate-600 mx-0.5">→</span>
-                          <span className="text-white font-bold">{flow.dst_ip}</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`px-1 py-0.5 rounded text-[7px] font-bold uppercase shrink-0 ${
+                            alert.severity === "critical" ? "bg-rose-950/50 text-rose-400 border border-rose-900/50 pulse-red" :
+                            alert.severity === "high" ? "bg-amber-950/50 text-amber-400 border border-amber-900/50" :
+                            alert.severity === "medium" ? "bg-yellow-950/50 text-yellow-400 border border-yellow-900/50" :
+                            "bg-cyan-950/50 text-cyan-400 border border-cyan-900/50"
+                          }`}>
+                            {alert.severity?.toUpperCase()?.slice(0, 4)}
+                          </span>
+                          <div className="font-mono-tech text-[9px] min-w-0">
+                            <span className="text-cyan-400 font-bold">{alert.src_ip}</span>
+                            <span className="text-slate-600 mx-0.5">→</span>
+                            <span className="text-white font-bold">{alert.dst_ip}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          <span className="text-[8px] text-amber-400 font-mono-tech">{alert.displayType}</span>
+                          {alert.ml_confidence && alert.ml_label && alert.ml_label !== 'benign' && (
+                            <span className="text-[7px] text-slate-500 font-mono-tech">{Math.round(alert.ml_confidence * 100)}%</span>
+                          )}
+                          <ChevronRight className={`h-3 w-3 text-slate-600 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                        <span className="text-[8px] text-amber-400 font-mono-tech">{flow.ml_label && flow.ml_label !== 'benign' ? flow.ml_label.replace(/_/g, ' ') : flow.attack_type}</span>
-                        {flow.ml_confidence && flow.ml_label && flow.ml_label !== 'benign' && (
-                          <span className="text-[7px] text-slate-500 font-mono-tech">{Math.round(flow.ml_confidence * 100)}%</span>
+
+                      {/* Consolidated Count & Status Sub-line */}
+                      <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-800/30 text-[8px] font-mono-tech text-slate-400">
+                        <div className="flex items-center gap-1">
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                          <span>Ongoing · <strong className="text-slate-200">{alert.count}</strong> {alert.count === 1 ? "event" : "events"}</span>
+                        </div>
+                        {alert.last_seen && (
+                          <span className="text-[7px] text-slate-500">{new Date(alert.last_seen).toLocaleTimeString()}</span>
                         )}
-                        <ChevronRight className={`h-3 w-3 text-slate-600 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                       </div>
                     </button>
                     {/* Expanded defense actions */}
@@ -1125,7 +1229,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                         <td className="text-slate-300">{flow.packet_count}</td>
                         <td className="text-slate-300">{formatBytes(flow.byte_count)}</td>
                         <td className={isAttack ? "text-amber-400 font-bold" : "text-slate-600"}>
-                          <span>{flow.ml_label && flow.ml_label !== 'benign' ? flow.ml_label.replace(/_/g, ' ') : flow.attack_type || '—'}</span>
+                          <span>{flow.attack_type && flow.attack_type !== 'Benign' ? flow.attack_type : (flow.ml_label && flow.ml_label !== 'benign' ? flow.ml_label.replace(/_/g, ' ') : '—')}</span>
                           {flow.ml_confidence && flow.ml_label && flow.ml_label !== 'benign' && (
                             <span className="ml-1 text-[7px] text-slate-500">{Math.round(flow.ml_confidence * 100)}%</span>
                           )}

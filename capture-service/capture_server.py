@@ -33,9 +33,23 @@ from pydantic import BaseModel
 from typing import Optional
 from scapy.all import sniff, get_if_list, get_if_addr, conf
 from scapy.layers.inet import IP, TCP, UDP, ICMP
-from scapy.layers.l2 import Ether
 import csv
 import hashlib
+
+# Import centralized taxonomy
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+try:
+    from models.taxonomy import (
+        LABEL_BENIGN, LABEL_PORT_SCAN, LABEL_BRUTE_FORCE, LABEL_DOS_DDOS,
+        LABEL_EXFILTRATION, LABEL_UNKNOWN, DISPLAY_NAMES, AUTH_PORTS,
+        WELL_KNOWN_PORTS, normalize_label, to_display_name, is_auth_port
+    )
+except Exception as _e:
+    AUTH_PORTS = {21, 22, 23, 110, 1433, 2222, 3306, 3389, 5432, 5900, 6379, 27017}
+    WELL_KNOWN_PORTS = {53, 80, 123, 137, 138, 139, 443, 445, 1900, 3000, 5000, 5173, 5353, 5355, 8000, 8080, 8443, 8545, 9090}
+    def normalize_label(l): return str(l).lower()
+    def to_display_name(l): return str(l).title()
+    def is_auth_port(p): return p in AUTH_PORTS
 
 # Live data collection for retraining
 _LIVE_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'logs')
@@ -198,11 +212,19 @@ capture_stats = {
     "start_time": None,
 }
 
+# Well-known service ports that should NEVER trigger attack classification.
+# DNS, NTP, mDNS, LLMNR, SSDP, and standard web/service ports are normal traffic.
+WELL_KNOWN_UDP_SERVICES = {53, 123, 5353, 5355, 1900, 137, 138, 139, 445, 5060}
+WELL_KNOWN_TCP_PORTS = {80, 443, 8080, 8443, 3000, 5000, 5173, 8000, 8545, 27017, 6379, 9090, 5432, 3306, 1433}
+SERVER_RESPONSE_PORTS = WELL_KNOWN_UDP_SERVICES | WELL_KNOWN_TCP_PORTS | WELL_KNOWN_PORTS | AUTH_PORTS
+
 # Per-IP tracking for flow-level heuristic detection
 _ip_flows: dict[str, list] = {}          # src_ip -> list of recent flow timestamps
 _ip_ports: dict[str, set] = {}            # src_ip -> set of unique dst_ports hit
 _ip_bytes: dict[str, int] = {}            # src_ip -> total bytes sent recently
 _ip_dst: dict[str, dict] = {}            # src_ip -> {dst_ip: flow_count}
+_ip_dst_ports: dict[str, dict] = defaultdict(lambda: defaultdict(set)) # src_ip -> dst_ip -> set of dports
+_ip_port_attempts: dict[str, dict] = defaultdict(lambda: defaultdict(lambda: defaultdict(list))) # src_ip -> dst_ip -> dport -> timestamps
 _TRACKING_WINDOW = 30  # seconds for tracking window
 
 # Bounded per-host risk history for data-driven forecast trend projection
@@ -476,141 +498,169 @@ def _packet_to_flow_event(pkt) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def _heuristic_classify(flow_key: str, event: dict):
-    """Reclassify a flow using aggregate flow-level heuristics.
-    This runs on every packet and upgrades severity/attack_type based on
-    accumulated patterns (not just single-packet signals).
+    """Reclassify a flow using aggregate flow-level heuristics with windowed context.
+    Distinguishes Port Scan from Brute Force based on port diversity vs. single-port attempt count.
     """
     now = time.time()
     src_ip = event.get("src_ip", "")
     dst_ip = event.get("dst_ip", "")
+    sport = event.get("src_port", 0)
     dport = event.get("dst_port", 0)
     proto = event.get("protocol", "TCP")
     flow = flow_cache.get(flow_key)
     if not flow:
         return
 
+    # Check if packet is routine server/service/web traffic
+    is_server_response = (sport in SERVER_RESPONSE_PORTS or sport in WELL_KNOWN_PORTS or sport in WELL_KNOWN_TCP_PORTS or sport in WELL_KNOWN_UDP_SERVICES)
+    is_well_known_dst = (dport in WELL_KNOWN_PORTS or dport in WELL_KNOWN_TCP_PORTS or dport in WELL_KNOWN_UDP_SERVICES)
+    is_established_flow = (flow.get("packet_count", 1) >= 3 or flow.get("byte_count", 0) > 500 or (flow.get("ack_flag", 0) > 0 and flow.get("syn_flag", 0) > 0))
+    is_routine_service_traffic = is_server_response or (is_well_known_dst and (is_established_flow or proto in ("UDP", "ICMP")))
+
     # ── Per-IP tracking ─────────────────────────────────────────────────
     if src_ip not in _ip_flows:
         _ip_flows[src_ip] = []
-        _ip_ports[src_ip] = set()
         _ip_bytes[src_ip] = 0
         _ip_dst[src_ip] = {}
 
     _ip_flows[src_ip].append(now)
-    _ip_ports[src_ip].add(dport)
     _ip_bytes[src_ip] += event.get("length", 0)
     _ip_dst[src_ip][dst_ip] = _ip_dst[src_ip].get(dst_ip, 0) + 1
 
-    # Prune old entries outside the tracking window
+    # Only track target port attempts for non-routine service traffic (true probe attempts)
+    if not is_routine_service_traffic:
+        _ip_port_attempts[src_ip][dst_ip][dport].append(now)
+
+    # Prune old entries outside the tracking window (30s)
     cutoff = now - _TRACKING_WINDOW
     _ip_flows[src_ip] = [t for t in _ip_flows[src_ip] if t > cutoff]
 
-    # ── Detection rules ─────────────────────────────────────────────────
-    # Thresholds are deliberately conservative to avoid false positives
-    # on normal traffic. Multiple signals must agree for escalation.
+    # Prune windowed port attempts and calculate active target ports for (src_ip -> dst_ip)
+    active_dports = set()
+    for p, timestamps in list(_ip_port_attempts[src_ip][dst_ip].items()):
+        valid_ts = [t for t in timestamps if t > cutoff]
+        if valid_ts:
+            _ip_port_attempts[src_ip][dst_ip][p] = valid_ts
+            active_dports.add(p)
+        else:
+            del _ip_port_attempts[src_ip][dst_ip][p]
+
+    _ip_dst_ports[src_ip][dst_ip] = active_dports
+
+    # Calculate active unique ports across all targets for src_ip
+    active_all_ports = set()
+    for target_ip, port_map in list(_ip_port_attempts[src_ip].items()):
+        for p, timestamps in list(port_map.items()):
+            valid_ts = [t for t in timestamps if t > cutoff]
+            if valid_ts:
+                active_all_ports.add(p)
+    _ip_ports[src_ip] = active_all_ports
+
     first_seen_ts = flow.get("first_seen_ts", now)
     flow_duration = max(now - first_seen_ts, 0.001)
     pps = flow["packet_count"] / max(flow_duration, 1.0)
     bpp = flow["byte_count"] / max(flow["packet_count"], 1)
+
     recent_flows = len(_ip_flows[src_ip])
-    unique_ports = len(_ip_ports[src_ip])
-    dst_flow_count = _ip_dst[src_ip].get(dst_ip, 0)
+    
+    # Exclude authentication ports from port-scan diversity count when inspecting brute-force candidates
+    same_port_attempts = len(_ip_port_attempts[src_ip][dst_ip].get(dport, []))
+    if same_port_attempts == 0 and is_auth_port(dport):
+        # Fallback to total flow count for this auth port if routine filter omitted single-pkt auth flows
+        same_port_attempts = flow.get("packet_count", 1)
+
+    probe_dports = {p for p in active_dports if not (is_auth_port(p) and same_port_attempts >= 3)}
+    unique_ports_contacted = len(probe_dports)
     is_multicast = _is_multicast_or_broadcast(dst_ip) or _is_multicast_or_broadcast(src_ip)
+
+    syn_flag = flow.get("syn_flag", 0)
+    ack_flag = flow.get("ack_flag", 0)
+    rst_flag = flow.get("rst_flag", 0)
 
     severity = "none"
     attack_type = "Benign"
+    reason = "Normal traffic pattern"
 
-    # --- Port Scan Detection ---
-    # Require multiple unique non-standard ports AND packet rate over window
-    if not is_multicast and flow_duration >= 1.0:
-        standard_ports = {80, 443, 53, 123, 8080, 8443, 3000, 5000, 5050, 5173, 8000, 8545, 27017}
-        non_std_ports = {p for p in _ip_ports[src_ip] if p not in standard_ports}
-        if len(non_std_ports) >= 20 and recent_flows >= 15 and pps > 15:
-            severity = "high"
-            attack_type = "Port Scan"
-        elif len(non_std_ports) >= 10 and recent_flows >= 10 and pps > 5:
-            severity = "medium"
-            attack_type = "Port Scan"
-
-    # --- DDoS / Flood Detection ---
-    # High packet rate to same destination, calibrated for live Scapy capture rate
-    if not is_multicast:
-        if flow_duration >= 0.5:
-            if pps > 150 and flow["packet_count"] >= 200:
-                severity = "critical"
-                attack_type = "DDoS"
-            elif pps > 40 and flow["packet_count"] >= 50:
-                severity = "high"
-                attack_type = "DDoS"
-
-    # --- SYN Flood Detection ---
-    # SYN count significantly higher than ACK responses
-    if not is_multicast:
-        syn_flag = flow.get("syn_flag", 0)
-        ack_flag = flow.get("ack_flag", 0)
-        if syn_flag > 30 and ack_flag < 3 and flow_duration >= 0.5:
-            severity = "critical"
-            attack_type = "SYN Flood"
-        elif syn_flag > 15 and ack_flag < 2 and flow_duration >= 0.5 and pps > 10:
-            severity = "high"
-            attack_type = "SYN Flood"
-
-    # --- Brute Force Detection ---
-    # Repeated attempts or packet bursts to auth/app ports (SSH, RDP, Web, DB)
-    auth_ports = {21, 22, 23, 25, 110, 143, 3389, 5900, 1433, 3306, 5432, 80, 443, 8080, 8443, 3000, 5000, 5173, 8000, 5050}
-    if not is_multicast and dport in auth_ports and flow_duration < 15.0:
-        if dst_flow_count >= 8 or (flow["packet_count"] >= 15 and syn_flag >= 5):
-            severity = "high"
-            attack_type = "Brute Force"
-        elif dst_flow_count >= 4 or (flow["packet_count"] >= 8 and syn_flag >= 3):
-            severity = "medium"
-            attack_type = "Brute Force"
-
-    # --- ICMP Flood Detection ---
-    if not is_multicast and proto == "ICMP":
-        if flow["packet_count"] > 50 and pps > 20 and flow_duration >= 0.5:
-            severity = "high"
-            attack_type = "ICMP Flood"
-        elif flow["packet_count"] > 20 and pps > 10 and flow_duration >= 0.5:
-            severity = "medium"
-            attack_type = "ICMP Flood"
-
-    # --- Data Exfiltration Detection ---
-    # Large volume transfers with high bytes-per-packet
-    if not is_multicast and proto == "TCP" and bpp > 800:
-        if flow["byte_count"] > 2_000_000 and flow_duration > 1.0:
-            severity = "high"
-            attack_type = "Data Exfiltration"
-        elif flow["byte_count"] > 500_000 and flow_duration > 0.5:
-            severity = "medium"
-            attack_type = "Data Exfiltration"
-    elif not is_multicast and flow["byte_count"] > 10_000_000 and proto == "TCP" and bpp > 1200 and flow_duration > 10.0:
-        severity = "medium"
-        attack_type = "Large Transfer"
-
-    # --- Connection Reset Storm ---
-    if not is_multicast and flow.get("rst_flag", 0) > 50 and pps > 20 and flow_duration >= 2.0:
-        severity = "medium"
-        attack_type = "Reset Storm"
-
-    # For multicast/broadcast destinations, explicitly reset stored flow & event state to benign/none
     if is_multicast:
         severity = "none"
         attack_type = "Benign"
-
-        flow["severity"] = "none"
-        flow["attack_type"] = "Benign"
-
-        event["severity"] = "none"
-        event["attack_type"] = "Benign"
+        reason = "Multicast/Broadcast traffic"
     else:
-        # Apply the strongest classification to the flow cache and event for unicast traffic
-        severity_order = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-        if severity_order.get(severity, 0) > severity_order.get(flow.get("severity", "none"), 0):
-            flow["severity"] = severity
-            flow["attack_type"] = attack_type
-            event["severity"] = severity
-            event["attack_type"] = attack_type
+        # --- 1. SYN Flood Detection ---
+        if proto == "TCP" and syn_flag > 30 and ack_flag < 2 and pps > 10:
+            severity = "critical" if syn_flag > 50 else "high"
+            attack_type = "SYN Flood"
+            reason = f"High SYN-only packet rate (syn={syn_flag}, pps={pps:.1f})"
+
+        # --- 2. DDoS / Flood Detection ---
+        elif pps > 100 and flow["packet_count"] >= 200:
+            severity = "critical" if pps > 200 else "high"
+            attack_type = "DDoS"
+            reason = f"High volumetric packet flood (pps={pps:.1f}, count={flow['packet_count']})"
+
+        # --- 3. Port Scan Detection (Checked FIRST when high port diversity exists) ---
+        # Triggered by destination-port diversity (unique_ports_contacted >= 4 or len(_ip_ports[src_ip]) >= 5)
+        # When probing multiple ports, any auth port attempt is part of the Port Scan, NOT a single-target Brute Force attack.
+        elif unique_ports_contacted >= 4 or len(_ip_ports[src_ip]) >= 5:
+            severity = "high" if unique_ports_contacted >= 15 or len(_ip_ports[src_ip]) >= 20 else "medium"
+            attack_type = "Port Scan"
+            reason = f"Destination port scanning detected ({unique_ports_contacted} target ports probed, {recent_flows} flows)"
+
+            # Precedence Resolution: Retroactively update any flows for this (src_ip, dst_ip) pair that were transiently
+            # misclassified as Brute Force during early probes of the scan (unless they have >= 8 single-port attempts).
+            for f_key, cached_flow in flow_cache.items():
+                if cached_flow.get("src_ip") == src_ip and cached_flow.get("dst_ip") == dst_ip:
+                    if cached_flow.get("attack_type") == "Brute Force":
+                        auth_p = cached_flow.get("dst_port", 0)
+                        attempts_on_p = len(_ip_port_attempts[src_ip][dst_ip].get(auth_p, []))
+                        if attempts_on_p < 8:
+                            cached_flow["attack_type"] = "Port Scan"
+                            cached_flow["severity"] = severity
+                            cached_flow["reason"] = f"Reclassified as part of Port Scan ({unique_ports_contacted} target ports probed)"
+
+        # --- 4. Brute Force Detection ---
+        # REQUIRES repeated connection attempts to the SAME authentication service port
+        # AND LOW port diversity (unique_ports_contacted <= 3) so multi-port scans are never misclassified
+        elif is_auth_port(dport) and (same_port_attempts >= 8 or (same_port_attempts >= 5 and flow.get("packet_count", 1) >= 5)) and unique_ports_contacted <= 3:
+            severity = "high" if same_port_attempts >= 20 else "medium"
+            attack_type = "Brute Force"
+            reason = f"Repeated authentication attempts against port {dport} ({same_port_attempts} attempts)"
+
+            # Precedence Resolution: Retroactively update all active flows targeting this auth port from this src_ip
+            # so they are consistently reported as Brute Force ONLY (never false Port Scan overlap).
+            for f_key, cached_flow in flow_cache.items():
+                if cached_flow.get("src_ip") == src_ip and cached_flow.get("dst_ip") == dst_ip and cached_flow.get("dst_port") == dport:
+                    cached_flow["attack_type"] = "Brute Force"
+                    cached_flow["severity"] = severity
+                    cached_flow["reason"] = reason
+
+        # --- 5. ICMP Flood ---
+        # Triggered by rapid/high volume ICMP echo/ping requests from src_ip
+        elif proto == "ICMP" and (flow["packet_count"] >= 30 and pps >= 2.0 or flow["packet_count"] >= 50):
+            severity = "high" if flow["packet_count"] >= 100 else "medium"
+            attack_type = "ICMP Flood"
+            reason = f"ICMP ping flood ({flow['packet_count']} packets, {pps:.1f} pps)"
+
+            # Precedence Resolution: Standardize all ICMP attack flows for this host pair to ICMP Flood
+            for f_key, cached_flow in flow_cache.items():
+                if cached_flow.get("src_ip") == src_ip and cached_flow.get("dst_ip") == dst_ip and cached_flow.get("protocol") == "ICMP":
+                    if cached_flow.get("severity") != "none":
+                        cached_flow["attack_type"] = "ICMP Flood"
+                        cached_flow["severity"] = severity
+
+        # --- 6. Data Exfiltration ---
+        elif proto == "TCP" and flow["byte_count"] > 10_000_000 and flow_duration > 5.0 and bpp > 1000:
+            severity = "high"
+            attack_type = "Data Exfiltration"
+            reason = f"Large data payload transfer ({flow['byte_count']} bytes)"
+
+    # Apply classification
+    flow["severity"] = severity
+    flow["attack_type"] = attack_type
+    flow["reason"] = reason
+    event["severity"] = severity
+    event["attack_type"] = attack_type
+    event["reason"] = reason
 
 
 # ---------------------------------------------------------------------------
@@ -641,6 +691,8 @@ def reset_backend_state():
         _ip_ports.clear()
         _ip_bytes.clear()
         _ip_dst.clear()
+        _ip_dst_ports.clear()
+        _ip_port_attempts.clear()
         _host_risk_history.clear()
 
 
@@ -731,39 +783,88 @@ def _process_flow_event(event: dict, iface: str):
             ml_label, ml_confidence = _ml_predict_flow(flow_cache[key])
             now_ts   = time.time()
             src_ip   = event.get("src_ip", "")
+            dst_ip   = event.get("dst_ip", "")
+            dport    = event.get("dst_port", 0)
             flow     = flow_cache.get(key, {})
             duration = max(now_ts - flow.get("first_seen_ts", now_ts), 0.001)
 
-            recent_flow_count = len([t for t in _ip_flows.get(src_ip, []) if t > now_ts - _TRACKING_WINDOW])
+            unique_ports_contacted = len(_ip_dst_ports[src_ip][dst_ip])
+            same_port_attempts = len(_ip_port_attempts[src_ip][dst_ip][dport])
+            current_severity = flow.get("severity", "none")
+            current_attack = flow.get("attack_type", "Benign")
 
-            accept_ml = False
-            if ml_label == "port_scan":
-                standard_ports = {80, 443, 53, 123, 137, 8080, 8443, 3000, 5000, 5173,
-                                  5353, 1900, 445, 139, 5050, 27017, 6379, 5432, 3306, 22}
-                non_std = {p for p in _ip_ports.get(src_ip, set()) if p not in standard_ports}
-                accept_ml = len(non_std) >= 5 and recent_flow_count >= 5
-            elif ml_label == "brute_force":
-                auth_ports = {21, 22, 23, 25, 110, 143, 3389, 5900, 1433, 3306, 5432, 80, 443, 8080, 8443, 3000, 5000, 5173, 8000, 5050}
-                dst_port   = int(event.get("dst_port", 0))
-                accept_ml  = dst_port in auth_ports and (recent_flow_count >= 3 or flow.get("packet_count", 0) >= 8)
-            elif ml_label == "dos_ddos":
-                accept_ml = (flow.get("packet_count", 0) >= 30 and duration >= 0.5)
-            elif ml_label == "exfiltration":
-                accept_ml = (flow.get("byte_count", 0) >= 500_000 and duration >= 0.5)
-            elif ml_label not in (None, "benign"):
-                accept_ml = recent_flow_count >= 3
+            ml_accept = False
+            reason = "ML prediction rejected"
 
-            if accept_ml and ml_confidence > 0.90:
-                event["ml_label"]      = ml_label
+            norm_ml_label = normalize_label(ml_label)
+
+            if norm_ml_label == LABEL_PORT_SCAN:
+                # ML Port Scan requires genuine destination port diversity (>= 4 ports)
+                if unique_ports_contacted >= 4 and not is_auth_port(dport):
+                    ml_accept = True
+                    reason = f"ML Port Scan accepted (unique_ports={unique_ports_contacted}, conf={ml_confidence:.2f})"
+                else:
+                    reason = f"ML Port Scan rejected: Low port diversity ({unique_ports_contacted} ports < 4)"
+
+            elif norm_ml_label == LABEL_BRUTE_FORCE:
+                # Accept ML Brute Force ONLY if auth port AND low port diversity (<= 3 ports)
+                if is_auth_port(dport) and (same_port_attempts >= 3 or ml_confidence >= 0.75) and unique_ports_contacted <= 3:
+                    ml_accept = True
+                    reason = f"ML Brute Force accepted ({same_port_attempts} attempts to auth port {dport}, conf={ml_confidence:.2f})"
+                elif unique_ports_contacted >= 4:
+                    # OVERRIDE ML false Brute Force to Port Scan when port diversity is high!
+                    event["ml_label"] = "port_scan"
+                    event["ml_confidence"] = round(ml_confidence, 4)
+                    event["attack_type"] = "Port Scan"
+                    event["severity"] = "medium"
+                    event["reason"] = f"Multi-port probe ({unique_ports_contacted} ports) indicates Port Scan"
+                    with flow_lock:
+                        if key in flow_cache:
+                            flow_cache[key]["attack_type"] = "Port Scan"
+                            flow_cache[key]["severity"] = "medium"
+                            flow_cache[key]["reason"] = event["reason"]
+                    ml_accept = False
+                else:
+                    reason = f"ML Brute Force rejected: Insufficient single-port attempts ({same_port_attempts}/5 required)"
+
+            elif norm_ml_label == LABEL_DOS_DDOS:
+                if proto == "ICMP" and flow.get("packet_count", 0) >= 30:
+                    ml_accept = True
+                    event["attack_type"] = "ICMP Flood"  # Standardize display name for ICMP
+                    reason = f"ML ICMP Flood accepted ({flow.get('packet_count', 0)} ICMP packets, conf={ml_confidence:.2f})"
+                elif flow.get("packet_count", 0) >= 50 or (flow.get("packet_count", 0) / duration) >= 50 or ml_confidence >= 0.95:
+                    ml_accept = True
+                    reason = f"ML DDoS accepted (conf={ml_confidence:.2f})"
+
+            elif norm_ml_label == LABEL_EXFILTRATION:
+                if flow.get("byte_count", 0) >= 5_000_000 and ml_confidence >= 0.90:
+                    ml_accept = True
+                    reason = f"ML Exfiltration accepted (bytes={flow.get('byte_count', 0)}, conf={ml_confidence:.2f})"
+
+            if ml_accept:
+                event["ml_label"]      = norm_ml_label
                 event["ml_confidence"] = round(ml_confidence, 4)
-                event["attack_type"]   = ml_label.replace("_", " ").title()
+                event["attack_type"]   = "ICMP Flood" if proto == "ICMP" else to_display_name(norm_ml_label)
                 event["severity"]      = "high" if ml_confidence > 0.95 else "medium"
+                event["reason"]        = reason
                 with flow_lock:
                     if key in flow_cache:
                         flow_cache[key]["attack_type"] = event["attack_type"]
                         flow_cache[key]["severity"]    = event["severity"]
-        except Exception:
-            pass
+                        flow_cache[key]["reason"]      = reason
+            else:
+                # Do not leak unaccepted/rejected ML label to event object
+                event["ml_label"] = None
+                event["ml_confidence"] = None
+
+            # Diagnostic logging (Requirement 12)
+            print(f"[CLASSIFY] src={src_ip}:{sport} dst={dst_ip}:{dport} proto={proto} | "
+                  f"unique_ports={unique_ports_contacted} same_port_att={same_port_attempts} | "
+                  f"ML=({ml_label}, {ml_confidence:.2f}) Heuristic={current_attack} -> "
+                  f"Final={event.get('attack_type')} | Reason={event.get('reason', reason)}")
+
+        except Exception as e:
+            print(f"[CLASSIFY ERROR] {e}")
 
     if key in flow_cache and flow_cache[key].get("packet_count", 0) % 10 == 1:
         try:
@@ -920,7 +1021,7 @@ async def _stage_forecast_loop():
     """Periodically forecast attack stages per active host."""
     while True:
         try:
-            await asyncio.sleep(5)  # Every 5 seconds
+            await asyncio.sleep(1.0)  # High-responsiveness live telemetry cadence (1s)
             if not _lazy_load_stage_forecaster():
                 continue
 
@@ -953,6 +1054,10 @@ async def _stage_forecast_loop():
                 except Exception:
                     pass
 
+            # Cache latest stage forecasts globally
+            global _latest_stage_forecasts
+            _latest_stage_forecasts = forecasts
+
             # Broadcast forecasts to WebSocket clients
             if forecasts and _main_loop and not _main_loop.is_closed():
                 msg = json.dumps({"type": "stage_forecasts", "data": forecasts})
@@ -974,6 +1079,7 @@ async def _stage_forecast_loop():
         except Exception as e:
             pass  # Never let ML failure break the server
 
+_latest_stage_forecasts = {}
 
 # ---------------------------------------------------------------------------
 # REST Endpoints
@@ -982,6 +1088,12 @@ async def _stage_forecast_loop():
 @app.get("/api/interfaces")
 async def list_interfaces():
     return get_real_interfaces()
+
+
+@app.get("/api/forecasts")
+async def get_forecasts():
+    """Return latest GRU stage forecasts for all active hosts."""
+    return _latest_stage_forecasts
 
 
 @app.get("/api/stats")
@@ -1085,6 +1197,59 @@ async def stop_all_captures():
 @app.get("/api/capture/status")
 async def capture_status():
     return {k: v for k, v in active_captures.items()}
+
+
+@app.get("/api/live-data/status")
+async def live_data_status():
+    """Show status of live flow data collection for retraining."""
+    csv_path = _LIVE_FLOWS_CSV
+    exists = os.path.exists(csv_path)
+    size = 0
+    rows = 0
+    if exists:
+        size = os.path.getsize(csv_path)
+        try:
+            with open(csv_path, 'r') as f:
+                rows = sum(1 for _ in f) - 1  # subtract header
+        except Exception:
+            pass
+    return {
+        'csv_path': csv_path,
+        'exists': exists,
+        'size_bytes': size,
+        'flow_count': max(rows, 0),
+        'total_logged': _LIVE_FLOW_COUNT,
+        'max_flows': _MAX_LIVE_FLOWS,
+    }
+
+
+@app.post("/api/retrain")
+async def retrain_classifier():
+    """Retrain the XGBoost flow classifier on collected live data + CIC-IDS2017."""
+    csv_path = _LIVE_FLOWS_CSV
+    if not os.path.exists(csv_path):
+        return {"status": "error", "message": "No live data collected yet. Start a capture first."}
+
+    try:
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), '..', 'training', 'train_from_cic_ids2017.py')
+        cic_dir = r'C:\Users\htc\Downloads\MachineLearningCSV\MachineLearningCVE'
+        if not os.path.exists(cic_dir):
+            return {"status": "error", "message": f"CIC-IDS2017 dataset not found at {cic_dir}"}
+
+        # Run training in background
+        proc = subprocess.Popen(
+            [sys.executable, script, cic_dir, '--output-dir', os.path.join(os.path.dirname(__file__), '..', 'models')],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        # Don't wait — training takes minutes
+        return {
+            "status": "started",
+            "pid": proc.pid,
+            "message": "Retraining started in background. Check /api/live-data/status for completion.",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 # ---------------------------------------------------------------------------

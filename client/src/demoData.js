@@ -175,21 +175,6 @@ function generateForecast(hostIp) {
   };
 }
 
-function generateAlert(hostIp, forecast) {
-  if (forecast.predictedStage === "Normal") return null;
-  return {
-    _id: `alert-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-    timestamp: new Date().toISOString(),
-    hostIp,
-    predictedStage: forecast.predictedStage,
-    confidence: forecast.confidence,
-    severity: forecast.severity.toUpperCase(),
-    mitreTechniques: forecast.mitreTechniques,
-    blockchainTxHash: `0x${Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("")}`,
-    mitigationSuggested: forecast.predictedStage === "Exfiltration" ? "ISOLATE_HOST" : forecast.predictedStage === "Lateral Movement" ? "BLOCK_PORTS" : "RATE_LIMIT",
-  };
-}
-
 // State vector feature names (23-dim from CyberForecaster)
 const STATE_FEATURES = [
   "total_packets", "total_bytes", "unique_src_ips", "unique_dst_ips", "unique_dst_ports",
@@ -250,7 +235,6 @@ export {
   getSimulatedHostState,
   generateTrafficEvent,
   generateForecast,
-  generateAlert,
   generateStateVector,
   generateTimelineHistory,
   TRANSITION_PROBS,

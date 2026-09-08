@@ -46,7 +46,8 @@ def run_simulator():
                 "dst_pkts": 3,
                 "total_bytes": 400,
                 "port_danger": 0.0,
-                "protocol": 1.0 # TCP
+                "protocol": 1.0, # TCP
+                "source": "simulator",
             }
             try:
                 requests.post(f"{BACKEND_URL}/traffic-event", json=payload)
@@ -62,7 +63,8 @@ def run_simulator():
                 "dst_pkts": 8,
                 "total_bytes": 1200, # smaller bytes
                 "port_danger": 0.5,
-                "protocol": 1.0
+                "protocol": 1.0,
+                "source": "simulator",
             }
             try:
                 requests.post(f"{BACKEND_URL}/traffic-event", json=payload)
@@ -80,7 +82,8 @@ def run_simulator():
                     "dst_pkts": random.randint(2, 3),
                     "total_bytes": random.randint(250, 350),
                     "port_danger": 0.0,
-                    "protocol": 1.0
+                    "protocol": 1.0,
+                    "source": "simulator",
                 }
                 status_text = "Normal Web HTTP/S flows"
             elif step < 10:
@@ -92,7 +95,8 @@ def run_simulator():
                     "dst_pkts": 9,
                     "total_bytes": 550,
                     "port_danger": 1.0, # Active scan danger
-                    "protocol": 1.0
+                    "protocol": 1.0,
+                    "source": "simulator",
                 }
                 status_text = "MALICIOUS: Network Recon Scan detected"
             elif step < 15:
@@ -104,7 +108,8 @@ def run_simulator():
                     "dst_pkts": 40,
                     "total_bytes": 5200,
                     "port_danger": 0.5,
-                    "protocol": 1.0
+                    "protocol": 1.0,
+                    "source": "simulator",
                 }
                 status_text = "ATTACK: Exploiting Public-Facing HTTP Web server"
             else:
@@ -116,7 +121,8 @@ def run_simulator():
                     "dst_pkts": 22,
                     "total_bytes": 3200,
                     "port_danger": 0.8,
-                    "protocol": 1.0
+                    "protocol": 1.0,
+                    "source": "simulator",
                 }
                 status_text = "LATERAL: SMB credential scanning targeting Finance server"
                 
@@ -142,7 +148,8 @@ def run_simulator():
                     "dst_pkts": 2,
                     "total_bytes": 180,
                     "port_danger": 0.0,
-                    "protocol": 1.0
+                    "protocol": 1.0,
+                    "source": "simulator",
                 }
                 status_text = "Normal internal SQL query flow"
             elif step < 20:
@@ -155,7 +162,8 @@ def run_simulator():
                         "dst_pkts": 28,
                         "total_bytes": 4800,
                         "port_danger": 0.8, # RDP/SMB login attempt
-                        "protocol": 1.0
+                        "protocol": 1.0,
+                        "source": "simulator",
                     }
                     status_text = "LATERAL INTRUSION: Remote login attempt from Public Web server"
                 else:
@@ -167,7 +175,8 @@ def run_simulator():
                         "dst_pkts": 2,
                         "total_bytes": 160,
                         "port_danger": 0.0,
-                        "protocol": 1.0
+                        "protocol": 1.0,
+                        "source": "simulator",
                     }
                     status_text = "Normal database flow (Pivoting blocked by mitigation)"
             else:
@@ -180,7 +189,8 @@ def run_simulator():
                         "dst_pkts": 140,
                         "total_bytes": 195000, # Big exfiltration transfer
                         "port_danger": 0.4,
-                        "protocol": 1.0
+                        "protocol": 1.0,
+                        "source": "simulator",
                     }
                     status_text = "EXFILTRATION ACTION: Dumping financial ledgers to external server"
                 else:
@@ -191,7 +201,8 @@ def run_simulator():
                         "dst_pkts": 2,
                         "total_bytes": 160,
                         "port_danger": 0.0,
-                        "protocol": 1.0
+                        "protocol": 1.0,
+                        "source": "simulator",
                     }
                     status_text = "Normal database flow (Exfiltration thwarted)"
                     
@@ -213,7 +224,8 @@ def run_simulator():
                 "dst_pkts": random.randint(2, 4),
                 "total_bytes": random.randint(150, 250),
                 "port_danger": 0.0,
-                "protocol": 0.5 # UDP DNS/NTP request
+                "protocol": 0.5, # UDP DNS/NTP request
+                "source": "simulator",
             }
             try:
                 requests.post(f"{BACKEND_URL}/traffic-event", json=payload)

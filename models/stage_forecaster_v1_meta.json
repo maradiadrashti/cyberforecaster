@@ -1,6 +1,6 @@
 {
   "version": "v1",
-  "created": "2026-08-31T22:42:31.005315",
+  "created": "2026-09-08T14:33:32.169776",
   "stages": [
     "normal",
     "reconnaissance",
@@ -53,6 +53,16 @@
     ]
   },
   "forecast_horizon_seconds": 30,
-  "test_accuracy": 1.0,
-  "training_notes": "Sequences include bootstrapped multi-stage data constructed from real flows in artificial temporal order. This is a TEMPORARY bootstrapping strategy until real multi-stage incidents are captured."
+  "test_accuracy": 0.8606666666666667,
+  "training_notes": "Trained on CIC-IDS2017 (2.83M flows, 200K subsample). Temporal sequences via sliding windows over duration-sorted flows.",
+  "label_mapping": {
+    "BENIGN": "normal",
+    "PortScan": "reconnaissance",
+    "FTP-Patator": "initial_access",
+    "SSH-Patator": "initial_access",
+    "DDoS": "command_control",
+    "DoS Hulk": "command_control",
+    "Bot": "lateral_movement",
+    "Infiltration": "exfiltration"
+  }
 }
