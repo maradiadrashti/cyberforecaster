@@ -569,93 +569,10 @@ export default function AttackForecast({
         <KillChainBar currentStage={threatInfo.state === "ready" ? threatInfo.stage : "Normal"} />
       </section>
 
-      {/* ── 3. Main Grid: Threat Prediction + Time Horizons ────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left (5 cols): Threat Prediction Card */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="glass-card rounded-xl border border-slate-800/50 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="h-4 w-4 text-rose-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Threat Prediction</h3>
-              </div>
-              <span className="text-[8px] font-mono-tech text-cyan-400 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-900/50">
-                {threatInfo.source || "Live ML Output"}
-              </span>
-            </div>
-
-            {threatInfo.state === "ready" ? (
-              <div className="space-y-4">
-                <div>
-                  <p className="text-[9px] text-slate-500 uppercase tracking-wider font-mono-tech mb-1">Forecasted Attack Stage</p>
-                  <p className="text-2xl font-black font-mono-tech tracking-wide" style={{ color: threatInfo.color }}>
-                    {threatInfo.stage}
-                  </p>
-                  <p className="text-xs text-slate-400 font-mono-tech mt-1">
-                    Confidence: <span className="text-white font-bold">{(threatInfo.confidence * 100).toFixed(1)}%</span>
-                    {" "}| Risk Score: <span className="text-white font-bold">{(threatInfo.riskScore * 100).toFixed(1)}%</span>
-                  </p>
-                </div>
-
-                {/* ML Stage Probabilities */}
-                {threatInfo.mlProbs && (
-                  <div className="space-y-2 pt-2 border-t border-slate-800/80">
-                    <p className="text-[8px] text-slate-500 uppercase tracking-wider font-mono-tech">Stage Probability Distribution</p>
-                    {Object.entries(threatInfo.mlProbs).map(([stage, prob]) => {
-                      const pPct = Math.round(prob * 100);
-                      return (
-                        <div key={stage} className="space-y-0.5">
-                          <div className="flex justify-between text-[9px] font-mono-tech">
-                            <span className="text-slate-400">{stage}</span>
-                            <span className="text-slate-300 font-bold">{pPct}%</span>
-                          </div>
-                          <div className="h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                            <div
-                              className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${pPct}%`, backgroundColor: STAGE_COLORS[stage] || '#64748b' }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Monitored Target IP details */}
-                <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-900">
-                  <p className="text-[9px] text-slate-500 uppercase font-mono-tech mb-1">Target Host IP</p>
-                  <p className="text-sm font-bold text-cyan-400 font-mono-tech">{effectiveHostIp || "N/A"}</p>
-                  {selectedFlow && (
-                    <div className="mt-2 space-y-1 text-[9px] font-mono-tech border-t border-slate-900 pt-2">
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Attack Classification:</span>
-                        <span className="text-amber-400 font-bold">{selectedFlow.attack_type}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Destination Port:</span>
-                        <span className="text-white font-bold">{selectedFlow.dst_port}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Protocol:</span>
-                        <span className="text-white font-bold">{selectedFlow.protocol}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-slate-600 text-[10px] font-mono-tech space-y-1">
-                <Target className="h-6 w-6 mx-auto mb-2 opacity-20 text-cyan-400" />
-                <p className="text-slate-400 font-bold">Waiting for live traffic stream…</p>
-                <p>Start a capture on Live Traffic to see real model forecasts.</p>
-              </div>
-            )}
-          </div>
-        </div>
 
       {/* ── 3. Main Dashboard Grid ─────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column (5 cols): Threat Prediction Card — spans both rows */}
+        {/* Left Column (5 cols): Threat Prediction Card - spans both rows */}
         <div className="lg:col-span-5 lg:row-span-2">
           <div className="glass-card rounded-xl border border-slate-800/50 p-5 h-full flex flex-col justify-between">
             <div className="flex items-center justify-between mb-4">
@@ -851,7 +768,7 @@ export default function AttackForecast({
           </div>
         </div>
 
-        {/* Right Bottom Row (7 cols): Recommended Action — full width of right area */}
+        {/* Right Bottom Row (7 cols): Recommended Action - full width of right area */}
         <div className="lg:col-span-7">
           <div className="glass-card rounded-xl border border-slate-800/50 p-5">
             <div className="flex items-center justify-between mb-3">
