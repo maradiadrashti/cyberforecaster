@@ -120,8 +120,18 @@ export default function AttackForecast({
     return selectedFlow?.src_ip || attackFlows?.[0]?.src_ip || activeHostsList?.[0] || "";
   }, [selectedFlow, attackFlows, activeHostsList]);
 
-  // Poll real-time forecasts from REST API + WebSocket global object
+  // Reset stale forecasts when capture stops
   useEffect(() => {
+    if (!isCapturing) {
+      setMlForecasts({});
+      if (window.__mlStageForecasts) window.__mlStageForecasts = {};
+    }
+  }, [isCapturing]);
+
+  // Poll real-time forecasts from REST API + WebSocket global object (only while capturing)
+  useEffect(() => {
+    if (!isCapturing) return;
+
     const fetchForecasts = async () => {
       try {
         const res = await fetch(`${CAPTURE_API}/api/forecasts`);
@@ -137,9 +147,9 @@ export default function AttackForecast({
     };
 
     fetchForecasts();
-    const interval = setInterval(fetchForecasts, 500); // 500ms update
+    const interval = setInterval(fetchForecasts, 500);
     return () => clearInterval(interval);
-  }, []);
+  }, [isCapturing]);
 
   // Compute live packet rate (pps) from actual packet stream
   useEffect(() => {
@@ -241,6 +251,11 @@ export default function AttackForecast({
 
   // Determine GRU threat forecast for effectiveHostIp with live traffic fallback
   const threatInfo = useMemo(() => {
+    // If not capturing at all, show idle/waiting state
+    if (!isCapturing) {
+      return { state: "idle" };
+    }
+
     const activeAttacks = (attackFlows || []).filter(f => f.severity && f.severity !== "none" && f.attack_type && f.attack_type !== "Benign");
 
     // 100% BENIGN NORMAL TRAFFIC BASELINE
@@ -337,7 +352,7 @@ export default function AttackForecast({
       recentRiskHistory: [riskScore],
       source: "Live Telemetry Analysis",
     };
-  }, [attackFlows, effectiveHostIp, mlForecasts, mapStageName]);
+  }, [isCapturing, attackFlows, effectiveHostIp, mlForecasts, mapStageName]);
 
   // Calculate live evidence and telemetry statistics
   const liveSignals = useMemo(() => {
