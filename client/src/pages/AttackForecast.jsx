@@ -659,7 +659,7 @@ export default function AttackForecast({
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
             {/* Forecast Summary (7 cols) */}
             <div className="xl:col-span-7">
-              <div className="glass-card rounded-xl border border-slate-800/50 p-5 h-full flex flex-col justify-between">
+              <div className="glass-card rounded-xl border border-slate-800/50 p-5">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-purple-400" />
@@ -720,7 +720,7 @@ export default function AttackForecast({
 
             {/* Evidence & Signals (5 cols) */}
             <div className="xl:col-span-5">
-              <div className="glass-card rounded-xl border border-slate-800/50 p-5 h-full flex flex-col justify-between">
+              <div className="glass-card rounded-xl border border-slate-800/50 p-5">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Activity className="h-4 w-4 text-cyan-400" />
