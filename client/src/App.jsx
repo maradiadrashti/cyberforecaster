@@ -6,9 +6,7 @@ import {
   TrendingUp, Globe
 } from "lucide-react";
 import LiveTraffic from "./pages/LiveTraffic";
-import Overview from "./pages/Overview";
 import AttackForecast from "./pages/AttackForecast";
-import Explainability from "./pages/Explainability";
 import ModelPerformance from "./pages/ModelPerformance";
 import AuditTrail from "./pages/AuditTrail";
 import {
@@ -19,8 +17,8 @@ import {
 const NAV_ITEMS = [
   { id: "live", label: "Live Traffic", icon: Activity },
   { id: "forecast", label: "Attack Forecast", icon: Target },
-  { id: "overview", label: "Overview", icon: Layers },
-  { id: "explain", label: "Explainability", icon: Brain },
+
+
   { id: "model", label: "Model Performance", icon: BarChart3 },
   { id: "audit", label: "Audit Trail", icon: Database },
 ];
@@ -247,15 +245,7 @@ export default function App() {
               isCapturing={captureStats.active_captures && (selectedInterface ? !!captureStats.active_captures[selectedInterface] : Object.keys(captureStats.active_captures).length > 0)}
             />
           )}
-          {activePage === "overview" && (
-            <Overview />
-          )}
-          {activePage === "explain" && (
-            <Explainability
-              hosts={hosts}
-              forecasts={forecasts}
-            />
-          )}
+
           {activePage === "model" && (
             <ModelPerformance />
           )}
