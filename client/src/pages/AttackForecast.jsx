@@ -653,256 +653,326 @@ export default function AttackForecast({
           </div>
         </div>
 
-        {/* Right (7 cols): Forecast Summary (Time Horizons) */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="glass-card rounded-xl border border-slate-800/50 p-5">
+      {/* ── 3. Main Dashboard Grid ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column (5 cols): Threat Prediction Card — spans both rows */}
+        <div className="lg:col-span-5 lg:row-span-2">
+          <div className="glass-card rounded-xl border border-slate-800/50 p-5 h-full flex flex-col justify-between">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-purple-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Forecast Summary</h3>
+                <ShieldAlert className="h-4 w-4 text-rose-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Threat Prediction</h3>
               </div>
-              <span className="text-[8px] font-mono-tech text-purple-400 bg-purple-950/30 px-2 py-0.5 rounded border border-purple-900/50">
-                Derived from live traffic
+              <span className="text-[8px] font-mono-tech text-cyan-400 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-900/50">
+                {threatInfo.source || "Live ML Output"}
               </span>
             </div>
 
-            {forecastHorizons ? (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {forecastHorizons.map((h) => {
-                  const Icon = h.trendIcon;
-                  return (
-                    <div key={h.horizon} className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col justify-between space-y-3">
-                      <div>
-                        <div className="flex items-center justify-between text-[9px] font-mono-tech text-slate-400 mb-1">
-                          <span className="font-bold">{h.horizon}</span>
-                          <span className="text-slate-500">{h.window}</span>
-                        </div>
+            {threatInfo.state === "ready" ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[9px] text-slate-500 uppercase tracking-wider font-mono-tech mb-1">Forecasted Attack Stage</p>
+                  <p className="text-2xl font-black font-mono-tech tracking-wide" style={{ color: threatInfo.color }}>
+                    {threatInfo.stage}
+                  </p>
+                  <p className="text-xs text-slate-400 font-mono-tech mt-1">
+                    Confidence: <span className="text-white font-bold">{(threatInfo.confidence * 100).toFixed(1)}%</span>
+                    {" "}| Risk Score: <span className="text-white font-bold">{(threatInfo.riskScore * 100).toFixed(1)}%</span>
+                  </p>
+                </div>
 
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono-tech font-bold border ${h.risk.color}`}>
-                            {h.risk.label}
-                          </span>
-                          <span className="text-lg font-bold font-mono-tech text-white">
-                            {(h.riskVal * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5 pt-2 border-t border-slate-900 text-[9px] font-mono-tech">
-                        <div className="flex justify-between items-center text-slate-400">
-                          <span>Confidence:</span>
-                          <span className="text-white font-bold">{h.confidence}%</span>
-                        </div>
-                        <div className="flex justify-between items-center text-slate-400">
-                          <span>Trend:</span>
-                          <div className={`flex items-center gap-1 font-bold ${h.trendColor}`}>
-                            <Icon className="h-3 w-3" />
-                            <span>{h.trend}</span>
+                {/* ML Stage Probabilities */}
+                {threatInfo.mlProbs && (
+                  <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                    <p className="text-[8px] text-slate-500 uppercase tracking-wider font-mono-tech">Stage Probability Distribution</p>
+                    {Object.entries(threatInfo.mlProbs).map(([stage, prob]) => {
+                      const pPct = Math.round(prob * 100);
+                      return (
+                        <div key={stage} className="space-y-0.5">
+                          <div className="flex justify-between text-[9px] font-mono-tech">
+                            <span className="text-slate-400">{stage}</span>
+                            <span className="text-slate-300 font-bold">{pPct}%</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${pPct}%`, backgroundColor: STAGE_COLORS[stage] || '#64748b' }}
+                            />
                           </div>
                         </div>
-                        <p className="text-[8px] text-slate-500 font-mono-tech truncate mt-1">
-                          {h.evidence}
-                        </p>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Monitored Target IP details */}
+                <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-900">
+                  <p className="text-[9px] text-slate-500 uppercase font-mono-tech mb-1">Target Host IP</p>
+                  <p className="text-sm font-bold text-cyan-400 font-mono-tech">{effectiveHostIp || "N/A"}</p>
+                  {selectedFlow && (
+                    <div className="mt-2 space-y-1 text-[9px] font-mono-tech border-t border-slate-900 pt-2">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Attack Classification:</span>
+                        <span className="text-amber-400 font-bold">{selectedFlow.attack_type}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Destination Port:</span>
+                        <span className="text-white font-bold">{selectedFlow.dst_port}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Protocol:</span>
+                        <span className="text-white font-bold">{selectedFlow.protocol}</span>
                       </div>
                     </div>
-                  );
-                })}
+                  )}
+                </div>
               </div>
             ) : (
-              <div className="p-8 text-center text-[10px] font-mono-tech text-slate-500 bg-slate-950/40 rounded-xl border border-slate-900">
-                <Clock className="h-6 w-6 mx-auto mb-2 opacity-30 text-cyan-400" />
-                <p className="text-slate-300 font-bold">Collecting live history for time horizon projection…</p>
-                <p className="text-slate-500 mt-1">Multi-step forecast will update as live traffic flows accumulate.</p>
+              <div className="text-center py-8 text-slate-600 text-[10px] font-mono-tech space-y-1">
+                <Target className="h-6 w-6 mx-auto mb-2 opacity-20 text-cyan-400" />
+                <p className="text-slate-400 font-bold">Waiting for live traffic stream…</p>
+                <p>Start a capture on Live Traffic to see real model forecasts.</p>
               </div>
             )}
           </div>
         </div>
-      </div>
 
-      {/* ── 4. Evidence & Signals ────────────────────────────────────────── */}
-      <section className="glass-card rounded-xl border border-slate-800/50 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-cyan-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Evidence & Signals</h3>
-          </div>
-          <span className="text-[8px] font-mono-tech text-cyan-400 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-900/50">
-            From live traffic
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-            <p className="text-[8px] text-slate-500 uppercase font-mono-tech">Packet Rate</p>
-            <p className="text-base font-bold text-cyan-400 font-mono-tech mt-1">{liveSignals.pps} <span className="text-[9px] text-slate-500 font-normal">pps</span></p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-            <p className="text-[8px] text-slate-500 uppercase font-mono-tech">Flow Rate</p>
-            <p className="text-base font-bold text-white font-mono-tech mt-1">{liveSignals.flowCount} <span className="text-[9px] text-slate-500 font-normal">flows</span></p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-            <p className="text-[8px] text-slate-500 uppercase font-mono-tech">Recent Alerts</p>
-            <p className={`text-base font-bold font-mono-tech mt-1 ${liveSignals.activeAlerts > 0 ? "text-rose-400" : "text-emerald-400"}`}>
-              {liveSignals.activeAlerts}
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-            <p className="text-[8px] text-slate-500 uppercase font-mono-tech">Attack Type</p>
-            <p className="text-xs font-bold text-amber-400 font-mono-tech truncate mt-1">
-              {liveSignals.primaryAttack}
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-            <p className="text-[8px] text-slate-500 uppercase font-mono-tech">Top Source IP</p>
-            <p className="text-xs font-bold text-white font-mono-tech truncate mt-1">
-              {liveSignals.topSrc}
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-            <p className="text-[8px] text-slate-500 uppercase font-mono-tech">Top Destination IP</p>
-            <p className="text-xs font-bold text-slate-300 font-mono-tech truncate mt-1">
-              {liveSignals.topDst}
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-            <p className="text-[8px] text-slate-500 uppercase font-mono-tech">Unique Dst Ports</p>
-            <p className="text-base font-bold text-purple-400 font-mono-tech mt-1">
-              {liveSignals.uniquePortsCount}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── 5. Recommended Action & Defensive Interventions ────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Recommended Action (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="glass-card rounded-xl border border-slate-800/50 p-5 h-full flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-amber-400" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Recommended Action</h3>
+        {/* Right Top Row (7 cols): Forecast Summary + Evidence & Signals */}
+        <div className="lg:col-span-7">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+            {/* Forecast Summary (7 cols) */}
+            <div className="xl:col-span-7">
+              <div className="glass-card rounded-xl border border-slate-800/50 p-5 h-full flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-purple-400" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Forecast Summary</h3>
+                  </div>
+                  <span className="text-[8px] font-mono-tech text-purple-400 bg-purple-950/30 px-2 py-0.5 rounded border border-purple-900/50">
+                    Live
+                  </span>
                 </div>
-                <span className={`px-2 py-0.5 rounded text-[8px] font-mono-tech font-bold uppercase ${
-                  recommendation.priority === "CRITICAL" ? "bg-rose-950/50 text-rose-400 border border-rose-900/50" :
-                  recommendation.priority === "HIGH" ? "bg-amber-950/50 text-amber-400 border border-amber-900/50" :
-                  recommendation.priority === "MEDIUM" ? "bg-yellow-950/50 text-yellow-400 border border-yellow-900/50" :
-                  "bg-emerald-950/50 text-emerald-400 border border-emerald-900/50"
-                }`}>
-                  {recommendation.priority} PRIORITY
-                </span>
-              </div>
 
-              <p className={`text-sm font-black font-mono-tech tracking-wide mt-2 ${recommendation.color}`}>
-                {recommendation.action}
-              </p>
-              <p className="text-[10px] text-slate-400 font-mono-tech mt-2 leading-relaxed">
-                {recommendation.reason}
-              </p>
+                {forecastHorizons ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {forecastHorizons.map((h) => {
+                      const Icon = h.trendIcon;
+                      return (
+                        <div key={h.horizon} className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col justify-between space-y-2">
+                          <div>
+                            <div className="flex items-center justify-between text-[8px] font-mono-tech text-slate-400 mb-1">
+                              <span className="font-bold">{h.horizon}</span>
+                              <span className="text-slate-500">{h.window}</span>
+                            </div>
+
+                            <div className="mt-1 flex items-center justify-between">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono-tech font-bold border ${h.risk.color}`}>
+                                {h.risk.label}
+                              </span>
+                              <span className="text-sm font-bold font-mono-tech text-white">
+                                {(h.riskVal * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 pt-1.5 border-t border-slate-900 text-[8px] font-mono-tech">
+                            <div className="flex justify-between items-center text-slate-400">
+                              <span>Conf:</span>
+                              <span className="text-white font-bold">{h.confidence}%</span>
+                            </div>
+                            <div className="flex justify-between items-center text-slate-400">
+                              <span>Trend:</span>
+                              <div className={`flex items-center gap-0.5 font-bold ${h.trendColor}`}>
+                                <Icon className="h-2.5 w-2.5" />
+                                <span>{h.trend}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-[10px] font-mono-tech text-slate-500 bg-slate-950/40 rounded-xl border border-slate-900">
+                    <Clock className="h-5 w-5 mx-auto mb-1 opacity-30 text-cyan-400" />
+                    <p className="text-slate-300 font-bold">Collecting live history…</p>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-900 grid grid-cols-2 gap-2 text-[9px] font-mono-tech">
-              <div>
-                <span className="text-slate-500">Source:</span>
-                <span className="ml-1 text-white font-bold">{recommendation.source}</span>
-              </div>
-              <div>
-                <span className="text-slate-500">Target:</span>
-                <span className="ml-1 text-slate-300 font-bold">{recommendation.target}</span>
+            {/* Evidence & Signals (5 cols) */}
+            <div className="xl:col-span-5">
+              <div className="glass-card rounded-xl border border-slate-800/50 p-5 h-full flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-cyan-400" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Evidence & Signals</h3>
+                  </div>
+                  <span className="text-[8px] font-mono-tech text-cyan-400 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-900/50">
+                    Live
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 text-[9px] font-mono-tech">
+                  <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                    <span className="text-slate-400">Packet Rate:</span>
+                    <span className="text-cyan-400 font-bold">{liveSignals.pps} pps</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                    <span className="text-slate-400">Flow Rate:</span>
+                    <span className="text-white font-bold">{liveSignals.flowCount} flows</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                    <span className="text-slate-400">Alert Count:</span>
+                    <span className={`font-bold ${liveSignals.activeAlerts > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                      {liveSignals.activeAlerts}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                    <span className="text-slate-400">Attack Type:</span>
+                    <span className="text-amber-400 font-bold truncate max-w-[100px]">{liveSignals.primaryAttack}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                    <span className="text-slate-400">Source IP:</span>
+                    <span className="text-white font-bold truncate max-w-[100px]">{liveSignals.topSrc}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-900">
+                    <span className="text-slate-400">Destination IP:</span>
+                    <span className="text-slate-300 font-bold truncate max-w-[100px]">{liveSignals.topDst}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-slate-400">Unique Dst Ports:</span>
+                    <span className="text-purple-400 font-bold">{liveSignals.uniquePortsCount}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Defensive Interventions (7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
+        {/* Right Bottom Row (7 cols): Recommended Action — full width of right area */}
+        <div className="lg:col-span-7">
           <div className="glass-card rounded-xl border border-slate-800/50 p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 text-emerald-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Defensive Interventions</h3>
+                <Zap className="h-4 w-4 text-amber-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Recommended Action</h3>
               </div>
-              <span className="text-[8px] font-mono-tech text-emerald-400 bg-emerald-950/30 px-2 py-0.5 rounded border border-emerald-900/50">
-                ACTIONS ARE LIVE
+              <span className={`px-2 py-0.5 rounded text-[8px] font-mono-tech font-bold uppercase ${
+                recommendation.priority === "CRITICAL" ? "bg-rose-950/50 text-rose-400 border border-rose-900/50" :
+                recommendation.priority === "HIGH" ? "bg-amber-950/50 text-amber-400 border border-amber-900/50" :
+                recommendation.priority === "MEDIUM" ? "bg-yellow-950/50 text-yellow-400 border border-yellow-900/50" :
+                "bg-emerald-950/50 text-emerald-400 border border-emerald-900/50"
+              }`}>
+                {recommendation.priority} PRIORITY
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <DefenseButton
-                label="Rate Limit"
-                icon={Gauge}
-                color="bg-amber-950/10 border border-amber-800/60 hover:bg-amber-600/20 text-amber-400"
-                activeColor="bg-amber-600/25 border border-amber-500 text-amber-300 glow-amber"
-                isActive={currentDefense.rate_limited_ips?.includes(effectiveHostIp)}
-                onClick={handleRateLimitToggle}
-                loading={defenseLoading.rateLimit}
-              />
-              <DefenseButton
-                label="Block IP"
-                icon={Ban}
-                color="bg-rose-950/10 border border-rose-800/60 hover:bg-rose-600/20 text-rose-400"
-                activeColor="bg-rose-600/25 border border-rose-500 text-rose-300 glow-red"
-                isActive={currentDefense.blocked_ips?.includes(effectiveHostIp)}
-                onClick={handleBlockIpToggle}
-                loading={defenseLoading.blockIp}
-              />
-              <DefenseButton
-                label="Isolate Port"
-                icon={Lock}
-                color="bg-purple-950/10 border border-purple-800/60 hover:bg-purple-600/20 text-purple-400"
-                activeColor="bg-purple-600/25 border border-purple-500 text-purple-300"
-                isActive={currentDefense.isolated_ports?.includes(selectedFlow?.dst_port || 443)}
-                onClick={handleIsolatePortToggle}
-                loading={defenseLoading.isolatePort}
-              />
-              <DefenseButton
-                label="Raise Firewall"
-                icon={ShieldAlert}
-                color="bg-cyan-950/10 border border-cyan-800/60 hover:bg-cyan-600/20 text-cyan-400"
-                activeColor="bg-cyan-600/25 border border-cyan-500 text-cyan-300 glow-cyan"
-                isActive={currentDefense.firewall_raised}
-                onClick={handleFirewallToggle}
-                loading={defenseLoading.firewall}
-              />
-            </div>
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="space-y-1 max-w-xl">
+                <p className={`text-sm font-black font-mono-tech tracking-wide ${recommendation.color}`}>
+                  {recommendation.action}
+                </p>
+                <p className="text-[10px] text-slate-400 font-mono-tech leading-relaxed">
+                  {recommendation.reason}
+                </p>
+              </div>
 
-            {/* Active defense status log */}
-            <div className="mt-4 space-y-1.5">
-              {currentDefense.firewall_raised && (
-                <div className="flex items-center gap-2 p-2 rounded-lg bg-cyan-950/20 border border-cyan-900/30 text-[10px] font-mono-tech text-cyan-400">
-                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-                  <span>Firewall RAISED on <span className="font-bold">{selectedInterface}</span> — all inbound traffic blocked</span>
+              <div className="flex items-center gap-4 text-[9px] font-mono-tech text-slate-400">
+                <div>
+                  <span className="text-slate-500">Source:</span>
+                  <span className="ml-1 text-white font-bold">{recommendation.source}</span>
                 </div>
-              )}
-              {currentDefense.blocked_ips?.map(ip => (
-                <div key={ip} className="flex items-center gap-2 p-2 rounded-lg bg-rose-950/20 border border-rose-900/30 text-[10px] font-mono-tech text-rose-400">
-                  <Ban className="h-3.5 w-3.5 shrink-0" />
-                  <span>IP <span className="font-bold">{ip}</span> is BLOCKED</span>
+                <div>
+                  <span className="text-slate-500">Target:</span>
+                  <span className="ml-1 text-slate-300 font-bold">{recommendation.target}</span>
                 </div>
-              ))}
-              {currentDefense.rate_limited_ips?.map(ip => (
-                <div key={ip} className="flex items-center gap-2 p-2 rounded-lg bg-amber-950/20 border border-amber-900/30 text-[10px] font-mono-tech text-amber-400">
-                  <Gauge className="h-3.5 w-3.5 shrink-0" />
-                  <span>IP <span className="font-bold">{ip}</span> is RATE LIMITED (10 pps threshold)</span>
-                </div>
-              ))}
-              {currentDefense.isolated_ports?.map(port => (
-                <div key={port} className="flex items-center gap-2 p-2 rounded-lg bg-purple-950/20 border border-purple-900/30 text-[10px] font-mono-tech text-purple-400">
-                  <Lock className="h-3.5 w-3.5 shrink-0" />
-                  <span>Port <span className="font-bold">{port}</span> is ISOLATED</span>
-                </div>
-              ))}
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* ── 4. Full Width Bottom Section: Defensive Interventions ─────────── */}
+      <section className="glass-card rounded-xl border border-slate-800/50 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-emerald-400" />
+            <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Defensive Interventions</h3>
+          </div>
+          <span className="text-[8px] font-mono-tech text-emerald-400 bg-emerald-950/30 px-2 py-0.5 rounded border border-emerald-900/50">
+            ACTIONS ARE LIVE
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <DefenseButton
+            label="Rate Limit"
+            icon={Gauge}
+            color="bg-amber-950/10 border border-amber-800/60 hover:bg-amber-600/20 text-amber-400"
+            activeColor="bg-amber-600/25 border border-amber-500 text-amber-300 glow-amber"
+            isActive={currentDefense.rate_limited_ips?.includes(effectiveHostIp)}
+            onClick={handleRateLimitToggle}
+            loading={defenseLoading.rateLimit}
+          />
+          <DefenseButton
+            label="Block IP"
+            icon={Ban}
+            color="bg-rose-950/10 border border-rose-800/60 hover:bg-rose-600/20 text-rose-400"
+            activeColor="bg-rose-600/25 border border-rose-500 text-rose-300 glow-red"
+            isActive={currentDefense.blocked_ips?.includes(effectiveHostIp)}
+            onClick={handleBlockIpToggle}
+            loading={defenseLoading.blockIp}
+          />
+          <DefenseButton
+            label="Isolate Port"
+            icon={Lock}
+            color="bg-purple-950/10 border border-purple-800/60 hover:bg-purple-600/20 text-purple-400"
+            activeColor="bg-purple-600/25 border border-purple-500 text-purple-300"
+            isActive={currentDefense.isolated_ports?.includes(selectedFlow?.dst_port || 443)}
+            onClick={handleIsolatePortToggle}
+            loading={defenseLoading.isolatePort}
+          />
+          <DefenseButton
+            label="Raise Firewall"
+            icon={ShieldAlert}
+            color="bg-cyan-950/10 border border-cyan-800/60 hover:bg-cyan-600/20 text-cyan-400"
+            activeColor="bg-cyan-600/25 border border-cyan-500 text-cyan-300 glow-cyan"
+            isActive={currentDefense.firewall_raised}
+            onClick={handleFirewallToggle}
+            loading={defenseLoading.firewall}
+          />
+        </div>
+
+        {/* Active defense status log */}
+        <div className="mt-4 space-y-1.5">
+          {currentDefense.firewall_raised && (
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-cyan-950/20 border border-cyan-900/30 text-[10px] font-mono-tech text-cyan-400">
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              <span>Firewall RAISED on <span className="font-bold">{selectedInterface}</span> — all inbound traffic blocked</span>
+            </div>
+          )}
+          {currentDefense.blocked_ips?.map(ip => (
+            <div key={ip} className="flex items-center gap-2 p-2 rounded-lg bg-rose-950/20 border border-rose-900/30 text-[10px] font-mono-tech text-rose-400">
+              <Ban className="h-3.5 w-3.5 shrink-0" />
+              <span>IP <span className="font-bold">{ip}</span> is BLOCKED</span>
+            </div>
+          ))}
+          {currentDefense.rate_limited_ips?.map(ip => (
+            <div key={ip} className="flex items-center gap-2 p-2 rounded-lg bg-amber-950/20 border border-amber-900/30 text-[10px] font-mono-tech text-amber-400">
+              <Gauge className="h-3.5 w-3.5 shrink-0" />
+              <span>IP <span className="font-bold">{ip}</span> is RATE LIMITED (10 pps threshold)</span>
+            </div>
+          ))}
+          {currentDefense.isolated_ports?.map(port => (
+            <div key={port} className="flex items-center gap-2 p-2 rounded-lg bg-purple-950/20 border border-purple-900/30 text-[10px] font-mono-tech text-purple-400">
+              <Lock className="h-3.5 w-3.5 shrink-0" />
+              <span>Port <span className="font-bold">{port}</span> is ISOLATED</span>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
