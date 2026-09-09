@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useState } from "react";
 import {
-  ShieldAlert, ArrowRight, Activity, Radio, Cpu, Lock, Terminal
+  ShieldAlert, ArrowRight, Activity, Cpu, Lock
 } from "lucide-react";
 
 // Lazy-load Spline to prevent blocking initial page render
@@ -69,11 +69,11 @@ export default function LandingPage({ onGetStarted }) {
 
             {/* Supporting Text */}
             <p className="text-sm sm:text-base text-slate-300 leading-relaxed font-normal max-w-xl">
-              AI-based network attack forecasting from live network traffic using temporal machine learning and evidence-supported threat assessment.
+              Stay ahead of cyber threats with intelligent insights from your network.
             </p>
 
-            {/* Call To Action Button & Feature Line */}
-            <div className="pt-2 space-y-4">
+            {/* Call To Action Button */}
+            <div className="pt-2">
               <button
                 id="get-started-btn"
                 onClick={onGetStarted}
@@ -83,15 +83,6 @@ export default function LandingPage({ onGetStarted }) {
                 <ArrowRight className="h-4 w-4 text-black group-hover:translate-x-1 transition-transform duration-300" />
                 <div className="absolute inset-0 rounded-lg bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
               </button>
-
-              {/* Optional Small Feature Line */}
-              <div className="text-[11px] sm:text-xs font-mono-tech tracking-widest text-slate-400 pt-1 flex items-center gap-2">
-                <span>LIVE NETWORK TRAFFIC</span>
-                <span className="text-cyan-500">•</span>
-                <span>AI FORECASTING</span>
-                <span className="text-cyan-500">•</span>
-                <span>MITRE ATT&CK</span>
-              </div>
             </div>
 
             {/* Subtle Tech Indicators */}
@@ -108,36 +99,21 @@ export default function LandingPage({ onGetStarted }) {
 
           </div>
 
-          {/* RIGHT SIDE: Spline 3D Robot */}
+          {/* RIGHT SIDE: Spline 3D Robot (Clean, Borderless Presentation) */}
           <div className="lg:col-span-6 w-full h-[420px] sm:h-[500px] lg:h-[620px] relative flex items-center justify-center">
             
             {/* Ambient Backlight for 3D Robot */}
             <div className="absolute inset-0 bg-gradient-to-t from-cyan-500/10 via-indigo-500/5 to-transparent rounded-2xl blur-xl pointer-events-none" />
             
-            {/* Robot Container with subtle cyber frame */}
-            <div className="w-full h-full relative rounded-2xl border border-slate-800/80 bg-slate-950/40 backdrop-blur-sm overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+            {/* Robot Direct Container */}
+            <div className="w-full h-full relative flex items-center justify-center">
               
-              {/* Corner tech decals */}
-              <div className="absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-cyan-400/60 z-20 pointer-events-none" />
-              <div className="absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-cyan-400/60 z-20 pointer-events-none" />
-              <div className="absolute bottom-2 left-2 w-3 h-3 border-b-2 border-l-2 border-cyan-400/60 z-20 pointer-events-none" />
-              <div className="absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-cyan-400/60 z-20 pointer-events-none" />
-
-              {/* Status Header Badge in 3D viewport */}
-              <div className="absolute top-3 left-4 z-20 flex items-center gap-2 text-[10px] font-mono-tech text-slate-400 bg-slate-900/80 px-2.5 py-1 rounded border border-slate-800 pointer-events-none">
-                <Radio className="h-2.5 w-2.5 text-cyan-400 animate-pulse" />
-                <span>INTERACTIVE 3D SENSOR</span>
-              </div>
-
               {/* Loading skeleton / Fallback */}
               {!isSceneLoaded && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#080b12] z-10 text-center p-4">
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
                   <div className="h-10 w-10 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin mb-3" />
                   <p className="text-xs font-mono-tech text-cyan-300 tracking-wider">
-                    INITIALIZING 3D ROBOT SENSOR...
-                  </p>
-                  <p className="text-[10px] text-slate-500 font-mono-tech mt-1">
-                    Loading WebGL interactive model
+                    INITIALIZING 3D ROBOT...
                   </p>
                 </div>
               )}
@@ -145,7 +121,7 @@ export default function LandingPage({ onGetStarted }) {
               {/* Spline 3D Scene */}
               <Suspense
                 fallback={
-                  <div className="w-full h-full flex items-center justify-center bg-[#080b12]">
+                  <div className="w-full h-full flex items-center justify-center">
                     <div className="h-8 w-8 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
                   </div>
                 }
@@ -156,13 +132,6 @@ export default function LandingPage({ onGetStarted }) {
                   className="w-full h-full cursor-grab active:cursor-grabbing"
                 />
               </Suspense>
-
-              {/* Interactive prompt bar */}
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-                <span className="text-[9px] font-mono-tech text-slate-400 bg-slate-900/90 border border-slate-800/80 px-3 py-1 rounded-full shadow-lg whitespace-nowrap">
-                  Move cursor over canvas to interact
-                </span>
-              </div>
 
             </div>
           </div>
