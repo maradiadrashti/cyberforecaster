@@ -6,7 +6,6 @@
 
 # Python virtual environments & cache
 /.venv/
-/ml_service/venv/
 /**/__pycache__/
 *.pyc
 *.pyo
@@ -21,27 +20,15 @@ ENV/
 *.zip
 *.tar.gz
 *.rar
-/scratch/
-/.freebuff/
 
 # Debug Symbol Files & Binary Executables
 *.pdb
 *.mdmp
-/mongodb-server/*.pdb
-/mongodb-server/mongos.exe
-/mongodb-server/vc_redist.x64.exe
 
-# Local MongoDB runtime state & log files
-/mongodb-server/data/
-/mongodb-server/log/
+# Runtime log files
 /logs/
 *.log
 *.err
-
-# Solidity compiler cache and build outputs
-/blockchain/cache/
-/blockchain/artifacts/
-/blockchain/deployments/localhost.json
 
 # Environment variables & secrets
 .env

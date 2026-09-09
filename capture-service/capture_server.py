@@ -141,23 +141,8 @@ _CURRENT_CAPTURE_SESSION_ID = f"session-{int(time.time())}"
 _AUDIT_LOG_THROTTLE = {}
 
 def _post_audit_event_async(event_dict: dict):
-    """Post an audit event asynchronously to Express backend (MongoDB + Blockchain)."""
-    def _worker():
-        try:
-            import urllib.request, json
-            url = "http://127.0.0.1:5050/api/audit/event"
-            data_bytes = json.dumps(event_dict).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=data_bytes,
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                pass
-        except Exception:
-            pass
-    threading.Thread(target=_worker, daemon=True).start()
+    """No-op stub (MongoDB & Blockchain audit trail decoupled)."""
+    pass
 
 # ── Live aggregation note ──────────────────────────────────────────────────
 # Stage forecasts are computed per REAL communication pair (src_ip, dst_ip)

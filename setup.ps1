@@ -7,12 +7,10 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw "Install Py
 
 Push-Location $Root
 try {
-    foreach ($Directory in @("backend", "blockchain", "client")) {
-        Write-Host "Installing Node dependencies in $Directory..."
-        Push-Location (Join-Path $Root $Directory)
-        npm ci
-        Pop-Location
-    }
+    Write-Host "Installing Node dependencies in client..."
+    Push-Location (Join-Path $Root "client")
+    npm ci
+    Pop-Location
 
     $Venv = Join-Path $Root ".venv"
     if (-not (Test-Path (Join-Path $Venv "Scripts\python.exe"))) { python -m venv $Venv }
@@ -25,4 +23,4 @@ try {
     Pop-Location
 }
 
-Write-Host "Setup complete. Install MongoDB Community Server and Npcap, then run .\start.ps1."
+Write-Host "Setup complete. Install Npcap, then run .\start.ps1."
