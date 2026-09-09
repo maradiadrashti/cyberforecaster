@@ -394,14 +394,25 @@ def _resolve_scapy_iface(friendly_name: str) -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 
+_cached_wsl_interfaces: list[dict] | None = None
+_cached_wsl_time: float = 0.0
+
 def _get_wsl_interfaces() -> list[dict]:
-    """Detect active WSL interface and IP address."""
+    """Detect active WSL interface and IP address (cached for 60s)."""
+    global _cached_wsl_interfaces, _cached_wsl_time
+    now = time.time()
+    if _cached_wsl_interfaces is not None and (now - _cached_wsl_time) < 60.0:
+        return _cached_wsl_interfaces
+
     if sys.platform != "win32":
+        _cached_wsl_interfaces = []
+        _cached_wsl_time = now
         return []
+
     try:
         res_route = subprocess.run(
             ["wsl.exe", "ip", "-4", "route", "show", "default"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, timeout=2
         )
         if res_route.returncode == 0 and res_route.stdout:
             parts = res_route.stdout.strip().split()
@@ -410,7 +421,7 @@ def _get_wsl_interfaces() -> list[dict]:
                 wsl_iface = parts[idx + 1]
                 res_ip = subprocess.run(
                     ["wsl.exe", "ip", "-4", "addr", "show", wsl_iface],
-                    capture_output=True, text=True, timeout=5
+                    capture_output=True, text=True, timeout=2
                 )
                 wsl_ip = "172.31.195.203"
                 for line in res_ip.stdout.splitlines():
@@ -419,7 +430,7 @@ def _get_wsl_interfaces() -> list[dict]:
                         wsl_ip = line.split()[1].split("/")[0]
                         break
                 name = f"WSL ({wsl_iface})"
-                return [{
+                _cached_wsl_interfaces = [{
                     "name": name,
                     "display_name": name,
                     "ip": wsl_ip,
@@ -431,13 +442,26 @@ def _get_wsl_interfaces() -> list[dict]:
                     "is_wsl": True,
                     "wsl_iface": wsl_iface,
                 }]
+                _cached_wsl_time = now
+                return _cached_wsl_interfaces
     except Exception as e:
-        print(f"[WSL Discovery] Error: {e}")
+        pass
+
+    _cached_wsl_interfaces = []
+    _cached_wsl_time = now
     return []
 
 
+_cached_interfaces: list[dict] | None = None
+_cached_interfaces_time: float = 0.0
+
 def get_real_interfaces() -> list[dict]:
-    """Detect real network interfaces using psutil + scapy + WSL auto-discovery."""
+    """Detect real network interfaces using psutil + scapy + WSL auto-discovery (cached for 3s)."""
+    global _cached_interfaces, _cached_interfaces_time
+    now = time.time()
+    if _cached_interfaces is not None and (now - _cached_interfaces_time) < 3.0:
+        return _cached_interfaces
+
     interfaces = []
     wsl_ifaces = _get_wsl_interfaces()
     for w_if in wsl_ifaces:
@@ -495,6 +519,8 @@ def get_real_interfaces() -> list[dict]:
     # Sort: connected first, then by type priority
     priority = {"WiFi": 0, "Ethernet": 1, "VPN": 2, "Bluetooth": 3, "Virtual": 4, "Unknown": 5}
     interfaces.sort(key=lambda x: (not x.get("is_up", False), priority.get(x.get("type", "Unknown"), 99)))
+    _cached_interfaces = interfaces
+    _cached_interfaces_time = now
     return interfaces
 
 
@@ -1495,7 +1521,7 @@ _latest_stage_forecasts = {}
 
 @app.get("/api/interfaces")
 async def list_interfaces():
-    return get_real_interfaces()
+    return await asyncio.to_thread(get_real_interfaces)
 
 
 @app.get("/api/forecasts")
@@ -1889,11 +1915,19 @@ def get_protected_ips() -> set[str]:
     return protected
 
 
+_cached_wsl_info: dict | None = None
+_cached_wsl_info_time: float = 0.0
+
 def _get_wsl_info() -> dict:
-    """Detect WSL status, WSL internal IPs, and vEthernet WSL adapter IP."""
+    """Detect WSL status, WSL internal IPs, and vEthernet WSL adapter IP (cached for 60s)."""
+    global _cached_wsl_info, _cached_wsl_info_time
+    now = time.time()
+    if _cached_wsl_info is not None and (now - _cached_wsl_info_time) < 60.0:
+        return _cached_wsl_info
+
     info = {"available": False, "wsl_ips": [], "vethernet_ip": None}
     try:
-        proc = subprocess.run(["wsl", "-u", "root", "hostname", "-I"], capture_output=True, text=True, timeout=3)
+        proc = subprocess.run(["wsl", "-u", "root", "hostname", "-I"], capture_output=True, text=True, timeout=2)
         if proc.returncode == 0 and proc.stdout.strip():
             info["available"] = True
             info["wsl_ips"] = [ip.strip() for ip in proc.stdout.strip().split() if is_valid_ip(ip.strip())]
@@ -1905,13 +1939,15 @@ def _get_wsl_info() -> dict:
             proc_v = subprocess.run([
                 "powershell.exe", "-Command",
                 "Get-NetIPAddress -InterfaceAlias '*WSL*' -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty IPAddress"
-            ], capture_output=True, text=True, timeout=3)
+            ], capture_output=True, text=True, timeout=2)
             if proc_v.returncode == 0 and proc_v.stdout.strip():
                 line = proc_v.stdout.strip().splitlines()[0].strip()
                 if is_valid_ip(line):
                     info["vethernet_ip"] = line
         except Exception:
             pass
+    _cached_wsl_info = info
+    _cached_wsl_info_time = now
     return info
 
 

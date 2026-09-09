@@ -50,8 +50,9 @@ export default function App() {
   const [selectedFlow, setSelectedFlow] = useState(null);
   const [totalPacketsLive, setTotalPacketsLive] = useState(0);
 
-  // Fetch real interfaces from capture server
+  // Fetch real interfaces from capture server (active on dashboard)
   useEffect(() => {
+    if (view !== "dashboard") return;
     const fetchInterfaces = () => {
       fetch(`${CAPTURE_API}/api/interfaces`)
         .then(r => r.json())
@@ -61,10 +62,11 @@ export default function App() {
     fetchInterfaces();
     const interval = setInterval(fetchInterfaces, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [view]);
 
-  // Poll capture stats
+  // Poll capture stats (active on dashboard)
   useEffect(() => {
+    if (view !== "dashboard") return;
     const fetchStats = () => {
       fetch(`${CAPTURE_API}/api/stats`)
         .then(r => r.json())
@@ -74,7 +76,7 @@ export default function App() {
     fetchStats();
     const interval = setInterval(fetchStats, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [view]);
 
   // Simulate live traffic for demo pages (only when capture server is NOT connected/running)
   useEffect(() => {
