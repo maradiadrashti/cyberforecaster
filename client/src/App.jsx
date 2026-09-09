@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  ShieldAlert, Shield, Activity, Server, Cpu, Database,
-  AlertTriangle, Layers, Clock, Eye, BarChart3, Brain, FileText,
-  ChevronLeft, ChevronRight, Radio, Zap, Target, Network,
-  TrendingUp, Globe
+  ShieldAlert, Activity, Server,
+  ChevronLeft, ChevronRight, Radio, Target
 } from "lucide-react";
 import LiveTraffic from "./pages/LiveTraffic";
 import AttackForecast from "./pages/AttackForecast";
-import ModelPerformance from "./pages/ModelPerformance";
 import {
   HOSTS, generateTrafficEvent, generateForecast
 } from "./demoData";
@@ -237,10 +234,6 @@ export default function App() {
               isCapturing={captureStats.active_captures && (selectedInterface ? !!captureStats.active_captures[selectedInterface] : Object.keys(captureStats.active_captures).length > 0)}
             />
           </div>
-
-          {activePage === "model" && (
-            <ModelPerformance />
-          )}
         </main>
       </div>
     </div>
