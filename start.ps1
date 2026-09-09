@@ -59,7 +59,60 @@ Write-Host "   Running as Administrator  -  Scapy/Npcap capture ENABLED" -Foregr
 Write-Host "  =================================================================" -ForegroundColor Magenta
 Write-Host ""
 
+# ── Clean up any lingering processes on project ports ────────────────────────
+function Stop-PortProcess([int]$Port) {
+    try {
+        $conns = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+        if ($conns) {
+            $pids = $conns | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($p in $pids) {
+                if ($p -and $p -ne 0 -and $p -ne $PID) {
+                    Write-Host "  [Cleanup] Terminating stale process on port $Port (PID $p)..." -ForegroundColor DarkGray
+                    Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    } catch {}
+}
+
+Write-Status "0/7" "Cleaning up previous service ports..." "DarkGray"
+foreach ($p in @(8080, 8000, 5050, 5173, 8545, 27017)) {
+    Stop-PortProcess $p
+}
+Start-Sleep -Milliseconds 500
+
 $procs = @{}   # track all child process objects for cleanup
+
+function Wait-ServicePort([string]$ServiceName, [int]$Port, [int]$TimeoutSeconds = 30, [string]$ErrLog = "") {
+    $waited = 0
+    while ($waited -lt $TimeoutSeconds) {
+        if ($procs.ContainsKey($ServiceName)) {
+            $proc = $procs[$ServiceName]
+            if ($proc -and $proc.HasExited) {
+                $errMsg = "Service '$ServiceName' exited unexpectedly with code $($proc.ExitCode)."
+                if ($ErrLog -and (Test-Path $ErrLog)) {
+                    $logContent = Get-Content $ErrLog -Tail 15 -Raw
+                    $errMsg += "`nError log ($ErrLog):`n$logContent"
+                }
+                throw $errMsg
+            }
+        }
+        try {
+            $t = New-Object Net.Sockets.TcpClient
+            $t.Connect("127.0.0.1", $Port)
+            $t.Close()
+            return $true
+        } catch {}
+        Start-Sleep -Milliseconds 500
+        $waited += 0.5
+    }
+    $errMsg = "Service '$ServiceName' did not start listening on port $Port within ${TimeoutSeconds}s."
+    if ($ErrLog -and (Test-Path $ErrLog)) {
+        $logContent = Get-Content $ErrLog -Tail 15 -Raw
+        $errMsg += "`nError log ($ErrLog):`n$logContent"
+    }
+    throw $errMsg
+}
 
 # =============================================================================
 #  STEP 1 - MongoDB
@@ -77,8 +130,8 @@ $procs["mongodb"] = Start-Process -FilePath $MongoPath `
     -RedirectStandardOutput (Join-Path $LogDir "mongodb.log") `
     -RedirectStandardError  (Join-Path $LogDir "mongodb.err")
 
-Start-Sleep -Seconds 3
-Write-Status "1/7" "MongoDB started (PID $($procs['mongodb'].Id))" "Green"
+Wait-ServicePort "mongodb" 27017 15 (Join-Path $LogDir "mongodb.err")
+Write-Status "1/7" "MongoDB online (port 27017, PID $($procs['mongodb'].Id))" "Green"
 
 # =============================================================================
 #  STEP 2 - Hardhat node (background, no popup) + poll port + deploy
@@ -93,20 +146,9 @@ $procs["hardhat"] = Start-Process -FilePath "cmd.exe" `
     -WorkingDirectory $Blockchain -NoNewWindow -PassThru
 
 # Poll port 8545 until Hardhat is ready (up to 60s)
-Write-Status "2/7" "Waiting for Hardhat node on port 8545 (up to 60s)..." "DarkGray"
-$maxWait = 60; $waited = 0; $ready = $false
-while ($waited -lt $maxWait) {
-    Start-Sleep -Seconds 2; $waited += 2
-    try {
-        $t = New-Object Net.Sockets.TcpClient
-        $t.Connect("127.0.0.1", 8545)
-        $t.Close()
-        $ready = $true
-        break
-    } catch {}
-}
-if (-not $ready) { throw "Hardhat node did not become ready within ${maxWait}s. Check logs\hardhat.err" }
-Write-Status "2/7" "Hardhat ready after ${waited}s. Deploying ForecastRegistry..." "DarkGray"
+Write-Status "2/7" "Waiting for Hardhat node on port 8545..." "DarkGray"
+Wait-ServicePort "hardhat" 8545 60 $hardhatErr
+Write-Status "2/7" "Hardhat ready. Deploying ForecastRegistry..." "DarkGray"
 
 $deployLog = Join-Path $LogDir "deploy.log"
 $deployResult = & cmd.exe /c "cd /d `"$Blockchain`" && npx hardhat run scripts/deploy.js --network localhost 2>&1"
@@ -123,6 +165,9 @@ $procs["ml-service"] = Start-Process -FilePath $Python `
     -RedirectStandardOutput (Join-Path $LogDir "ml-service.log") `
     -RedirectStandardError  (Join-Path $LogDir "ml-service.err")
 
+Wait-ServicePort "ml-service" 8000 25 (Join-Path $LogDir "ml-service.err")
+Write-Status "3/7" "FastAPI ML Service online (port 8000, PID $($procs['ml-service'].Id))" "Green"
+
 # =============================================================================
 #  STEP 4 - Capture Service (Scapy - needs Admin, already elevated)
 # =============================================================================
@@ -133,6 +178,9 @@ $procs["capture"] = Start-Process -FilePath $Python `
     -RedirectStandardOutput (Join-Path $LogDir "capture.log") `
     -RedirectStandardError  (Join-Path $LogDir "capture.err")
 
+Wait-ServicePort "capture" 8080 25 (Join-Path $LogDir "capture.err")
+Write-Status "4/7" "Packet Capture Service online (port 8080, PID $($procs['capture'].Id))" "Green"
+
 # =============================================================================
 #  STEP 5 - Express Backend
 # =============================================================================
@@ -141,15 +189,21 @@ $procs["backend"] = Start-Process -FilePath "cmd.exe" `
     -ArgumentList "/c node server.js >> `"$(Join-Path $LogDir 'backend.log')`" 2>> `"$(Join-Path $LogDir 'backend.err')`"" `
     -WorkingDirectory (Join-Path $Root "backend") -NoNewWindow -PassThru
 
+Wait-ServicePort "backend" 5050 25 (Join-Path $LogDir "backend.err")
+Write-Status "5/7" "Express Backend online (port 5050, PID $($procs['backend'].Id))" "Green"
+
 # =============================================================================
 #  STEP 6 - Vite React Client
 # =============================================================================
 Write-Status "6/7" "Starting Vite React Client on port 5173..." "Yellow"
-$procs["client"] = Start-Process -FilePath "node" `
-    -ArgumentList "node_modules/vite/bin/vite.js","--host","127.0.0.1" `
+$procs["client"] = Start-Process -FilePath "cmd.exe" `
+    -ArgumentList "/c npm run dev -- --host 127.0.0.1" `
     -WorkingDirectory (Join-Path $Root "client") -NoNewWindow -PassThru `
     -RedirectStandardOutput (Join-Path $LogDir "client.log") `
     -RedirectStandardError  (Join-Path $LogDir "client.err")
+
+Wait-ServicePort "client" 5173 30 (Join-Path $LogDir "client.err")
+Write-Status "6/7" "Vite React Client online (port 5173, PID $($procs['client'].Id))" "Green"
 
 # =============================================================================
 #  STEP 7 - Attack Traffic Simulator
@@ -161,8 +215,10 @@ $procs["simulator"] = Start-Process -FilePath $Python `
     -RedirectStandardOutput (Join-Path $LogDir "simulator.log") `
     -RedirectStandardError  (Join-Path $LogDir "simulator.err")
 
+Write-Status "7/7" "Attack Traffic Simulator started (PID $($procs['simulator'].Id))" "Green"
+
 # Auto-open Dashboard in browser
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 1
 Start-Process "http://127.0.0.1:5173"
 
 # =============================================================================

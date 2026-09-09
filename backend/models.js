@@ -57,8 +57,48 @@ const blockchainLogSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now }
 });
 
+// Audit Event Schema - Persistent Historical Security & Model Events
+const auditEventSchema = new mongoose.Schema({
+  timestamp: { type: Date, default: Date.now, index: true },
+  captureSessionId: { type: String, default: "", index: true },
+  sourceIp: { type: String, default: "" },
+  attackerIp: { type: String, default: "" },
+  targetIp: { type: String, default: "" },
+  hostIp: { type: String, default: "" },
+  eventType: {
+    type: String,
+    enum: ["CONFIRMED_ATTACK", "MODEL_FORECAST", "MODEL_EVIDENCE_DISAGREEMENT", "SYSTEM_EVENT"],
+    required: true,
+    default: "MODEL_FORECAST",
+    index: true
+  },
+  classification: { type: String, default: "Normal" },
+  mitreStage: { type: String, default: "NORMAL", index: true },
+  gruPredictedStage: { type: String, default: "normal" },
+  gruConfidence: { type: Number, default: 0.0 },
+  forecastRisk: { type: Number, default: 0.0 },
+  severity: {
+    type: String,
+    enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"],
+    default: "NONE"
+  },
+  evidence: { type: String, default: "" },
+  isConfirmedAttack: { type: Boolean, default: false },
+  chainStatus: {
+    type: String,
+    enum: ["Verified", "Pending", "Not recorded on-chain"],
+    default: "Not recorded on-chain"
+  },
+  blockchainTxHash: { type: String, default: "" },
+  blockchainBlockNumber: { type: Number, default: null },
+  blockchainDataHash: { type: String, default: "" },
+  flowFeatures: { type: Object, default: {} }
+});
+
 export const Host = mongoose.model("Host", hostSchema);
 export const TrafficEvent = mongoose.model("TrafficEvent", trafficEventSchema);
 export const Forecast = mongoose.model("Forecast", forecastSchema);
 export const Alert = mongoose.model("Alert", alertSchema);
 export const BlockchainLog = mongoose.model("BlockchainLog", blockchainLogSchema);
+export const AuditEvent = mongoose.model("AuditEvent", auditEventSchema);
+

@@ -121,15 +121,17 @@ class TestMulticastAndForecast(unittest.TestCase):
     def test_forecast_trend_upward(self):
         test_flows = [{"src_port": 54321, "dst_port": 80, "protocol": "TCP",
                        "packet_count": 5, "byte_count": 300, "duration": 0.1,
-                       "syn_flag": 1, "ack_flag": 0, "rst_flag": 0, "fin_flag": 0}] * 10
-        res = forecast_host("192.168.1.50", test_flows, risk_history=[0.1, 0.3, 0.5])
+                       "syn_flag": 1, "ack_flag": 0, "rst_flag": 0, "fin_flag": 0,
+                       "severity": "medium", "attack_type": "Port Scan"}] * 10
+        res = forecast_host("192.168.1.50", test_flows, risk_history=[0.001, 0.003, 0.005])
         curve = res["projected_risk_curve"]
         self.assertGreater(curve[-1], curve[0])
 
     def test_forecast_trend_downward(self):
         test_flows = [{"src_port": 54321, "dst_port": 80, "protocol": "TCP",
                        "packet_count": 1, "byte_count": 64, "duration": 0.1,
-                       "syn_flag": 0, "ack_flag": 1, "rst_flag": 0, "fin_flag": 0}] * 10
+                       "syn_flag": 0, "ack_flag": 1, "rst_flag": 0, "fin_flag": 0,
+                       "severity": "medium", "attack_type": "Port Scan"}] * 10
         res = forecast_host("192.168.1.50", test_flows, risk_history=[0.9, 0.7, 0.5])
         curve = res["projected_risk_curve"]
         self.assertLess(curve[-1], curve[0])

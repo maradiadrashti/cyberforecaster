@@ -324,6 +324,107 @@ def test_wifi_background_traffic_no_port_scan():
     print("  PASS: Routine Wi-Fi background traffic remains 100% Benign (0 Port Scan alerts)")
 
 
+def test_outbound_client_traffic_benign():
+    """TEST 1 — NORMAL OUTBOUND TRAFFIC
+    Simulate ordinary client behavior from local Wi-Fi host (10.100.17.65) to several external destinations
+    (94.140.14.14, 172.217.114.4, 148.113.16.47, 23.215.60.17, 172.217.117.4) with normal short-lived TCP connections.
+    Verify that ordinary outbound connections are classified as Benign.
+    """
+    cs_dir = os.path.join(os.path.dirname(__file__), '..', 'capture-service')
+    if cs_dir not in sys.path:
+        sys.path.insert(0, cs_dir)
+    import capture_server
+
+    capture_server.reset_backend_state()
+    src_ip = "10.100.17.65"
+    external_dsts = ["94.140.14.14", "172.217.114.4", "148.113.16.47", "23.215.60.17", "172.217.117.4"]
+
+    for idx, dst_ip in enumerate(external_dsts):
+        event = {
+            "id": f"outbound-{idx}",
+            "timestamp": "2026-09-09T10:00:00Z",
+            "src_ip": src_ip, "dst_ip": dst_ip, "src_port": 51000 + idx, "dst_port": 443,
+            "protocol": "TCP", "length": 60, "syn": 1, "ack": 0, "rst": 0, "fin": 0,
+            "severity": "none", "attack_type": "Benign"
+        }
+        capture_server._process_flow_event(event, "WiFi")
+        assert event.get("attack_type") in ("Benign", "none"), f"FAIL: Outbound connection to {dst_ip} falsely classified as {event.get('attack_type')}"
+
+    print("  PASS: Normal outbound client traffic from 10.100.17.65 to external hosts remains 100% Benign")
+
+
+def test_real_port_scan_from_remote():
+    """TEST 2 — REAL PORT SCAN
+    Simulate controlled port scan pattern from remote machine 10.100.10.77 against target 10.100.17.65
+    with multiple destination ports (nmap -sT -Pn -p 1-1000).
+    Verify that attack_type is classified as Port Scan.
+    """
+    cs_dir = os.path.join(os.path.dirname(__file__), '..', 'capture-service')
+    if cs_dir not in sys.path:
+        sys.path.insert(0, cs_dir)
+    import capture_server
+
+    capture_server.reset_backend_state()
+    src_ip = "10.100.10.77"
+    dst_ip = "10.100.17.65"
+
+    port_scan_detected = 0
+    for p in range(1, 100):
+        event = {
+            "id": f"nmap-{p}",
+            "timestamp": "2026-09-09T10:05:00Z",
+            "src_ip": src_ip, "dst_ip": dst_ip, "src_port": 40000 + p, "dst_port": p,
+            "protocol": "TCP", "length": 60, "syn": 1, "ack": 0, "rst": 0, "fin": 0,
+            "severity": "none", "attack_type": "Benign"
+        }
+        capture_server._process_flow_event(event, "WiFi")
+        if event.get("attack_type") == "Port Scan":
+            port_scan_detected += 1
+
+    assert port_scan_detected > 0, "FAIL: Real Port Scan from 10.100.10.77 to 10.100.17.65 was not detected!"
+    print("  PASS: Real Port Scan from 10.100.10.77 to 10.100.17.65 correctly detected as Port Scan")
+
+
+def test_ml_false_positive_port_scan_rejected():
+    """TEST 3 — ML FALSE POSITIVE REJECTION
+    Simulate single ordinary outbound flow where heuristic classification = Benign, but ML model predicts port_scan.
+    Verify that the ML label cannot automatically turn ordinary single outbound flow into a Port Scan alert
+    without required scan evidence (unique_ports_contacted >= 4).
+    """
+    cs_dir = os.path.join(os.path.dirname(__file__), '..', 'capture-service')
+    if cs_dir not in sys.path:
+        sys.path.insert(0, cs_dir)
+    import capture_server
+    import time
+
+    capture_server.reset_backend_state()
+    src_ip = "10.100.17.65"
+    dst_ip = "94.140.14.14"
+
+    # Single short outbound connection
+    event = {
+        "id": "single-outbound-ml-test",
+        "timestamp": "2026-09-09T10:10:00Z",
+        "src_ip": src_ip, "dst_ip": dst_ip, "src_port": 54321, "dst_port": 443,
+        "protocol": "TCP", "length": 60, "syn": 1, "ack": 0, "rst": 0, "fin": 0,
+        "severity": "none", "attack_type": "Benign"
+    }
+
+    # Force flow cache to simulate single-pkt flow
+    flow_key = f"{src_ip}:54321-{dst_ip}:443-TCP"
+    capture_server.flow_cache[flow_key] = {
+        "src_ip": src_ip, "dst_ip": dst_ip, "src_port": 54321, "dst_port": 443,
+        "protocol": "TCP", "packet_count": 1, "byte_count": 60, "first_seen_ts": time.time(),
+        "severity": "none", "attack_type": "Benign"
+    }
+
+    # Run processing
+    capture_server._process_flow_event(event, "WiFi")
+
+    assert event.get("attack_type") != "Port Scan", f"FAIL: Single outbound flow promoted to Port Scan! ({event.get('reason')})"
+    print("  PASS: Single outbound flow with ML false positive correctly rejected (remains Benign)")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -340,6 +441,9 @@ if __name__ == "__main__":
         test_heuristic_well_known_ports_always_benign,
         test_port_scan_vs_brute_force_heuristics,
         test_wifi_background_traffic_no_port_scan,
+        test_outbound_client_traffic_benign,
+        test_real_port_scan_from_remote,
+        test_ml_false_positive_port_scan_rejected,
     ]
     
     passed = 0

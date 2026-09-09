@@ -8,19 +8,14 @@ import {
 import LiveTraffic from "./pages/LiveTraffic";
 import AttackForecast from "./pages/AttackForecast";
 import ModelPerformance from "./pages/ModelPerformance";
-import AuditTrail from "./pages/AuditTrail";
 import {
   HOSTS, generateTrafficEvent, generateForecast
 } from "./demoData";
 
-// Reordered: Live Traffic first, then Attack Forecast, then Overview, etc.
+// Navigation: Live Traffic and Attack Forecast
 const NAV_ITEMS = [
   { id: "live", label: "Live Traffic", icon: Activity },
   { id: "forecast", label: "Attack Forecast", icon: Target },
-
-
-  { id: "model", label: "Model Performance", icon: BarChart3 },
-  { id: "audit", label: "Audit Trail", icon: Database },
 ];
 
 const _HOST = import.meta.env.VITE_CAPTURE_HOST ?? "127.0.0.1";
@@ -171,10 +166,6 @@ export default function App() {
         {/* Status indicators */}
         {!sidebarCollapsed && (
           <div className="p-3 border-t border-cyber-border space-y-2">
-            <div className="flex items-center gap-2 text-[9px] font-mono-tech text-emerald-400">
-              <div className="status-dot status-dot-online pulse-cyan"></div>
-              <span>ON-CHAIN AUDIT ACTIVE</span>
-            </div>
             <div className="flex items-center gap-2 text-[9px] font-mono-tech text-cyan-400">
               <div className="status-dot status-dot-online pulse-cyan"></div>
               <span>WORLD MODEL ONLINE</span>
@@ -224,7 +215,7 @@ export default function App() {
 
         {/* Page Content */}
         <main className="flex-1 overflow-y-auto p-6 animate-fade-in">
-          {/* LiveTraffic stays mounted always so capture/WS/WebSocket are never killed */}
+          {/* Both LiveTraffic and AttackForecast stay mounted always so capture/WS/WebSocket and state are never destroyed */}
           <div style={{ display: activePage === "live" ? "block" : "none" }}>
             <LiveTraffic
               onInterfaceChange={handleInterfaceChange}
@@ -232,7 +223,7 @@ export default function App() {
               onFlowClick={navigateToForecast}
             />
           </div>
-          {activePage === "forecast" && (
+          <div style={{ display: activePage === "forecast" ? "block" : "none" }}>
             <AttackForecast
               selectedInterface={selectedInterface}
               selectedInterfaceInfo={selectedInterfaceInfo}
@@ -240,17 +231,15 @@ export default function App() {
               livePackets={livePackets}
               attackFlows={attackFlows}
               selectedFlow={selectedFlow}
+              totalPackets={totalPacketsLive}
               hosts={hosts}
               forecasts={forecasts}
               isCapturing={captureStats.active_captures && (selectedInterface ? !!captureStats.active_captures[selectedInterface] : Object.keys(captureStats.active_captures).length > 0)}
             />
-          )}
+          </div>
 
           {activePage === "model" && (
             <ModelPerformance />
-          )}
-          {activePage === "audit" && (
-            <AuditTrail alerts={alerts} />
           )}
         </main>
       </div>

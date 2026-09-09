@@ -219,7 +219,7 @@ export default function Explainability({ hosts, forecasts }) {
                 <StateVectorDisplay features={stateVector.slice(0, 12)} />
               </div>
               <p className="text-[8px] text-slate-600 font-mono-tech mt-2">
-                23-dimensional state vector aggregated from 5-second time windows
+                14-dimensional state vector aggregated across 10 temporal 5-second time windows
               </p>
             </div>
           </div>

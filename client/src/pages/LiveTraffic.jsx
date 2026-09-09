@@ -345,7 +345,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     packetQueueRef.current = [];
   }, []);
 
-  // --- Fetch real interfaces from Python server ---
+  // --- Fetch real interfaces & sync capture status from Python server ---
   useEffect(() => {
     fetch(`${CAPTURE_API}/api/interfaces`)
       .then(r => r.json())
@@ -361,6 +361,27 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
       .catch(() => {
         setError("Capture server not reachable. Start it with: python capture_server.py");
       });
+
+    // Check backend active captures to sync UI state
+    fetch(`${CAPTURE_API}/api/capture/status`)
+      .then(r => r.json())
+      .then(status => {
+        const activeIfaces = Object.keys(status || {}).filter(k => status[k]);
+        if (activeIfaces.length > 0) {
+          setIsCapturing(true);
+          isCapturingRef.current = true;
+          if (activeIfaces.includes(selectedIfaceRef.current)) {
+            // Already matched
+          } else {
+            setSelectedIface(activeIfaces[0]);
+            selectedIfaceRef.current = activeIfaces[0];
+          }
+        } else {
+          setIsCapturing(false);
+          isCapturingRef.current = false;
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // --- WebSocket connection ---
@@ -383,6 +404,9 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
             if (data.type === "connected" || data.type === "capture_started" || data.type === "interface_switched") return;
 
             if (data.type === "capture_stopped" || data.type === "all_captures_stopped") {
+              setIsCapturing(false);
+              isCapturingRef.current = false;
+              resetDashboardState();
               return;
             }
 
@@ -391,6 +415,30 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               try { window.__mlStageForecasts = data.data; } catch (_) {}
               return;
             }
+
+            // Real per-pair LSTM forecast (REAL src/dst IPs, gated on 10 windows)
+            if (data.type === "live_forecast_update" && data.data) {
+              const f = data.data;
+              try {
+                window.__mlStageForecasts = {
+                  ...(window.__mlStageForecasts || {}),
+                  [`${f.sourceIp}>${f.targetIp}`]: f,
+                };
+              } catch (_) {}
+              return;
+            }
+
+            // Real-IP attack alert emitted by the live pipeline
+            if (data.type === "live_forecast_alert" && data.data) {
+              try {
+                window.__liveAlertQueue = [ ...(window.__liveAlertQueue || []), data.data ].slice(-25);
+                window.dispatchEvent(new CustomEvent("live-forecast-alert"));
+              } catch (_) {}
+              return;
+            }
+
+            // Do NOT process packet stream if capture is stopped/IDLE
+            if (!isCapturingRef.current) return;
 
             // STRICT INTERFACE FILTER
             if (data.interface && selectedIfaceRef.current && data.interface !== selectedIfaceRef.current) return;
@@ -454,6 +502,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
 
       setFlows(prev => {
         const next = { ...prev };
+        const nowMs = Date.now();
         for (const data of queue) {
           const key = `${data.src_ip}:${data.src_port}-${data.dst_ip}:${data.dst_port}-${data.protocol}`;
           if (next[key]) {
@@ -462,6 +511,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               packet_count: next[key].packet_count + 1,
               byte_count: next[key].byte_count + (data.length || 0),
               last_seen: data.timestamp,
+              last_updated_ms: nowMs,
               // Always carry forward the latest severity/attack labels from backend
               severity: data.severity || next[key].severity,
               attack_type: data.attack_type || next[key].attack_type,
@@ -480,6 +530,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               byte_count: data.length || 0,
               first_seen: data.timestamp,
               last_seen: data.timestamp,
+              last_updated_ms: nowMs,
               severity: data.severity,
               attack_type: data.attack_type,
               interface: data.interface || selectedIfaceRef.current,
@@ -593,7 +644,8 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     }
     setIsCapturing(false);
     isCapturingRef.current = false;
-  }, [selectedIface]);
+    resetDashboardState();
+  }, [selectedIface, resetDashboardState]);
 
   // --- Derived data ---
   const flowList = useMemo(() => {
@@ -1004,22 +1056,20 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                 const flow = alert.latestFlow;
                 const ifaceD = localDefenseState[selectedIface] || {};
                 return (
-                  <div key={aKey}>
-                    <button
-                      onClick={() => setExpandedAlertKey(isExpanded ? null : aKey)}
-                      className={`w-full text-left p-2 rounded-lg border transition-all ${
-                        isExpanded ? "bg-slate-900/60" : "hover:bg-slate-900/40"
-                      } ${
+                    <div
+                      key={aKey}
+                      onClick={() => onFlowClick && onFlowClick(flow)}
+                      className={`w-full text-left p-3 rounded-lg border transition-all cursor-pointer hover:border-cyan-500/50 hover:bg-slate-900/80 ${
                         alert.severity === "critical"
-                          ? "border-rose-800/40 bg-rose-950/10"
+                          ? "border-rose-800/40 bg-rose-950/15"
                           : alert.severity === "high"
-                          ? "border-amber-800/40 bg-amber-950/10"
+                          ? "border-amber-800/40 bg-amber-950/15"
                           : "border-slate-800/40 bg-slate-950/20"
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className={`px-1 py-0.5 rounded text-[7px] font-bold uppercase shrink-0 ${
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase shrink-0 ${
                             alert.severity === "critical" ? "bg-rose-950/50 text-rose-400 border border-rose-900/50 pulse-red" :
                             alert.severity === "high" ? "bg-amber-950/50 text-amber-400 border border-amber-900/50" :
                             alert.severity === "medium" ? "bg-yellow-950/50 text-yellow-400 border border-yellow-900/50" :
@@ -1027,99 +1077,35 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                           }`}>
                             {alert.severity?.toUpperCase()?.slice(0, 4)}
                           </span>
-                          <div className="font-mono-tech text-[9px] min-w-0">
+                          <div className="font-mono-tech text-[10px] min-w-0">
                             <span className="text-cyan-400 font-bold">{alert.src_ip}</span>
-                            <span className="text-slate-600 mx-0.5">→</span>
+                            <span className="text-slate-600 mx-1">→</span>
                             <span className="text-white font-bold">{alert.dst_ip}</span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                          <span className="text-[8px] text-amber-400 font-mono-tech">{alert.displayType}</span>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          <span className="text-[9px] text-amber-400 font-mono-tech font-bold">{alert.displayType}</span>
                           {alert.ml_confidence && alert.ml_label && alert.ml_label !== 'benign' && (
-                            <span className="text-[7px] text-slate-500 font-mono-tech">{Math.round(alert.ml_confidence * 100)}%</span>
+                            <span className="text-[8px] text-slate-500 font-mono-tech">{Math.round(alert.ml_confidence * 100)}%</span>
                           )}
-                          <ChevronRight className={`h-3 w-3 text-slate-600 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                          <span className="px-2 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/50 text-cyan-400 text-[8px] font-mono-tech font-bold flex items-center gap-1 hover:bg-cyan-900/60 transition-all">
+                            <span>View Forecast</span>
+                            <ChevronRight className="h-3 w-3" />
+                          </span>
                         </div>
                       </div>
 
                       {/* Consolidated Count & Status Sub-line */}
-                      <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-800/30 text-[8px] font-mono-tech text-slate-400">
-                        <div className="flex items-center gap-1">
+                      <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-800/40 text-[8px] font-mono-tech text-slate-400">
+                        <div className="flex items-center gap-1.5">
                           <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
                           <span>Ongoing · <strong className="text-slate-200">{alert.count}</strong> {alert.count === 1 ? "event" : "events"}</span>
                         </div>
                         {alert.last_seen && (
-                          <span className="text-[7px] text-slate-500">{new Date(alert.last_seen).toLocaleTimeString()}</span>
+                          <span className="text-[8px] text-slate-500">{new Date(alert.last_seen).toLocaleTimeString()}</span>
                         )}
                       </div>
-                    </button>
-                    {/* Expanded defense actions */}
-                    {isExpanded && (
-                      <div className="mt-1 p-2.5 rounded-lg bg-[#0a0e18] border border-slate-800/60 space-y-2 animate-fade-in">
-                        <div className="flex items-center gap-2 text-[8px] font-mono-tech text-slate-500 mb-1">
-                          <ShieldAlert className="h-3 w-3 text-amber-400" />
-                          <span>DEFEND: {flow.src_ip} → {flow.dst_ip}:{flow.dst_port} ({flow.protocol})</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          <button
-                            onClick={async (e) => { e.stopPropagation(); await callDefenseApi("rate-limit", { ip: flow.src_ip, interface: selectedIface }, `alert-rl-${aKey}`); }}
-                            disabled={defenseLoading[`alert-rl-${aKey}`]}
-                            className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded border text-[8px] font-mono-tech uppercase transition-all ${
-                              ifaceD.rate_limited_ips?.includes(flow.src_ip)
-                                ? "bg-amber-600/25 border-amber-500 text-amber-300"
-                                : "bg-amber-950/10 border-amber-800 text-amber-400 hover:bg-amber-600/20"
-                            }`}
-                          >
-                            {defenseLoading[`alert-rl-${aKey}`] ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Gauge className="h-2.5 w-2.5" />}
-                            <span>{ifaceD.rate_limited_ips?.includes(flow.src_ip) ? "Unlimit" : "Rate Limit"}</span>
-                          </button>
-                          <button
-                            onClick={async (e) => { e.stopPropagation(); await callDefenseApi("block-ip", { ip: flow.src_ip, interface: selectedIface }, `alert-bi-${aKey}`); }}
-                            disabled={defenseLoading[`alert-bi-${aKey}`]}
-                            className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded border text-[8px] font-mono-tech uppercase transition-all ${
-                              ifaceD.blocked_ips?.includes(flow.src_ip)
-                                ? "bg-rose-600/25 border-rose-500 text-rose-300"
-                                : "bg-rose-950/10 border-rose-800 text-rose-400 hover:bg-rose-600/20"
-                            }`}
-                          >
-                            {defenseLoading[`alert-bi-${aKey}`] ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Ban className="h-2.5 w-2.5" />}
-                            <span>{ifaceD.blocked_ips?.includes(flow.src_ip) ? "Unblock" : "Block IP"}</span>
-                          </button>
-                          <button
-                            onClick={async (e) => { e.stopPropagation(); await callDefenseApi("isolate-port", { port: flow.dst_port, interface: selectedIface }, `alert-ip-${aKey}`); }}
-                            disabled={defenseLoading[`alert-ip-${aKey}`]}
-                            className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded border text-[8px] font-mono-tech uppercase transition-all ${
-                              ifaceD.isolated_ports?.includes(flow.dst_port)
-                                ? "bg-purple-600/25 border-purple-500 text-purple-300"
-                                : "bg-purple-950/10 border-purple-800 text-purple-400 hover:bg-purple-600/20"
-                            }`}
-                          >
-                            {defenseLoading[`alert-ip-${aKey}`] ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Lock className="h-2.5 w-2.5" />}
-                            <span>{ifaceD.isolated_ports?.includes(flow.dst_port) ? "Unisolate" : "Isolate Port"}</span>
-                          </button>
-                          <button
-                            onClick={async (e) => { e.stopPropagation(); await callDefenseApi("firewall/raise", { interface: selectedIface }, `alert-fw-${aKey}`); }}
-                            disabled={defenseLoading[`alert-fw-${aKey}`]}
-                            className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded border text-[8px] font-mono-tech uppercase transition-all ${
-                              ifaceD.firewall_raised
-                                ? "bg-cyan-600/25 border-cyan-500 text-cyan-300"
-                                : "bg-cyan-950/10 border-cyan-800 text-cyan-400 hover:bg-cyan-600/20"
-                            }`}
-                          >
-                            {defenseLoading[`alert-fw-${aKey}`] ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <ShieldAlert className="h-2.5 w-2.5" />}
-                            <span>{ifaceD.firewall_raised ? "Drop Fw" : "Raise Fw"}</span>
-                          </button>
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onFlowClick && onFlowClick(flow); }}
-                          className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-[8px] font-mono-tech text-slate-400 hover:text-white hover:border-slate-500 transition-all"
-                        >
-                          <Target className="h-2.5 w-2.5" />
-                          <span>View Full Forecast →</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                    </div>
                 );
               })}
             </div>
@@ -1246,83 +1232,16 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                           </span>
                         </td>
                         <td className="text-right pr-4">
-                          {isAttack && (
-                            <ChevronRight className={`h-3 w-3 text-slate-500 inline transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onFlowClick && onFlowClick(flow); }}
+                            className="inline-flex items-center gap-1 text-[9px] font-mono-tech text-cyan-400 hover:text-white transition-colors"
+                            title="View Forecast"
+                          >
+                            <span>Forecast</span>
+                            <ChevronRight className="h-3 w-3" />
+                          </button>
                         </td>
                       </tr>
-                      {/* Expanded defense panel for attack flows */}
-                      {isAttack && isExpanded && (
-                        <tr>
-                          <td colSpan="9" className="p-0">
-                            <div className="px-4 py-3 bg-[#0a0e18] border-t border-slate-800/40 animate-fade-in">
-                              <div className="flex items-center gap-2 mb-2">
-                                <ShieldAlert className="h-3 w-3 text-amber-400" />
-                                <span className="text-[9px] font-mono-tech text-slate-400">
-                                  DEFENSIVE INTERVENTIONS for <span className="text-cyan-400 font-bold">{flow.src_ip}</span> → <span className="text-white font-bold">{flow.dst_ip}:{flow.dst_port}</span>
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <button
-                                  onClick={async (e) => { e.stopPropagation(); await callDefenseApi("rate-limit", { ip: flow.src_ip, interface: selectedIface }, `tbl-rl-${fKey}`); }}
-                                  disabled={defenseLoading[`tbl-rl-${fKey}`]}
-                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded border text-[8px] font-mono-tech uppercase transition-all ${
-                                    ifaceD.rate_limited_ips?.includes(flow.src_ip)
-                                      ? "bg-amber-600/25 border-amber-500 text-amber-300"
-                                      : "bg-amber-950/10 border-amber-800 text-amber-400 hover:bg-amber-600/20"
-                                  }`}
-                                >
-                                  {defenseLoading[`tbl-rl-${fKey}`] ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Gauge className="h-2.5 w-2.5" />}
-                                  <span>{ifaceD.rate_limited_ips?.includes(flow.src_ip) ? "Unlimit" : "Rate Limit"}</span>
-                                </button>
-                                <button
-                                  onClick={async (e) => { e.stopPropagation(); await callDefenseApi("block-ip", { ip: flow.src_ip, interface: selectedIface }, `tbl-bi-${fKey}`); }}
-                                  disabled={defenseLoading[`tbl-bi-${fKey}`]}
-                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded border text-[8px] font-mono-tech uppercase transition-all ${
-                                    ifaceD.blocked_ips?.includes(flow.src_ip)
-                                      ? "bg-rose-600/25 border-rose-500 text-rose-300"
-                                      : "bg-rose-950/10 border-rose-800 text-rose-400 hover:bg-rose-600/20"
-                                  }`}
-                                >
-                                  {defenseLoading[`tbl-bi-${fKey}`] ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Ban className="h-2.5 w-2.5" />}
-                                  <span>{ifaceD.blocked_ips?.includes(flow.src_ip) ? "Unblock" : "Block IP"}</span>
-                                </button>
-                                <button
-                                  onClick={async (e) => { e.stopPropagation(); await callDefenseApi("isolate-port", { port: flow.dst_port, interface: selectedIface }, `tbl-ip-${fKey}`); }}
-                                  disabled={defenseLoading[`tbl-ip-${fKey}`]}
-                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded border text-[8px] font-mono-tech uppercase transition-all ${
-                                    ifaceD.isolated_ports?.includes(flow.dst_port)
-                                      ? "bg-purple-600/25 border-purple-500 text-purple-300"
-                                      : "bg-purple-950/10 border-purple-800 text-purple-400 hover:bg-purple-600/20"
-                                  }`}
-                                >
-                                  {defenseLoading[`tbl-ip-${fKey}`] ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Lock className="h-2.5 w-2.5" />}
-                                  <span>{ifaceD.isolated_ports?.includes(flow.dst_port) ? "Unisolate" : "Isolate Port"}</span>
-                                </button>
-                                <button
-                                  onClick={async (e) => { e.stopPropagation(); await callDefenseApi("firewall/raise", { interface: selectedIface }, `tbl-fw-${fKey}`); }}
-                                  disabled={defenseLoading[`tbl-fw-${fKey}`]}
-                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded border text-[8px] font-mono-tech uppercase transition-all ${
-                                    ifaceD.firewall_raised
-                                      ? "bg-cyan-600/25 border-cyan-500 text-cyan-300"
-                                      : "bg-cyan-950/10 border-cyan-800 text-cyan-400 hover:bg-cyan-600/20"
-                                  }`}
-                                >
-                                  {defenseLoading[`tbl-fw-${fKey}`] ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <ShieldAlert className="h-2.5 w-2.5" />}
-                                  <span>{ifaceD.firewall_raised ? "Drop Fw" : "Raise Fw"}</span>
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); onFlowClick && onFlowClick(flow); }}
-                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-700 text-[8px] font-mono-tech text-slate-400 hover:text-white hover:border-slate-500 transition-all ml-auto"
-                                >
-                                  <Target className="h-2.5 w-2.5" />
-                                  <span>Full Forecast →</span>
-                                </button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
                     </React.Fragment>
                   );
                 }))

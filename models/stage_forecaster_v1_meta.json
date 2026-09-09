@@ -1,6 +1,6 @@
 {
   "version": "v1",
-  "created": "2026-09-08T14:33:32.169776",
+  "created": "2026-09-09T17:59:16.772822",
   "stages": [
     "normal",
     "reconnaissance",
@@ -53,15 +53,18 @@
     ]
   },
   "forecast_horizon_seconds": 30,
-  "test_accuracy": 0.8606666666666667,
-  "training_notes": "Trained on CIC-IDS2017 (2.83M flows, 200K subsample). Temporal sequences via sliding windows over duration-sorted flows.",
+  "test_accuracy": 0.9880851063829788,
+  "training_notes": "Trained on balanced temporal sequences from CIC-IDS2017 (Benign, PortScan, FTP/SSH-Patator & Web Brute Force, Bot, DoS/DDoS, Infiltration).",
   "label_mapping": {
     "BENIGN": "normal",
     "PortScan": "reconnaissance",
     "FTP-Patator": "initial_access",
     "SSH-Patator": "initial_access",
-    "DDoS": "command_control",
+    "Web Attack - Brute Force": "initial_access",
     "DoS Hulk": "command_control",
+    "DDoS": "command_control",
+    "DoS GoldenEye": "command_control",
+    "DoS slowloris": "command_control",
     "Bot": "lateral_movement",
     "Infiltration": "exfiltration"
   }

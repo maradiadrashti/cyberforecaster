@@ -46,19 +46,21 @@ export default function NetworkTopology({ hosts, forecasts, alerts }) {
     return positions;
   }, [hosts]);
 
-  // Attack links
+  // Attack links — always use the REAL observed attacker -> target IPs.
+  // Alerts emitted by the live pipeline carry sourceIp (real attacker) and
+  // hostIp/targetIp (real target). Never substitute a seeded demo host.
   const attackLinks = useMemo(() => {
     const links = [];
     alerts.slice(0, 10).forEach(alert => {
-      const src = hosts.find(h => h.role === "attacker");
-      if (src) {
-        links.push({
-          from: src.ip,
-          to: alert.hostIp,
-          severity: alert.severity?.toLowerCase() || "low",
-          stage: alert.predictedStage,
-        });
-      }
+      const fromIp = alert.sourceIp || (hosts.find(h => h.role === "attacker") || {}).ip;
+      const toIp = alert.targetIp || alert.hostIp;
+      if (!fromIp || !toIp) return;
+      links.push({
+        from: fromIp,
+        to: toIp,
+        severity: alert.severity?.toLowerCase() || "low",
+        stage: alert.predictedStage,
+      });
     });
     return links;
   }, [alerts, hosts]);

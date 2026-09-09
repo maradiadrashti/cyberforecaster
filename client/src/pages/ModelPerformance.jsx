@@ -178,7 +178,7 @@ export default function ModelPerformance() {
                     <PolarGrid stroke="rgba(255,255,255,0.05)" />
                     <PolarAngleAxis dataKey="metric" tick={{ fontSize: 8, fill: "#94a3b8" }} />
                     <PolarRadiusAxis tick={false} domain={[0, 1]} />
-                    <Radar name="LSTM World Model" dataKey="lstm" stroke="#00f0ff" fill="#00f0ff" fillOpacity={0.15} strokeWidth={1.5} />
+                    <Radar name="PyTorch GRU" dataKey="lstm" stroke="#00f0ff" fill="#00f0ff" fillOpacity={0.15} strokeWidth={1.5} />
                     <Radar name="GNN World Model" dataKey="gnn" stroke="#9d4edd" fill="#9d4edd" fillOpacity={0.1} strokeWidth={1.5} />
                     <Radar name="Baseline LR" dataKey="baseline" stroke="#64748b" fill="#64748b" fillOpacity={0.05} strokeWidth={1} strokeDasharray="4 2" />
                     <Legend wrapperStyle={{ fontSize: 9 }} />
@@ -204,7 +204,7 @@ export default function ModelPerformance() {
                 <ConfusionMatrix tp={49} fp={3} tn={51} fn={5} />
               </div>
               <div className="p-3 rounded-lg bg-slate-950/50 border border-cyan-900/30">
-                <p className="text-[9px] text-cyan-400 font-mono-tech mb-2 font-bold">LSTM World Model</p>
+                <p className="text-[9px] text-cyan-400 font-mono-tech mb-2 font-bold">PyTorch GRU</p>
                 <ConfusionMatrix tp={51} fp={3} tn={51} fn={3} />
               </div>
               <div className="p-3 rounded-lg bg-slate-950/50 border border-purple-900/30">
@@ -261,14 +261,14 @@ export default function ModelPerformance() {
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
-                { label: "Model Type", value: "LSTM World Model" },
-                { label: "Input Size", value: "23 (State Dim)" },
-                { label: "Hidden Size", value: "128" },
+                { label: "Model Type", value: "PyTorch GRU (stage_forecaster_v1.pth)" },
+                { label: "Input Size", value: "14 Features × 10 Windows" },
+                { label: "Hidden Size", value: "64" },
                 { label: "Num Layers", value: "2" },
                 { label: "Dropout", value: "0.2" },
-                { label: "Output Heads", value: "3 (State + Attack + Stage)" },
+                { label: "Output Heads", value: "2 (Stage Head + Risk Head)" },
                 { label: "Sequence Length", value: "10 (50s context)" },
-                { label: "Forecast Horizon", value: "5 (25s forward)" },
+                { label: "Forecast Horizon", value: "6 steps (30s forward)" },
               ].map((item, i) => (
                 <div key={i} className="p-3 rounded bg-slate-950/50 border border-slate-900">
                   <p className="text-[9px] text-slate-500 font-mono-tech">{item.label}</p>
@@ -305,7 +305,7 @@ export default function ModelPerformance() {
                   <YAxis tick={{ fontSize: 9, fill: "#64748b" }} />
                   <Tooltip contentStyle={{ backgroundColor: "#0b0f19", border: "1px solid #1f293d", borderRadius: 8, fontSize: 10 }} />
                   <Legend wrapperStyle={{ fontSize: 10 }} />
-                  <Bar dataKey="lstm" fill="#00f0ff" radius={[4, 4, 0, 0]} name="LSTM World Model" />
+                  <Bar dataKey="lstm" fill="#00f0ff" radius={[4, 4, 0, 0]} name="PyTorch GRU" />
                   <Bar dataKey="gnn" fill="#9d4edd" radius={[4, 4, 0, 0]} name="GNN World Model" />
                   <Bar dataKey="baseline" fill="#64748b" radius={[4, 4, 0, 0]} name="Temporal LR Baseline" />
                 </BarChart>
@@ -313,7 +313,7 @@ export default function ModelPerformance() {
             </div>
             <div className="mt-3 p-3 rounded bg-slate-950/50 border border-slate-900 text-[9px] font-mono-tech text-slate-400">
               <Info className="h-3 w-3 inline mr-1" />
-              MAE increases with forecast horizon as prediction uncertainty compounds through recursive rollouts. The LSTM World Model and GNN World Model maintain significantly lower error than the temporal LR baseline across all horizons.
+              MAE increases with forecast horizon as prediction uncertainty compounds through recursive rollouts. The PyTorch GRU and GNN models maintain significantly lower error than the temporal LR baseline across all horizons.
             </div>
           </section>
 
