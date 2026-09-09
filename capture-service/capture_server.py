@@ -396,18 +396,16 @@ def _resolve_scapy_iface(friendly_name: str) -> str:
 
 _cached_wsl_interfaces: list[dict] | None = None
 _cached_wsl_time: float = 0.0
+_wsl_probe_in_progress: bool = False
 
-def _get_wsl_interfaces() -> list[dict]:
-    """Detect active WSL interface and IP address (cached for 60s)."""
-    global _cached_wsl_interfaces, _cached_wsl_time
+def _probe_wsl_sync():
+    global _cached_wsl_interfaces, _cached_wsl_time, _wsl_probe_in_progress
     now = time.time()
-    if _cached_wsl_interfaces is not None and (now - _cached_wsl_time) < 60.0:
-        return _cached_wsl_interfaces
-
     if sys.platform != "win32":
         _cached_wsl_interfaces = []
         _cached_wsl_time = now
-        return []
+        _wsl_probe_in_progress = False
+        return
 
     try:
         res_route = subprocess.run(
@@ -443,13 +441,28 @@ def _get_wsl_interfaces() -> list[dict]:
                     "wsl_iface": wsl_iface,
                 }]
                 _cached_wsl_time = now
-                return _cached_wsl_interfaces
-    except Exception as e:
+                _wsl_probe_in_progress = False
+                return
+    except Exception:
         pass
 
     _cached_wsl_interfaces = []
     _cached_wsl_time = now
-    return []
+    _wsl_probe_in_progress = False
+
+
+def _get_wsl_interfaces() -> list[dict]:
+    """Detect active WSL interface and IP address non-blockingly."""
+    global _cached_wsl_interfaces, _cached_wsl_time, _wsl_probe_in_progress
+    now = time.time()
+    if _cached_wsl_interfaces is not None and (now - _cached_wsl_time) < 60.0:
+        return _cached_wsl_interfaces
+
+    if not _wsl_probe_in_progress:
+        _wsl_probe_in_progress = True
+        threading.Thread(target=_probe_wsl_sync, daemon=True).start()
+
+    return _cached_wsl_interfaces if _cached_wsl_interfaces is not None else []
 
 
 _cached_interfaces: list[dict] | None = None
@@ -1978,85 +1991,62 @@ def _verify_wsl_iptables_rule(ip: str, direction: str = "INPUT") -> bool:
         return False
 
 
-def _sync_live_block_state():
-    """Query live Windows Defender Firewall and WSL iptables to synchronize active block list."""
-    global _block_registry
+_sync_in_progress: bool = False
+
+def _sync_live_block_state_worker():
+    global _block_registry, _sync_in_progress
     active_blocks = {}
-
-    # 1. Query Windows Defender Firewall via PowerShell
-    if sys.platform == "win32":
-        try:
-            proc = subprocess.run([
-                "powershell.exe", "-Command",
-                "Get-NetFirewallRule -DisplayName 'CyberForecaster_Block_*', 'AETHERIS_Block_*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DisplayName"
-            ], capture_output=True, text=True, timeout=5)
-            if proc.returncode == 0 and proc.stdout.strip():
-                for line in proc.stdout.strip().splitlines():
-                    name = line.strip()
-                    if name.startswith("CyberForecaster_Block_"):
-                        parts = name.rsplit("_", 1)
-                        if len(parts) == 2:
-                            ip_part = parts[0].replace("CyberForecaster_Block_", "").replace("_", ".")
-                            if is_valid_ip(ip_part):
-                                if ip_part not in active_blocks:
-                                    active_blocks[ip_part] = {
-                                        "ip": ip_part,
-                                        "source": "wifi",
-                                        "timestamp": datetime.now().isoformat(),
-                                        "rules": [],
-                                        "wsl_blocked": False,
-                                        "verified": True
-                                    }
-                                active_blocks[ip_part]["rules"].append(name)
-                    elif name.startswith("AETHERIS_Block_IP_"):
-                        ip_part = name.replace("AETHERIS_Block_IP_", "").replace("_", ".")
-                        if is_valid_ip(ip_part):
-                            if ip_part not in active_blocks:
-                                active_blocks[ip_part] = {
-                                    "ip": ip_part,
-                                    "source": "wifi",
-                                    "timestamp": datetime.now().isoformat(),
-                                    "rules": [name],
-                                    "wsl_blocked": False,
-                                    "verified": True
-                                }
-        except Exception as e:
-            print(f"[Defense] Sync netsh error: {e}")
-
-    # 2. Query WSL iptables
-    wsl_info = _get_wsl_info()
-    if wsl_info["available"]:
-        try:
+    try:
+        if sys.platform == "win32":
             proc = subprocess.run(
-                ["wsl", "-u", "root", "iptables", "-L", "INPUT", "-n"],
-                capture_output=True, text=True, timeout=5
+                ["netsh", "advfirewall", "firewall", "show", "rule", "name=all"],
+                capture_output=True, text=True, timeout=3
             )
             if proc.returncode == 0 and proc.stdout:
                 for line in proc.stdout.splitlines():
-                    if "DROP" in line:
-                        parts = line.split()
-                        if len(parts) >= 4:
-                            src_ip = parts[3].split("/")[0]
-                            if is_valid_ip(src_ip) and src_ip != "0.0.0.0":
-                                if src_ip in active_blocks:
-                                    active_blocks[src_ip]["source"] = "both"
-                                    active_blocks[src_ip]["wsl_blocked"] = True
-                                else:
-                                    active_blocks[src_ip] = {
-                                        "ip": src_ip,
-                                        "source": "wsl",
+                    if "Rule Name:" in line:
+                        name = line.split("Rule Name:", 1)[1].strip()
+                        if name.startswith("CyberForecaster_Block_"):
+                            parts = name.rsplit("_", 1)
+                            if len(parts) == 2:
+                                ip_part = parts[0].replace("CyberForecaster_Block_", "").replace("_", ".")
+                                if is_valid_ip(ip_part):
+                                    if ip_part not in active_blocks:
+                                        active_blocks[ip_part] = {
+                                            "ip": ip_part, "source": "wifi",
+                                            "timestamp": datetime.now().isoformat(),
+                                            "rules": [], "wsl_blocked": False, "verified": True
+                                        }
+                                    active_blocks[ip_part]["rules"].append(name)
+                        elif name.startswith("AETHERIS_Block_IP_"):
+                            ip_part = name.replace("AETHERIS_Block_IP_", "").replace("_", ".")
+                            if is_valid_ip(ip_part):
+                                if ip_part not in active_blocks:
+                                    active_blocks[ip_part] = {
+                                        "ip": ip_part, "source": "wifi",
                                         "timestamp": datetime.now().isoformat(),
-                                        "rules": [f"wsl_iptables_{src_ip}"],
-                                        "wsl_blocked": True,
-                                        "verified": True
+                                        "rules": [name], "wsl_blocked": False, "verified": True
                                     }
-        except Exception as e:
-            print(f"[Defense] Sync WSL error: {e}")
+    except Exception:
+        pass
 
-    _block_registry = active_blocks
-    all_blocked_ips = set(active_blocks.keys())
-    for iface in defense_state:
-        defense_state[iface]["blocked_ips"] = set(all_blocked_ips)
+    if active_blocks:
+        _block_registry.update(active_blocks)
+        all_blocked_ips = set(_block_registry.keys())
+        for iface in defense_state:
+            defense_state[iface]["blocked_ips"] = set(all_blocked_ips)
+    _sync_in_progress = False
+
+
+def _sync_live_block_state(blocking: bool = False):
+    """Synchronize live firewall block state in background without blocking server or APIs."""
+    global _sync_in_progress
+    if blocking:
+        _sync_live_block_state_worker()
+    else:
+        if not _sync_in_progress:
+            _sync_in_progress = True
+            threading.Thread(target=_sync_live_block_state_worker, daemon=True).start()
 
 
 def _block_ip(ip: str, iface: str = None) -> dict:
@@ -2422,8 +2412,7 @@ async def unisolate_port_action(action: PortAction):
 
 @app.get("/api/defense/state")
 async def get_defense_state():
-    """Return current defense state for all interfaces, synchronized with live OS firewall rules."""
-    _sync_live_block_state()
+    """Return current defense state for all interfaces instantly."""
     result = {}
     for iface, state in defense_state.items():
         result[iface] = {
@@ -2437,8 +2426,7 @@ async def get_defense_state():
 
 @app.get("/api/defense/block-list")
 async def get_block_list():
-    """Return detailed live block registry with source, timestamp, rules, and verification status."""
-    _sync_live_block_state()
+    """Return detailed live block registry instantly."""
     return {"blocked_ips": list(_block_registry.values())}
 
 
