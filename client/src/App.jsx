@@ -21,7 +21,15 @@ const _PORT = import.meta.env.VITE_CAPTURE_PORT ?? "8080";
 const CAPTURE_API = `http://${_HOST}:${_PORT}`;
 
 export default function App() {
-  const [view, setView] = useState("landing"); // "landing" | "dashboard"
+  const [view, setView] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("view") === "dashboard" || window.location.hash === "#dashboard") {
+        return "dashboard";
+      }
+    }
+    return "landing";
+  });
   const [activePage, setActivePage] = useState("live");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [trafficEvents, setTrafficEvents] = useState([]);
@@ -117,7 +125,12 @@ export default function App() {
 
   if (view === "landing") {
     return (
-      <LandingPage onGetStarted={() => setView("dashboard")} />
+      <LandingPage
+        onGetStarted={() => {
+          const dashboardUrl = `${window.location.origin}${window.location.pathname}?view=dashboard`;
+          window.open(dashboardUrl, "_blank");
+        }}
+      />
     );
   }
 
