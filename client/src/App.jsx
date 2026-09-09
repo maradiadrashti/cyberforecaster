@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ShieldAlert, Activity, Server,
-  ChevronLeft, ChevronRight, Radio, Target
+  ChevronLeft, ChevronRight, Radio, Target, Home
 } from "lucide-react";
 import LiveTraffic from "./pages/LiveTraffic";
 import AttackForecast from "./pages/AttackForecast";
+import LandingPage from "./pages/LandingPage";
 import {
   HOSTS, generateTrafficEvent, generateForecast
 } from "./demoData";
@@ -20,6 +21,7 @@ const _PORT = import.meta.env.VITE_CAPTURE_PORT ?? "8080";
 const CAPTURE_API = `http://${_HOST}:${_PORT}`;
 
 export default function App() {
+  const [view, setView] = useState("landing"); // "landing" | "dashboard"
   const [activePage, setActivePage] = useState("live");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [trafficEvents, setTrafficEvents] = useState([]);
@@ -113,6 +115,12 @@ export default function App() {
   const totalInterfaces = realInterfaces.length;
   const highThreatAlerts = Object.keys(liveFlows).length;
 
+  if (view === "landing") {
+    return (
+      <LandingPage onGetStarted={() => setView("dashboard")} />
+    );
+  }
+
   return (
     <div className="min-h-screen flex cyber-grid font-sans select-none">
       {/* ===== SIDEBAR ===== */}
@@ -121,8 +129,12 @@ export default function App() {
           sidebarCollapsed ? "w-[60px]" : "w-[220px]"
         }`}
       >
-        {/* Brand */}
-        <div className="p-4 border-b border-cyber-border flex items-center gap-2 min-h-[60px]">
+        {/* Brand - Clickable to return to Landing */}
+        <button
+          onClick={() => setView("landing")}
+          className="p-4 border-b border-cyber-border flex items-center gap-2 min-h-[60px] text-left hover:bg-slate-900/40 transition-colors w-full cursor-pointer"
+          title="Back to Landing Page"
+        >
           <div className="relative shrink-0">
             <ShieldAlert className="h-6 w-6 text-cyber-accent" />
             <div className="absolute inset-0 bg-cyber-accent rounded blur-md opacity-20"></div>
@@ -137,7 +149,7 @@ export default function App() {
               </p>
             </div>
           )}
-        </div>
+        </button>
 
         {/* Nav items */}
         <nav className="flex-1 py-3 px-2 flex flex-col gap-0.5 overflow-y-auto">
