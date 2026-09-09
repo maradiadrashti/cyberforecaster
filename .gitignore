@@ -6,6 +6,7 @@
 
 # Python virtual environments & cache
 /.venv/
+/.agents/
 /**/__pycache__/
 *.pyc
 *.pyo
