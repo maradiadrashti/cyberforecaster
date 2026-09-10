@@ -1,7 +1,7 @@
 # CyberForecaster 🛡️⚡
 ### AI-Powered Real-Time Network Attack Forecasting & MITRE Kill Chain Prediction System
 
-CyberForecaster is a real-time network defense and attack forecasting system. It combines microsecond packet capture (via Scapy/Npcap), flow-level machine learning classification (Random Forest), temporal multi-step stage forecasting (PyTorch GRU World Model), and an interactive SOC Dashboard (React + Vite).
+CyberForecaster is a real-time network defense and attack forecasting system. It combines microsecond packet capture (via Scapy/Npcap), flow-level machine learning classification (Random Forest/LightGBM), temporal multi-step stage forecasting (PyTorch GRU World Model), and an interactive SOC Dashboard (React + Vite + Spline 3D).
 
 ---
 
@@ -29,20 +29,17 @@ CyberForecaster is a real-time network defense and attack forecasting system. It
 [ Network Interface (Scapy / Npcap) ]
                  │
                  ▼
-[ Capture Service (FastAPI / WebSockets - :8080) ] ───► [ ML Models (RF + GRU - :8000) ]
-                 │                                                │
-                 ▼                                                │
-   [ Express Backend (:5050) ] ◄──────────────────────────────────┘
+[ Capture & AI Inference Service (FastAPI / WebSockets - :8080) ]
+       ├── Embedded Flow Classifier (Random Forest)
+       └── Embedded Temporal Stage Forecaster (PyTorch GRU)
                  │
-                 ▼
- [ SOC React Dashboard (Vite - :5173) ]
+                 ▼ (WebSocket Stream)
+ [ SOC React Dashboard & Landing Page (Vite - :5173) ]
 ```
 
-- **Frontend (`client/`)**: High-performance React 19 + Vite dashboard featuring Cyber-Tech UI styling, Recharts telemetry, and real-time WebSocket state management.
-- **Capture Service (`capture-service/`)**: Fast packet sniffer and sliding-window feature extractor built on Scapy and FastAPI.
-- **ML Service (`ml-service/` & `models/`)**: Pre-trained PyTorch GRU forecasting models and Scikit-Learn flow classifiers.
-- **Backend Service (`backend/`)**: Node.js & Express API managing host states and socket telemetry broadcasts.
-- **Simulator (`simulator/`)**: Synthetic attack vector replay engine for testing defense workflows in offline environments.
+- **Frontend (`client/`)**: High-performance React 19 + Vite dashboard featuring Cyber-Tech UI styling, interactive Spline 3D Hero, Recharts telemetry, and real-time WebSocket state management.
+- **Capture & AI Service (`capture-service/`)**: Fast packet sniffer, sliding-window feature extractor, and real-time PyTorch GRU & RF inference engine built on Scapy and FastAPI.
+- **Trained AI Models (`models/`)**: Production PyTorch GRU kill-chain stage forecasting model and Scikit-Learn flow classifiers.
 
 ---
 
@@ -61,7 +58,7 @@ CyberForecaster is a real-time network defense and attack forecasting system. It
 git clone <repository-url>
 cd cyberforecaster
 
-# Install all backend, client, and python dependencies
+# Install all client and python dependencies
 .\setup.ps1      # (Windows PowerShell)
 # or
 ./setup.sh       # (Linux / macOS)
@@ -76,14 +73,12 @@ cd cyberforecaster
 
 ```bash
 # Linux / macOS
-./start.sh
+sudo ./start.sh
 ```
 
-The startup script will automatically launch all microservices and open the dashboard in your browser:
+The startup script will automatically launch all services and open the dashboard in your browser:
 - **SOC Dashboard**: `http://127.0.0.1:5173`
-- **Capture Service API**: `http://127.0.0.1:8080`
-- **FastAPI ML Service**: `http://127.0.0.1:8000`
-- **Express Backend**: `http://127.0.0.1:5050`
+- **Capture Service & AI Engine API**: `http://127.0.0.1:8080`
 
 ---
 
@@ -100,6 +95,9 @@ The startup script will automatically launch all microservices and open the dash
 
 ---
 
-## 🔒 License
+## 🔒 Automated Mitigation & Active Defense
 
-MIT License. Designed for cybersecurity research, SOC training, and proactive network defense experimentation.
+- **Active Defense Actions**:
+  - `Isolate Host`: Blocks all inbound/outbound communication to the compromised IP.
+  - `Block Attacking Ports`: Instantly drops exploit ports on target firewalls.
+  - `Rate Limit Host`: Throttles high-frequency anomalous traffic.

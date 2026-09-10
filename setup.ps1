@@ -9,16 +9,14 @@ Push-Location $Root
 try {
     Write-Host "Installing Node dependencies in client..."
     Push-Location (Join-Path $Root "client")
-    npm ci
+    npm install
     Pop-Location
 
     $Venv = Join-Path $Root ".venv"
     if (-not (Test-Path (Join-Path $Venv "Scripts\python.exe"))) { python -m venv $Venv }
     $Python = Join-Path $Venv "Scripts\python.exe"
     & $Python -m pip install --upgrade pip
-    & $Python -m pip install -r (Join-Path $Root "ml-service\requirements.txt")
     & $Python -m pip install -r (Join-Path $Root "capture-service\requirements.txt")
-    & $Python -m pip install -r (Join-Path $Root "simulator\requirements.txt")
 } finally {
     Pop-Location
 }

@@ -62,8 +62,8 @@ function Stop-PortProcess([int]$Port) {
     } catch {}
 }
 
-Write-Status "0/4" "Cleaning up previous service ports..." "DarkGray"
-foreach ($p in @(8080, 8000, 5173)) {
+Write-Status "0/2" "Cleaning up previous service ports..." "DarkGray"
+foreach ($p in @(8080, 5173)) {
     Stop-PortProcess $p
 }
 Start-Sleep -Milliseconds 500
@@ -102,22 +102,9 @@ function Wait-ServicePort([string]$ServiceName, [int]$Port, [int]$TimeoutSeconds
 }
 
 # =============================================================================
-#  STEP 1 - ML Service (FastAPI / PyTorch GRU)
+#  STEP 1 - Capture & AI Forecaster Service (Scapy + GRU Engine)
 # =============================================================================
-Write-Status "1/4" "Starting FastAPI ML Service on 127.0.0.1:8000..." "Yellow"
-$procs["ml-service"] = Start-Process -FilePath $Python `
-    -ArgumentList "-m uvicorn main:app --host 127.0.0.1 --port 8000" `
-    -WorkingDirectory (Join-Path $Root "ml-service") -NoNewWindow -PassThru `
-    -RedirectStandardOutput (Join-Path $LogDir "ml-service.log") `
-    -RedirectStandardError  (Join-Path $LogDir "ml-service.err")
-
-Wait-ServicePort "ml-service" 8000 25 (Join-Path $LogDir "ml-service.err")
-Write-Status "1/4" "FastAPI ML Service online (port 8000, PID $($procs['ml-service'].Id))" "Green"
-
-# =============================================================================
-#  STEP 2 - Capture Service (Scapy - needs Admin, already elevated)
-# =============================================================================
-Write-Status "2/4" "Starting Packet Capture Service on 0.0.0.0:8080 [Scapy ACTIVE]..." "Yellow"
+Write-Status "1/2" "Starting Packet Capture & AI Forecasting Service on 0.0.0.0:8080..." "Yellow"
 $procs["capture"] = Start-Process -FilePath $Python `
     -ArgumentList "-m uvicorn capture_server:app --host 0.0.0.0 --port 8080" `
     -WorkingDirectory (Join-Path $Root "capture-service") -NoNewWindow -PassThru `
@@ -125,12 +112,12 @@ $procs["capture"] = Start-Process -FilePath $Python `
     -RedirectStandardError  (Join-Path $LogDir "capture.err")
 
 Wait-ServicePort "capture" 8080 25 (Join-Path $LogDir "capture.err")
-Write-Status "2/4" "Packet Capture Service online (port 8080, PID $($procs['capture'].Id))" "Green"
+Write-Status "1/2" "Capture & AI Forecasting Service online (port 8080, PID $($procs['capture'].Id))" "Green"
 
 # =============================================================================
-#  STEP 3 - Vite React Client
+#  STEP 2 - Vite React Client & SOC Dashboard
 # =============================================================================
-Write-Status "3/4" "Starting Vite React Client on port 5173..." "Yellow"
+Write-Status "2/2" "Starting Vite React Client on port 5173..." "Yellow"
 $procs["client"] = Start-Process -FilePath "cmd.exe" `
     -ArgumentList "/c npm run dev -- --host 127.0.0.1" `
     -WorkingDirectory (Join-Path $Root "client") -NoNewWindow -PassThru `
@@ -138,19 +125,7 @@ $procs["client"] = Start-Process -FilePath "cmd.exe" `
     -RedirectStandardError  (Join-Path $LogDir "client.err")
 
 Wait-ServicePort "client" 5173 30 (Join-Path $LogDir "client.err")
-Write-Status "3/4" "Vite React Client online (port 5173, PID $($procs['client'].Id))" "Green"
-
-# =============================================================================
-#  STEP 4 - Attack Traffic Simulator
-# =============================================================================
-Write-Status "4/4" "Starting Attack Traffic Simulator..." "Yellow"
-$procs["simulator"] = Start-Process -FilePath $Python `
-    -ArgumentList "simulate.py" `
-    -WorkingDirectory (Join-Path $Root "simulator") -NoNewWindow -PassThru `
-    -RedirectStandardOutput (Join-Path $LogDir "simulator.log") `
-    -RedirectStandardError  (Join-Path $LogDir "simulator.err")
-
-Write-Status "4/4" "Attack Traffic Simulator started (PID $($procs['simulator'].Id))" "Green"
+Write-Status "2/2" "Vite React Client online (port 5173, PID $($procs['client'].Id))" "Green"
 
 # Auto-open Dashboard in browser
 Start-Sleep -Seconds 1
@@ -164,11 +139,10 @@ Write-Host ""
 Write-Host "  =================================================================" -ForegroundColor Green
 Write-Host "   CYBERFORECASTER  //  ALL SERVICES ONLINE" -ForegroundColor Green
 Write-Host "  =================================================================" -ForegroundColor Green
-Write-Host "   [+] Dashboard (SOC UI) : http://127.0.0.1:5173" -ForegroundColor Cyan
-Write-Host "   [+] FastAPI ML Service : http://127.0.0.1:8000" -ForegroundColor White
-Write-Host "   [+] Capture Service    : http://127.0.0.1:8080  [Scapy/Npcap ADMIN ACTIVE]" -ForegroundColor Green
+Write-Host "   [+] Web Dashboard (SOC UI) : http://127.0.0.1:5173" -ForegroundColor Cyan
+Write-Host "   [+] Capture & AI Service   : http://127.0.0.1:8080  [Scapy/Npcap ACTIVE]" -ForegroundColor Green
 Write-Host "  =================================================================" -ForegroundColor Green
-Write-Host "   Logs saved to          : $LogDir\" -ForegroundColor DarkGray
+Write-Host "   Logs saved to              : $LogDir\" -ForegroundColor DarkGray
 Write-Host "  =================================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "   Press [Enter] or Ctrl+C in this window to stop all services..." -ForegroundColor Yellow

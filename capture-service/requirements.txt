@@ -2,3 +2,8 @@ fastapi
 uvicorn
 psutil
 scapy
+torch
+scikit-learn
+joblib
+numpy
+
