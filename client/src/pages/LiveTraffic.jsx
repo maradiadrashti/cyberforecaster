@@ -1231,16 +1231,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                             {flow.severity === "none" ? "—" : flow.severity?.toUpperCase()}
                           </span>
                         </td>
-                        <td className="text-right pr-4">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onFlowClick && onFlowClick(flow); }}
-                            className="inline-flex items-center gap-1 text-[9px] font-mono-tech text-cyan-400 hover:text-white transition-colors"
-                            title="View Forecast"
-                          >
-                            <span>Forecast</span>
-                            <ChevronRight className="h-3 w-3" />
-                          </button>
-                        </td>
                       </tr>
                     </React.Fragment>
                   );

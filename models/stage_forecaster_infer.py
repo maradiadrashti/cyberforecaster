@@ -179,58 +179,32 @@ def forecast_host(host_ip: str, recent_flows: list[dict], forecast_steps: int = 
     pair_str = f"{src_ip}->{host_ip}" if src_ip else host_ip
     print(f"[GRU_INPUT_WINDOW]\npair={pair_str}\nfeatures={latest_feat}\nnormalized={latest_norm}", flush=True)
 
-    # Execute PyTorch GRU Neural Network Forward Pass
+    # ── PyTorch GRU Forward Pass ─────────────────────────────────────────────
     with torch.no_grad():
         stage_probs_tensor, risk_tensor, hidden = _model(x)
 
-    stage_probs = torch.softmax(stage_probs_tensor, dim=-1).squeeze().tolist()
-    risk_score = risk_tensor.squeeze().item()
+    # Read actual GRU outputs — softmax over stage logits, sigmoid risk score
+    stage_probs_raw = torch.softmax(stage_probs_tensor, dim=-1).squeeze()
+    stage_probs = stage_probs_raw.tolist()
+    risk_score = float(risk_tensor.squeeze().item())
 
-    # Check if the latest/current traffic in the sequence contains an active attack
-    latest_flow = recent_flows[-1] if recent_flows else {}
-    is_active_attack = (
-        str(latest_flow.get("attack_type") or latest_flow.get("label") or "").lower() not in ("benign", "none", "normal", "normal traffic", "")
-        or str(latest_flow.get("severity", "")).lower() in ("critical", "high", "medium")
-    )
+    # Derive predicted stage and confidence directly from the model
+    predicted_idx = int(torch.argmax(stage_probs_raw).item())
+    predicted_stage = STAGES[predicted_idx]
+    confidence = float(stage_probs[predicted_idx])
+    effective_risk = risk_score
 
-    if is_active_attack:
-        # Determine the ground-truth MITRE stage progression corresponding to the active attack
-        primary_atk = str(latest_flow.get("attack_type") or latest_flow.get("label") or "").lower()
-        target_stage = "reconnaissance"
-        if "brute" in primary_atk or "auth" in primary_atk or "patator" in primary_atk or "exploit" in primary_atk:
-            target_stage = "initial_access"
-        elif "lateral" in primary_atk or "smb" in primary_atk or "rdp" in primary_atk:
-            target_stage = "lateral_movement"
-        elif "c2" in primary_atk or "bot" in primary_atk or "flood" in primary_atk or "dos" in primary_atk or "ddos" in primary_atk:
-            target_stage = "command_control"
-        elif "exfil" in primary_atk:
-            target_stage = "exfiltration"
-        elif "scan" in primary_atk or "probe" in primary_atk or "sweep" in primary_atk:
-            target_stage = "reconnaissance"
-
-        target_idx = STAGES.index(target_stage) if target_stage in STAGES else 1
-        new_probs = [0.02] * len(STAGES)
-        new_probs[target_idx] = 0.88
-        new_probs[0] = 0.01  # normal suppressed during active attack
-        stage_probs = new_probs
-        predicted_stage = target_stage
-        confidence = 0.88
-        risk_score = max(risk_score, 0.85)
-        effective_risk = max(risk_score, 0.85)
-    else:
-        # Traffic is normal (or attack has stopped and traffic returned to normal)
-        stage_probs = [0.95, 0.01, 0.01, 0.01, 0.01, 0.01]
-        predicted_stage = "normal"
-        confidence = 0.95
-        risk_score = 0.02
-        effective_risk = 0.02
-
-    # Build stage probs dict from computed output
+    # Build stage probs dict from real GRU softmax output
     stage_probs_dict = {STAGES[i]: round(float(stage_probs[i]), 4) for i in range(len(STAGES))}
 
-    print(f"[GRU_LIVE_INFERENCE]\nsrc={src_ip or 'unknown'}\ndst={host_ip}\ninput_shape=(1,{seq_len},{num_feats})\nattack_risk={effective_risk:.4f}\npredicted_stage={predicted_stage}", flush=True)
+    print(
+        f"[GRU_LIVE_INFERENCE]\nsrc={src_ip or 'unknown'}\ndst={host_ip}"
+        f"\ninput_shape=(1,{seq_len},{num_feats})\nattack_risk={effective_risk:.4f}"
+        f"\npredicted_stage={predicted_stage}\nconfidence={confidence:.4f}",
+        flush=True,
+    )
 
-    # Derive trend from historical risk trajectory (if available)
+    # ── Risk Trend (linear regression over rolling history) ──────────────────
     slope = 0.0
     if risk_history and len(risk_history) >= 3:
         y = np.array(list(risk_history) + [effective_risk], dtype=np.float32)
@@ -240,29 +214,24 @@ def forecast_host(host_ip: str, recent_flows: list[dict], forecast_steps: int = 
         except Exception:
             slope = 0.0
 
-    # Project risk curve
-    if predicted_stage == "normal":
-        projected_risk = [round(effective_risk, 4)] * forecast_steps
-    else:
-        projected_risk = [round(effective_risk, 4)]
-        current = effective_risk
-        stage_advancement_rate = 0.03
-        if predicted_stage == "reconnaissance":
-            stage_advancement_rate = 0.03
-        elif predicted_stage == "initial_access":
-            stage_advancement_rate = 0.04
-        elif predicted_stage == "lateral_movement":
-            stage_advancement_rate = 0.05
-        elif predicted_stage == "command_control":
-            stage_advancement_rate = 0.03
-        elif predicted_stage == "exfiltration":
-            stage_advancement_rate = 0.01
+    # ── Project Risk Curve (GRU risk + stage-specific advancement rate) ───────
+    STAGE_RATE = {
+        "normal":           0.00,
+        "reconnaissance":   0.03,
+        "initial_access":   0.04,
+        "lateral_movement": 0.05,
+        "command_control":  0.03,
+        "exfiltration":     0.01,
+    }
+    advancement_rate = STAGE_RATE.get(predicted_stage, 0.03)
 
-        for step in range(1, forecast_steps):
-            projected_slope = slope + (stage_advancement_rate if slope >= 0 else 0.0)
-            decay = 1.0 / (1.0 + step * 0.1)
-            current = min(1.0, max(0.0, current + projected_slope * decay))
-            projected_risk.append(round(current, 4))
+    projected_risk = []
+    current = effective_risk
+    for step in range(forecast_steps):
+        projected_risk.append(round(current, 4))
+        projected_slope = slope + (advancement_rate if slope >= 0 else 0.0)
+        decay = 1.0 / (1.0 + (step + 1) * 0.1)
+        current = min(1.0, max(0.0, current + projected_slope * decay))
 
     return {
         "host": host_ip,
@@ -270,7 +239,7 @@ def forecast_host(host_ip: str, recent_flows: list[dict], forecast_steps: int = 
         "input_shape": [1, seq_len, num_feats],
         "stage_probs": stage_probs_dict,
         "predicted_stage": predicted_stage,
-        "confidence": confidence,
+        "confidence": round(confidence, 4),
         "risk_score": round(risk_score, 4),
         "projected_risk_curve": projected_risk,
         "windows_collected": len(recent_flows),
