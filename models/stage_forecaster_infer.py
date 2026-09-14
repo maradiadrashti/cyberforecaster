@@ -186,44 +186,27 @@ def forecast_host(host_ip: str, recent_flows: list[dict], forecast_steps: int = 
     stage_probs = torch.softmax(stage_probs_tensor, dim=-1).squeeze().tolist()
     risk_score = risk_tensor.squeeze().item()
 
-    # Check if the latest/current traffic in the sequence contains an active attack
+    # Derive prediction directly from real GRU model output
+    predicted_idx = int(np.argmax(stage_probs))
+    predicted_stage = STAGES[predicted_idx]
+    confidence = float(stage_probs[predicted_idx])
+    effective_risk = risk_score
+
+    # Log attack metadata alongside model prediction for comparison/debugging only.
+    # These metadata fields do NOT influence stage_probs, predicted_stage,
+    # confidence, risk_score, or effective_risk.
     latest_flow = recent_flows[-1] if recent_flows else {}
-    is_active_attack = (
-        str(latest_flow.get("attack_type") or latest_flow.get("label") or "").lower() not in ("benign", "none", "normal", "normal traffic", "")
-        or str(latest_flow.get("severity", "")).lower() in ("critical", "high", "medium")
+    meta_attack_type = latest_flow.get("attack_type") or latest_flow.get("label") or ""
+    meta_severity = latest_flow.get("severity", "")
+    print(
+        f"[GRU_META_COMPARISON]\n"
+        f"  metadata attack_type: {meta_attack_type}\n"
+        f"  metadata severity: {meta_severity}\n"
+        f"  model predicted_stage: {predicted_stage}\n"
+        f"  model confidence: {confidence:.4f}\n"
+        f"  model risk_score: {effective_risk:.4f}",
+        flush=True,
     )
-
-    if is_active_attack:
-        # Determine the ground-truth MITRE stage progression corresponding to the active attack
-        primary_atk = str(latest_flow.get("attack_type") or latest_flow.get("label") or "").lower()
-        target_stage = "reconnaissance"
-        if "brute" in primary_atk or "auth" in primary_atk or "patator" in primary_atk or "exploit" in primary_atk:
-            target_stage = "initial_access"
-        elif "lateral" in primary_atk or "smb" in primary_atk or "rdp" in primary_atk:
-            target_stage = "lateral_movement"
-        elif "c2" in primary_atk or "bot" in primary_atk or "flood" in primary_atk or "dos" in primary_atk or "ddos" in primary_atk:
-            target_stage = "command_control"
-        elif "exfil" in primary_atk:
-            target_stage = "exfiltration"
-        elif "scan" in primary_atk or "probe" in primary_atk or "sweep" in primary_atk:
-            target_stage = "reconnaissance"
-
-        target_idx = STAGES.index(target_stage) if target_stage in STAGES else 1
-        new_probs = [0.02] * len(STAGES)
-        new_probs[target_idx] = 0.88
-        new_probs[0] = 0.01  # normal suppressed during active attack
-        stage_probs = new_probs
-        predicted_stage = target_stage
-        confidence = 0.88
-        risk_score = max(risk_score, 0.85)
-        effective_risk = max(risk_score, 0.85)
-    else:
-        # Traffic is normal (or attack has stopped and traffic returned to normal)
-        stage_probs = [0.95, 0.01, 0.01, 0.01, 0.01, 0.01]
-        predicted_stage = "normal"
-        confidence = 0.95
-        risk_score = 0.02
-        effective_risk = 0.02
 
     # Build stage probs dict from computed output
     stage_probs_dict = {STAGES[i]: round(float(stage_probs[i]), 4) for i in range(len(STAGES))}
