@@ -406,7 +406,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
             if (data.type === "capture_stopped" || data.type === "all_captures_stopped") {
               setIsCapturing(false);
               isCapturingRef.current = false;
-              resetDashboardState();
+              // Preserve dashboard state on stop; will be cleared on next startCapture.
               return;
             }
 
@@ -644,8 +644,8 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     }
     setIsCapturing(false);
     isCapturingRef.current = false;
-    resetDashboardState();
-  }, [selectedIface, resetDashboardState]);
+    // Preserve dashboard state on stop; it'll be cleared when a new capture starts.
+  }, [selectedIface]);
 
   // --- Derived data ---
   const flowList = useMemo(() => {
