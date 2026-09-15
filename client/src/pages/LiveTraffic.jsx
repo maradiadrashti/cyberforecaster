@@ -26,6 +26,18 @@ const IFACE_ICONS = {
   Unknown: Globe,
 };
 
+// Protocol colors for chart
+const PROTO_COLORS = {
+  TCP: "#00f0ff",
+  UDP: "#a855f7",
+  ICMP: "#f59e0b",
+  OTHER: "#38bdf8",
+  HTTP: "#10b981",
+  HTTPS: "#06b6d4",
+  DNS: "#6366f1",
+  SSH: "#ec4899",
+};
+
 // Severity color
 const SEV_COLORS = {
   none: "#334155",
@@ -330,6 +342,17 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   useEffect(() => { isCapturingRef.current = isCapturing; }, [isCapturing]);
   useEffect(() => { flowsRef.current = flows; }, [flows]);
 
+  // --- Initialize smooth BPS graph baseline ---
+  useEffect(() => {
+    const now = Date.now();
+    const initialHistory = Array.from({ length: 30 }, (_, idx) => {
+      const t = new Date(now - (30 - idx) * 1000).toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      return { time: t, bps: 0 };
+    });
+    bpsRef.current = initialHistory;
+    setBpsHistory(initialHistory);
+  }, []);
+
   const packetQueueRef = useRef([]);
 
   // --- Reset / Refresh dashboard state ---
@@ -339,8 +362,13 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     setTopoNodes({});
     setTotalPkts(0);
     setTotalBytes(0);
-    setBpsHistory([]);
-    bpsRef.current = [];
+    const now = Date.now();
+    const initialHistory = Array.from({ length: 30 }, (_, idx) => {
+      const t = new Date(now - (30 - idx) * 1000).toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      return { time: t, bps: 0 };
+    });
+    bpsRef.current = initialHistory;
+    setBpsHistory(initialHistory);
     bytesWindowRef.current = [];
     packetQueueRef.current = [];
     fetch(`${CAPTURE_API}/api/capture/reset`, { method: "POST" }).catch(() => {});
@@ -443,13 +471,11 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               return;
             }
 
+            // If capture is stopped/paused, ignore incoming packet events
+            if (!isCapturingRef.current) return;
+
             // Enqueue regular packet event for live batch processing
             if (data.src_ip && data.dst_ip) {
-              // Mark capture active if live packets are actively streaming in
-              if (!isCapturingRef.current) {
-                setIsCapturing(true);
-                isCapturingRef.current = true;
-              }
               packetQueueRef.current.push(data);
             }
           } catch (_) {}
@@ -976,7 +1002,17 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                   contentStyle={{ backgroundColor: "#0b0f19", border: "1px solid #1f293d", borderRadius: 8, fontSize: 10 }}
                   formatter={(val) => [formatBps(val), "Bandwidth"]}
                 />
-                <Area type="monotone" dataKey="bps" stroke="#00f0ff" strokeWidth={1.5} fillOpacity={1} fill="url(#gradBps)" isAnimationActive={false} />
+                <Area
+                  type="monotone"
+                  dataKey="bps"
+                  stroke="#00f0ff"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#gradBps)"
+                  isAnimationActive={true}
+                  animationDuration={850}
+                  animationEasing="linear"
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -994,7 +1030,11 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                   <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94a3b8" }} />
                   <YAxis tick={{ fontSize: 9, fill: "#64748b" }} />
                   <Tooltip contentStyle={{ backgroundColor: "#0b0f19", border: "1px solid #1f293d", borderRadius: 8, fontSize: 10 }} />
-                  <Bar dataKey="count" fill="#00f0ff" radius={[4, 4, 0, 0]} name="Packets" isAnimationActive={false} />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]} name="Packets" isAnimationActive={true} animationDuration={300}>
+                    {protoDist.map((entry) => (
+                      <Cell key={`cell-${entry.name}`} fill={PROTO_COLORS[entry.name] || "#00f0ff"} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             ) : (
