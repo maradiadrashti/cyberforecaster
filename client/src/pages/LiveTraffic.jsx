@@ -343,6 +343,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     bpsRef.current = [];
     bytesWindowRef.current = [];
     packetQueueRef.current = [];
+    fetch(`${CAPTURE_API}/api/capture/reset`, { method: "POST" }).catch(() => {});
   }, []);
 
   // --- Fetch real interfaces & sync capture status from Python server ---
@@ -626,7 +627,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   // --- Start/Stop capture ---
   const startCapture = useCallback(() => {
     if (!selectedIface) return;
-    resetDashboardState();
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ action: "start_capture", interface: selectedIface }));
     } else {
@@ -634,7 +634,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     }
     setIsCapturing(true);
     isCapturingRef.current = true;
-  }, [selectedIface, resetDashboardState]);
+  }, [selectedIface]);
 
   const stopCapture = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

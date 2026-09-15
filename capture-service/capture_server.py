@@ -1671,15 +1671,19 @@ async def switch_capture(iface: str):
 @app.post("/api/capture/stop/{iface}")
 async def stop_capture(iface: str):
     active_captures[iface] = False
-    reset_backend_state()
     return {"status": "stopped", "iface": iface}
 
 
 @app.post("/api/capture/stop_all")
 async def stop_all_captures():
     stop_all_captures_except(None)
-    reset_backend_state()
     return {"status": "all_stopped"}
+
+
+@app.post("/api/capture/reset")
+async def reset_capture_state():
+    reset_backend_state()
+    return {"status": "reset"}
 
 
 @app.get("/api/capture/status")
@@ -1771,11 +1775,9 @@ async def websocket_live(ws: WebSocket):
                     iface = cmd.get("interface")
                     if iface:
                         active_captures[iface] = False
-                        reset_backend_state()
                         await ws.send_text(json.dumps({"type": "capture_stopped", "interface": iface}))
                 elif action == "stop_all":
                     stop_all_captures_except(None)
-                    reset_backend_state()
                     await ws.send_text(json.dumps({"type": "all_captures_stopped"}))
                 elif action == "get_flows":
                     target_iface = cmd.get("interface")
