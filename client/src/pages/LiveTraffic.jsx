@@ -402,12 +402,17 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === "connected" || data.type === "capture_started" || data.type === "interface_switched") return;
+            if (data.type === "connected") return;
+
+            if (data.type === "capture_started" || data.type === "interface_switched") {
+              setIsCapturing(true);
+              isCapturingRef.current = true;
+              return;
+            }
 
             if (data.type === "capture_stopped" || data.type === "all_captures_stopped") {
               setIsCapturing(false);
               isCapturingRef.current = false;
-              // Preserve dashboard state on stop; will be cleared on next startCapture.
               return;
             }
 
@@ -438,14 +443,13 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               return;
             }
 
-            // Do NOT process packet stream if capture is stopped/IDLE
-            if (!isCapturingRef.current) return;
-
-            // STRICT INTERFACE FILTER
-            if (data.interface && selectedIfaceRef.current && data.interface !== selectedIfaceRef.current) return;
-
-            // Enqueue regular packet event for batch processing
+            // Enqueue regular packet event for live batch processing
             if (data.src_ip && data.dst_ip) {
+              // Mark capture active if live packets are actively streaming in
+              if (!isCapturingRef.current) {
+                setIsCapturing(true);
+                isCapturingRef.current = true;
+              }
               packetQueueRef.current.push(data);
             }
           } catch (_) {}
@@ -545,10 +549,21 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     return () => clearInterval(flushInterval);
   }, []);
 
-  // --- Lift flows up to parent ---
+  // --- Lift flows up to parent (throttled to prevent UI render thrashing) ---
+  const lastLiftTimeRef = useRef(0);
   useEffect(() => {
-    onFlowsUpdate && onFlowsUpdate(flows, packets, totalPkts);
-  }, [flows, packets, totalPkts, onFlowsUpdate]);
+    const now = Date.now();
+    if (now - lastLiftTimeRef.current >= 400 || !isCapturing) {
+      lastLiftTimeRef.current = now;
+      onFlowsUpdate && onFlowsUpdate(flows, packets, totalPkts);
+    } else {
+      const timer = setTimeout(() => {
+        lastLiftTimeRef.current = Date.now();
+        onFlowsUpdate && onFlowsUpdate(flows, packets, totalPkts);
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [flows, packets, totalPkts, isCapturing, onFlowsUpdate]);
 
   // --- Compute BPS chart every second ---
   useEffect(() => {
