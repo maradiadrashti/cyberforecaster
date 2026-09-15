@@ -3,7 +3,7 @@ import {
   Activity, Search, ShieldAlert, Wifi, Globe, Clock, Filter,
   AlertTriangle, Server, Zap, ArrowUpDown, RefreshCw, Radio,
   Play, Square, Network, ChevronDown, Signal, Usb, MonitorSmartphone,
-  Link2, WifiOff, Target, Crosshair, CheckCircle2, Gauge, Ban, Lock, ChevronRight
+  Link2, WifiOff, Target, Crosshair, CheckCircle2, Gauge, Ban, Lock, ChevronRight, Download
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -691,6 +691,45 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     }
   }, [selectedIface]);
 
+  // --- Export Raw PCAP for the current telemetry session ---
+  const [isExportingPcap, setIsExportingPcap] = useState(false);
+  const handleExportPcap = useCallback(async () => {
+    if (isExportingPcap) return;
+    setIsExportingPcap(true);
+    try {
+      // Clean interface name for filename (e.g. Wi-Fi -> wifi, Ethernet 2 -> ethernet_2)
+      const ifaceSlug = (selectedIface || "live")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || "network";
+
+      // Format timestamp YYYY-MM-DD_HH-mm-ss
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const datePart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const timePart = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+      const filename = `cyberforecaster_${ifaceSlug}_${datePart}_${timePart}.pcap`;
+
+      const res = await fetch(`${CAPTURE_API}/api/capture/export-pcap?interface=${encodeURIComponent(selectedIface || "")}&filename=${encodeURIComponent(filename)}`);
+      if (!res.ok) {
+        throw new Error(`Export failed: ${res.statusText}`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PCAP Export error:", err);
+    } finally {
+      setIsExportingPcap(false);
+    }
+  }, [selectedIface, isExportingPcap]);
+
   // --- Derived data ---
   const flowList = useMemo(() => {
     let list = Object.values(flows);
@@ -935,6 +974,20 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                 <span>Stop Capture</span>
               </button>
             )}
+
+            {/* Visual separator */}
+            <div className="h-6 w-px bg-slate-800 mx-1 hidden sm:block"></div>
+
+            {/* Export PCAP Button */}
+            <button
+              onClick={handleExportPcap}
+              disabled={!connected || isExportingPcap}
+              title="Export raw packets captured during the current telemetry session as a .pcap file"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-800/60 hover:border-cyan-500 text-cyan-400 hover:text-cyan-300 text-[10px] font-mono-tech font-bold uppercase transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-cyan-950/30"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>{isExportingPcap ? "Exporting..." : "Export PCAP"}</span>
+            </button>
           </div>
         </div>
         {selectedIface && (

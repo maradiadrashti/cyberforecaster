@@ -225,6 +225,8 @@ wsl_processes: dict[str, subprocess.Popen] = {}
 connected_clients: list[WebSocket] = []
 flow_cache: dict[str, dict] = {}                 # 5-tuple -> aggregated flow
 flow_lock = threading.Lock()
+_raw_packet_buffer: list = []
+_raw_packet_lock = threading.Lock()
 capture_stats = {
     "total_packets": 0,
     "start_time": None,
@@ -839,6 +841,8 @@ def reset_backend_state():
         LIVE_WINDOW_HISTORY.clear()
         _pair_window_buckets.clear()
         _latest_stage_forecasts.clear()
+    with _raw_packet_lock:
+        _raw_packet_buffer.clear()
 
 
 def _start_iface_capture(iface: str) -> bool:
@@ -1225,6 +1229,11 @@ def _capture_loop(iface: str):
     def process_packet(pkt):
         if not active_captures.get(iface):
             return False
+
+        with _raw_packet_lock:
+            _raw_packet_buffer.append(pkt)
+            if len(_raw_packet_buffer) > 100000:
+                _raw_packet_buffer.pop(0)
 
         try:
             event = _packet_to_flow_event(pkt)
@@ -1689,6 +1698,42 @@ async def reset_capture_state():
 @app.get("/api/capture/status")
 async def capture_status():
     return {k: v for k, v in active_captures.items()}
+
+
+@app.get("/api/capture/export-pcap")
+async def export_capture_pcap(filename: str = None, interface: str = None):
+    """Export the raw packet buffer as a downloadable .pcap file."""
+    import io
+    from scapy.utils import PcapWriter, wrpcap
+    from starlette.responses import Response
+
+    bio = io.BytesIO()
+    with _raw_packet_lock:
+        pkts = list(_raw_packet_buffer)
+
+    if pkts:
+        wrpcap(bio, pkts)
+    else:
+        # Write valid empty PCAP structure with header
+        writer = PcapWriter(bio)
+        writer.close()
+
+    pcap_data = bio.getvalue()
+    if not filename:
+        clean_iface = (interface or "network").lower().replace(" ", "_").replace("-", "_")
+        ts = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"cyberforecaster_{clean_iface}_{ts}.pcap"
+    elif not filename.endswith(".pcap"):
+        filename = f"{filename}.pcap"
+
+    return Response(
+        content=pcap_data,
+        media_type="application/vnd.tcpdump.pcap",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
 
 
 @app.get("/api/live-data/status")
