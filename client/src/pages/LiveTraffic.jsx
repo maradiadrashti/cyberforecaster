@@ -569,12 +569,12 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
-      const windowMs = 5000;
-      const active = bytesWindowRef.current.filter(e => now - e.time < windowMs);
-      const totalB = active.reduce((s, e) => s + e.bytes, 0);
-      const bps = (totalB * 8) / (windowMs / 1000);
+      const windowMs = 3000;
+      bytesWindowRef.current = bytesWindowRef.current.filter(e => now - e.time < windowMs);
+      const totalB = bytesWindowRef.current.reduce((s, e) => s + e.bytes, 0);
+      const bps = isCapturingRef.current ? Math.round((totalB * 8) / (windowMs / 1000)) : 0;
       const timeStr = new Date().toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      bpsRef.current = [...bpsRef.current, { time: timeStr, bps: Math.round(bps) }].slice(-30);
+      bpsRef.current = [...bpsRef.current, { time: timeStr, bps }].slice(-30);
       setBpsHistory([...bpsRef.current]);
     }, 1000);
     return () => clearInterval(interval);
@@ -642,24 +642,27 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   // --- Start/Stop capture ---
   const startCapture = useCallback(() => {
     if (!selectedIface) return;
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ action: "start_capture", interface: selectedIface }));
-    } else {
-      fetch(`${CAPTURE_API}/api/capture/start/${encodeURIComponent(selectedIface)}`, { method: "POST" }).catch(() => {});
-    }
     setIsCapturing(true);
     isCapturingRef.current = true;
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ action: "start_capture", interface: selectedIface }));
+      } catch (_) {}
+    }
+    fetch(`${CAPTURE_API}/api/capture/start/${encodeURIComponent(selectedIface)}`, { method: "POST" }).catch(() => {});
   }, [selectedIface]);
 
   const stopCapture = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ action: "stop_capture", interface: selectedIface }));
-    } else {
-      fetch(`${CAPTURE_API}/api/capture/stop/${encodeURIComponent(selectedIface)}`, { method: "POST" }).catch(() => {});
-    }
     setIsCapturing(false);
     isCapturingRef.current = false;
-    // Preserve dashboard state on stop; it'll be cleared when a new capture starts.
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ action: "stop_capture", interface: selectedIface }));
+      } catch (_) {}
+    }
+    if (selectedIface) {
+      fetch(`${CAPTURE_API}/api/capture/stop/${encodeURIComponent(selectedIface)}`, { method: "POST" }).catch(() => {});
+    }
   }, [selectedIface]);
 
   // --- Derived data ---
@@ -682,9 +685,12 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   const protoDist = useMemo(() => {
     const counts = {};
     Object.values(flows).forEach(f => {
-      counts[f.protocol] = (counts[f.protocol] || 0) + 1;
+      const p = (f.protocol || "OTHER").toUpperCase();
+      counts[p] = (counts[p] || 0) + (f.packet_count || 1);
     });
-    return Object.entries(counts).map(([name, count]) => ({ name, count }));
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
   }, [flows]);
 
   const attackFlows = useMemo(() =>
@@ -970,7 +976,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                   contentStyle={{ backgroundColor: "#0b0f19", border: "1px solid #1f293d", borderRadius: 8, fontSize: 10 }}
                   formatter={(val) => [formatBps(val), "Bandwidth"]}
                 />
-                <Area type="monotone" dataKey="bps" stroke="#00f0ff" strokeWidth={1.5} fillOpacity={1} fill="url(#gradBps)" />
+                <Area type="monotone" dataKey="bps" stroke="#00f0ff" strokeWidth={1.5} fillOpacity={1} fill="url(#gradBps)" isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -988,7 +994,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                   <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94a3b8" }} />
                   <YAxis tick={{ fontSize: 9, fill: "#64748b" }} />
                   <Tooltip contentStyle={{ backgroundColor: "#0b0f19", border: "1px solid #1f293d", borderRadius: 8, fontSize: 10 }} />
-                  <Bar dataKey="count" fill="#00f0ff" radius={[4, 4, 0, 0]} name="Flows" />
+                  <Bar dataKey="count" fill="#00f0ff" radius={[4, 4, 0, 0]} name="Packets" isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

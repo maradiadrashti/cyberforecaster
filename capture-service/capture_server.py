@@ -1773,9 +1773,8 @@ async def websocket_live(ws: WebSocket):
                         await ws.send_text(json.dumps({"type": "interface_switched", "interface": iface}))
                 elif action == "stop_capture":
                     iface = cmd.get("interface")
-                    if iface:
-                        active_captures[iface] = False
-                        await ws.send_text(json.dumps({"type": "capture_stopped", "interface": iface}))
+                    stop_all_captures_except(None)
+                    await ws.send_text(json.dumps({"type": "capture_stopped", "interface": iface}))
                 elif action == "stop_all":
                     stop_all_captures_except(None)
                     await ws.send_text(json.dumps({"type": "all_captures_stopped"}))
