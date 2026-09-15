@@ -65,6 +65,12 @@ def main():
             pkt_len = len(pkt)
             now = datetime.now(timezone.utc).isoformat()
 
+            raw_hex = None
+            try:
+                raw_hex = bytes(pkt).hex()
+            except Exception:
+                pass
+
             event = {
                 "id": f"{now}-{ip.src}-{ip.dst}-{sport}-{dport}",
                 "timestamp": now,
@@ -81,6 +87,8 @@ def main():
                 "ttl": int(ip.ttl),
                 "severity": "none",
                 "attack_type": "Benign",
+                "raw_hex": raw_hex,
+                "pkt_time": float(getattr(pkt, "time", time.time())),
             }
             print(json.dumps(event), flush=True)
         except Exception:

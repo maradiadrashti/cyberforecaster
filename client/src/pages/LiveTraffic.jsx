@@ -693,38 +693,97 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
 
   // --- Export Raw PCAP for the current telemetry session ---
   const [isExportingPcap, setIsExportingPcap] = useState(false);
+  const [pcapNotification, setPcapNotification] = useState(null);
+
   const handleExportPcap = useCallback(async () => {
     if (isExportingPcap) return;
     setIsExportingPcap(true);
-    try {
-      // Clean interface name for filename (e.g. Wi-Fi -> wifi, Ethernet 2 -> ethernet_2)
-      const ifaceSlug = (selectedIface || "live")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "") || "network";
+    setPcapNotification(null);
 
-      // Format timestamp YYYY-MM-DD_HH-mm-ss
+    try {
+      if (totalPkts === 0 && packets.length === 0) {
+        setPcapNotification({
+          type: "warning",
+          title: "No captured packets available to export.",
+          message: "Start a capture and collect packets before exporting."
+        });
+        return;
+      }
+
+      let rawIface = (selectedIface || "network").toLowerCase();
+      let ifaceSlug = "network";
+      if (rawIface.includes("wifi") || rawIface.includes("wi-fi") || rawIface.includes("wlan")) {
+        ifaceSlug = "wifi";
+      } else if (rawIface.includes("ethernet") || rawIface.includes("eth")) {
+        const match = rawIface.match(/ethernet[_\s]*(\d+)/);
+        ifaceSlug = match ? `ethernet_${match[1]}` : "ethernet";
+      } else {
+        ifaceSlug = rawIface.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "network";
+      }
+
       const now = new Date();
       const pad = (n) => String(n).padStart(2, "0");
       const datePart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
       const timePart = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-      const filename = `cyberforecaster_${ifaceSlug}_${datePart}_${timePart}.pcap`;
+      const defaultFilename = `cyberforecaster_${ifaceSlug}_${datePart}_${timePart}.pcap`;
 
-      const res = await fetch(`${CAPTURE_API}/api/capture/export-pcap?interface=${encodeURIComponent(selectedIface || "")}&filename=${encodeURIComponent(filename)}`);
+      const res = await fetch(`${CAPTURE_API}/api/capture/export-pcap?interface=${encodeURIComponent(selectedIface || "")}&filename=${encodeURIComponent(defaultFilename)}`);
+
       if (!res.ok) {
-        throw new Error(`Export failed: ${res.statusText}`);
+        let errDetail = "";
+        try {
+          const errData = await res.json();
+          errDetail = errData.detail || errData.message || "";
+        } catch (_) {}
+
+        if (res.status === 400 || errDetail.includes("No captured packets")) {
+          setPcapNotification({
+            type: "warning",
+            title: "No captured packets available to export.",
+            message: "Start a capture and collect packets before exporting."
+          });
+        } else {
+          setPcapNotification({
+            type: "error",
+            title: "PCAP export failed.",
+            message: errDetail || "Please try again after capturing network traffic."
+          });
+        }
+        return;
       }
+
+      let downloadedFilename = defaultFilename;
+      const disposition = res.headers.get("Content-Disposition");
+      if (disposition && disposition.includes("filename=")) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+        if (matches != null && matches[1]) {
+          downloadedFilename = matches[1].replace(/['"]/g, "");
+        }
+      }
+
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filename;
+      a.download = downloadedFilename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
+
+      setPcapNotification({
+        type: "success",
+        title: "PCAP exported successfully",
+        filename: downloadedFilename
+      });
+
     } catch (err) {
       console.error("PCAP Export error:", err);
+      setPcapNotification({
+        type: "error",
+        title: "PCAP export failed.",
+        message: "Please try again after capturing network traffic."
+      });
     } finally {
       setIsExportingPcap(false);
     }
@@ -899,9 +958,45 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         </div>
       )}
 
+      {/* PCAP Export Notification Toast */}
+      {pcapNotification && (
+        <div className={`border rounded-xl p-4 flex items-center justify-between gap-3 animate-fade-in ${
+          pcapNotification.type === "success"
+            ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-400"
+            : pcapNotification.type === "warning"
+            ? "bg-amber-950/40 border-amber-800/60 text-amber-400"
+            : "bg-rose-950/40 border-rose-800/60 text-rose-400"
+        }`}>
+          <div className="flex items-center gap-3">
+            {pcapNotification.type === "success" ? (
+              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+            ) : pcapNotification.type === "warning" ? (
+              <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
+            )}
+            <div>
+              <p className="text-xs font-bold font-mono-tech">{pcapNotification.title}</p>
+              {pcapNotification.filename && (
+                <p className="text-[10px] opacity-80 font-mono-tech mt-0.5 font-bold">{pcapNotification.filename}</p>
+              )}
+              {pcapNotification.message && (
+                <p className="text-[10px] opacity-80 font-mono-tech mt-0.5">{pcapNotification.message}</p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setPcapNotification(null)}
+            className="text-xs opacity-60 hover:opacity-100 font-mono-tech px-2 py-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Interface Selector + Controls */}
       <section className="glass-card rounded-xl border border-slate-800/50 p-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-4 flex-wrap w-full">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <Radio className="h-4 w-4 text-cyan-400" />
@@ -939,6 +1034,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               </div>
             )}
           </div>
+
           <div className="flex items-center gap-3">
             <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-mono-tech border ${
               connected
@@ -974,21 +1070,18 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                 <span>Stop Capture</span>
               </button>
             )}
-
-            {/* Visual separator */}
-            <div className="h-6 w-px bg-slate-800 mx-1 hidden sm:block"></div>
-
-            {/* Export PCAP Button */}
-            <button
-              onClick={handleExportPcap}
-              disabled={!connected || isExportingPcap}
-              title="Export raw packets captured during the current telemetry session as a .pcap file"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-800/60 hover:border-cyan-500 text-cyan-400 hover:text-cyan-300 text-[10px] font-mono-tech font-bold uppercase transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-cyan-950/30"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>{isExportingPcap ? "Exporting..." : "Export PCAP"}</span>
-            </button>
           </div>
+
+          {/* Export PCAP Button pushed to the extreme right */}
+          <button
+            onClick={handleExportPcap}
+            disabled={!connected || isExportingPcap}
+            title="Export raw packets captured during the current telemetry session as a .pcap file"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-800/60 hover:border-cyan-500 text-cyan-400 hover:text-cyan-300 text-[10px] font-mono-tech font-bold uppercase transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-cyan-950/30 ml-auto"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>{isExportingPcap ? "Exporting..." : "Export PCAP"}</span>
+          </button>
         </div>
         {selectedIface && (
           <div className="mt-3 pt-3 border-t border-slate-800/40 flex items-center justify-between text-[10px] font-mono-tech flex-wrap gap-2">

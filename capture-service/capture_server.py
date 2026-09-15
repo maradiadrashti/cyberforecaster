@@ -1193,6 +1193,19 @@ def _wsl_capture_loop(iface: str):
                 if "error" in event:
                     print(f"[WSL Capture Error] {event['error']}")
                     break
+                if "raw_hex" in event and event["raw_hex"]:
+                    try:
+                        raw_bytes = bytes.fromhex(event["raw_hex"])
+                        from scapy.layers.inet import IP
+                        scapy_pkt = IP(raw_bytes)
+                        if "pkt_time" in event and event["pkt_time"]:
+                            scapy_pkt.time = float(event["pkt_time"])
+                        with _raw_packet_lock:
+                            _raw_packet_buffer.append(scapy_pkt)
+                            if len(_raw_packet_buffer) > 100000:
+                                _raw_packet_buffer.pop(0)
+                    except Exception:
+                        pass
                 _process_flow_event(event, iface)
             except json.JSONDecodeError:
                 pass
@@ -1700,40 +1713,112 @@ async def capture_status():
     return {k: v for k, v in active_captures.items()}
 
 
+def _sanitize_iface_name(iface: str) -> str:
+    """Sanitize interface name for safe filename usage."""
+    if not iface:
+        return "network"
+    s = iface.strip().lower()
+    if "wifi" in s or "wi-fi" in s or "wlan" in s or "wireless" in s:
+        return "wifi"
+    elif "ethernet" in s or "eth" in s or "local area" in s:
+        import re
+        m = re.search(r'ethernet[_\s]*(\d+)', s)
+        if m:
+            return f"ethernet_{m.group(1)}"
+        return "ethernet"
+    elif "wsl" in s:
+        return "wsl"
+    elif "loopback" in s:
+        return "loopback"
+    else:
+        import re
+        clean = re.sub(r'[^a-z0-9]+', '_', s).strip('_')
+        return clean or "network"
+
+
 @app.get("/api/capture/export-pcap")
-async def export_capture_pcap(filename: str = None, interface: str = None):
+def export_capture_pcap(filename: str = None, interface: str = None):
     """Export the raw packet buffer as a downloadable .pcap file."""
-    import io
-    from scapy.utils import PcapWriter, wrpcap
+    import tempfile
+    import traceback
+    from scapy.all import Ether, IP
+    from scapy.utils import wrpcap
     from starlette.responses import Response
 
-    bio = io.BytesIO()
     with _raw_packet_lock:
         pkts = list(_raw_packet_buffer)
 
-    if pkts:
-        wrpcap(bio, pkts)
-    else:
-        # Write valid empty PCAP structure with header
-        writer = PcapWriter(bio)
-        writer.close()
+    if not pkts:
+        raise HTTPException(
+            status_code=400,
+            detail="No captured packets available to export."
+        )
 
-    pcap_data = bio.getvalue()
-    if not filename:
-        clean_iface = (interface or "network").lower().replace(" ", "_").replace("-", "_")
-        ts = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"cyberforecaster_{clean_iface}_{ts}.pcap"
-    elif not filename.endswith(".pcap"):
-        filename = f"{filename}.pcap"
+    # Normalize packet linktypes so all packets have consistent Ethernet headers (DLT_EN10MB = 1)
+    normalized_pkts = []
+    for p in pkts:
+        try:
+            if isinstance(p, bytes):
+                if len(p) >= 20 and (p[0] & 0xf0) == 0x40:
+                    p = IP(p)
+                else:
+                    p = Ether(p)
+            if not getattr(p, "haslayer", None):
+                continue
+            if not p.haslayer(Ether):
+                p_norm = Ether(dst="ff:ff:ff:ff:ff:ff", src="00:00:00:00:00:00") / p
+                if hasattr(p, "time"):
+                    p_norm.time = p.time
+                normalized_pkts.append(p_norm)
+            else:
+                normalized_pkts.append(p)
+        except Exception as _pe:
+            print(f"[PCAP Normalization Warning] {_pe}")
 
-    return Response(
-        content=pcap_data,
-        media_type="application/vnd.tcpdump.pcap",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Access-Control-Expose-Headers": "Content-Disposition",
-        },
-    )
+    if not normalized_pkts:
+        raise HTTPException(
+            status_code=400,
+            detail="No captured packets available to export."
+        )
+
+    clean_iface = _sanitize_iface_name(interface)
+    now = datetime.now()  # Local machine time
+    ts = now.strftime("%Y-%m-%d_%H-%M-%S")
+    default_filename = f"cyberforecaster_{clean_iface}_{ts}.pcap"
+    out_filename = filename or default_filename
+    if not out_filename.endswith(".pcap"):
+        out_filename = f"{out_filename}.pcap"
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pcap", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        wrpcap(tmp_path, normalized_pkts)
+
+        with open(tmp_path, "rb") as f:
+            pcap_bytes = f.read()
+
+        return Response(
+            content=pcap_bytes,
+            media_type="application/vnd.tcpdump.pcap",
+            headers={
+                "Content-Disposition": f'attachment; filename="{out_filename}"',
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
+        )
+    except Exception as e:
+        print(f"[PCAP Export Error] {e}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"PCAP export failed: {str(e)}"
+        )
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
 
 @app.get("/api/live-data/status")
