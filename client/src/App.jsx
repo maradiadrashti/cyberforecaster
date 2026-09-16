@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ShieldAlert, Activity, Server,
-  ChevronLeft, ChevronRight, Radio, Target, Home, UploadCloud
+  ChevronLeft, ChevronRight, Radio, Target, Home, UploadCloud, Network
 } from "lucide-react";
 import LiveTraffic from "./pages/LiveTraffic";
 import AttackForecast from "./pages/AttackForecast";
 import UploadAnalysis from "./pages/UploadAnalysis";
+import TopologyPage from "./pages/TopologyPage";
 import LandingPage from "./pages/LandingPage";
 import {
   HOSTS, generateTrafficEvent, generateForecast
@@ -21,8 +22,9 @@ const NAV_GROUPS = [
     ],
   },
   {
-    title: "FORECAST",
+    title: "ANALYSIS",
     items: [
+      { id: "topology", label: "Topology", icon: Network },
       { id: "forecast", label: "Attack Forecast", icon: Target },
     ],
   },
@@ -144,6 +146,11 @@ export default function App() {
     setActivePage("forecast");
   }, []);
 
+  // Navigate to topology page
+  const navigateToTopology = useCallback(() => {
+    setActivePage("topology");
+  }, []);
+
   const totalInterfaces = realInterfaces.length;
   const highThreatAlerts = Object.keys(liveFlows).length;
   const activeNavItem = ALL_NAV_ITEMS.find(n => n.id === activePage);
@@ -189,7 +196,7 @@ export default function App() {
           )}
         </button>
 
-        {/* Grouped Nav items (INPUT & FORECAST) */}
+        {/* Grouped Nav items (INPUT & ANALYSIS) */}
         <nav className="flex-1 py-3 px-2 flex flex-col gap-3 overflow-y-auto">
           {NAV_GROUPS.map((group) => (
             <div key={group.title} className="space-y-0.5">
@@ -269,6 +276,24 @@ export default function App() {
               </>
             )}
 
+            {activePage === "topology" && (
+              <>
+                <div className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-800 px-2.5 py-1 rounded-full text-[9px] font-mono-tech">
+                  <Network className="h-3 w-3 text-purple-400" />
+                  <span className="text-slate-400">
+                    {Object.keys(liveFlows).length > 0
+                      ? `${new Set([...Object.values(liveFlows).map(f=>f.src_ip), ...Object.values(liveFlows).map(f=>f.dst_ip)]).size} Hosts`
+                      : offlineAnalysisResult ? "File Topology" : "No Data"
+                    }
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-purple-950/40 border border-purple-800/50 px-2.5 py-1 rounded-full text-[9px] font-mono-tech text-purple-300">
+                  <Network className="h-3 w-3 text-purple-400" />
+                  <span>3D FORCE-DIRECTED GRAPH</span>
+                </div>
+              </>
+            )}
+
             {activePage === "forecast" && (
               <>
                 <div className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-800 px-2.5 py-1 rounded-full text-[9px] font-mono-tech">
@@ -307,6 +332,15 @@ export default function App() {
               onInterfaceChange={handleInterfaceChange}
               onFlowsUpdate={handleFlowsUpdate}
               onFlowClick={navigateToForecast}
+              onNavigateToTopology={navigateToTopology}
+            />
+          </div>
+          <div style={{ display: activePage === "topology" ? "block" : "none" }}>
+            <TopologyPage
+              flows={liveFlows}
+              isCapturing={captureStats.active_captures && (selectedInterface ? !!captureStats.active_captures[selectedInterface] : Object.keys(captureStats.active_captures).length > 0)}
+              offlineAnalysisResult={offlineAnalysisResult}
+              selectedInterfaceInfo={selectedInterfaceInfo}
             />
           </div>
           <div style={{ display: activePage === "forecast" ? "block" : "none" }}>

@@ -106,7 +106,7 @@ function Wait-ServicePort([string]$ServiceName, [int]$Port, [int]$TimeoutSeconds
 # =============================================================================
 Write-Status "1/2" "Starting Packet Capture & AI Forecasting Service on 0.0.0.0:8080..." "Yellow"
 $procs["capture"] = Start-Process -FilePath $Python `
-    -ArgumentList "-m uvicorn capture_server:app --host 0.0.0.0 --port 8080" `
+    -ArgumentList "-m uvicorn capture_server:app --host 0.0.0.0 --port 8080 --reload" `
     -WorkingDirectory (Join-Path $Root "capture-service") -NoNewWindow -PassThru `
     -RedirectStandardOutput (Join-Path $LogDir "capture.log") `
     -RedirectStandardError  (Join-Path $LogDir "capture.err")

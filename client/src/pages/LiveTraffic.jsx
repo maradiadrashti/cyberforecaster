@@ -314,7 +314,7 @@ function ForceDirectedTopology({ nodes, links, onNodeClick }) {
 
 // ── Main Component ──────────────────────────────────────────────────────────
 
-export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowClick }) {
+export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowClick, onNavigateToTopology }) {
   // --- State ---
   const [interfaces, setInterfaces] = useState([]);
   const [selectedIface, setSelectedIface] = useState("");
@@ -694,6 +694,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   // --- Export Raw PCAP for the current telemetry session ---
   const [isExportingPcap, setIsExportingPcap] = useState(false);
   const [pcapNotification, setPcapNotification] = useState(null);
+  const [csvNotification, setCsvNotification] = useState(null);
 
   const handleExportPcap = useCallback(async () => {
     if (isExportingPcap) return;
@@ -701,15 +702,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     setPcapNotification(null);
 
     try {
-      if (totalPkts === 0 && packets.length === 0) {
-        setPcapNotification({
-          type: "warning",
-          title: "No captured packets available to export.",
-          message: "Start a capture and collect packets before exporting."
-        });
-        return;
-      }
-
       let rawIface = (selectedIface || "network").toLowerCase();
       let ifaceSlug = "network";
       if (rawIface.includes("wifi") || rawIface.includes("wi-fi") || rawIface.includes("wlan")) {
@@ -789,8 +781,8 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     }
   }, [selectedIface, isExportingPcap]);
 
-  // --- Derived data ---
-  const flowList = useMemo(() => {
+  // --- Export Processed Flow Data as CSV ---
+  const handleExportCsv = useCallback(() => {
     let list = Object.values(flows);
     if (showAttackOnly) {
       list = list.filter(f => f.severity && f.severity !== "none");
@@ -798,13 +790,131 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     if (filter) {
       const q = filter.toLowerCase();
       list = list.filter(f =>
-        f.src_ip.includes(q) || f.dst_ip.includes(q) ||
-        f.protocol.toLowerCase().includes(q) ||
+        (f.src_ip || "").toLowerCase().includes(q) ||
+        (f.dst_ip || "").toLowerCase().includes(q) ||
+        (f.protocol || "").toLowerCase().includes(q) ||
         (f.attack_type || "").toLowerCase().includes(q)
       );
     }
-    return list.sort((a, b) => b.packet_count - a.packet_count).slice(0, 100);
+    list.sort((a, b) => (b.packet_count || 0) - (a.packet_count || 0));
+
+    if (list.length === 0) {
+      setCsvNotification({
+        type: "warning",
+        title: "No captured flows available to export.",
+        message: "Start a capture and collect flow data before exporting."
+      });
+      return;
+    }
+
+    setCsvNotification(null);
+
+    let rawIface = (selectedIface || "network").toLowerCase();
+    let ifaceSlug = "network";
+    if (rawIface.includes("wifi") || rawIface.includes("wi-fi") || rawIface.includes("wlan")) {
+      ifaceSlug = "wifi";
+    } else if (rawIface.includes("ethernet") || rawIface.includes("eth")) {
+      const match = rawIface.match(/ethernet[_\s]*(\d+)/);
+      ifaceSlug = match ? `ethernet_${match[1]}` : "ethernet";
+    } else {
+      ifaceSlug = rawIface.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "network";
+    }
+
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const datePart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const timePart = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    const filename = `cyberforecaster_flows_${ifaceSlug}_${datePart}_${timePart}.csv`;
+
+    const headers = [
+      "source_ip",
+      "src_port",
+      "destination_ip",
+      "dst_port",
+      "protocol",
+      "packets",
+      "bytes",
+      "attack",
+      "severity",
+      "first_seen",
+      "last_seen",
+      "interface"
+    ];
+
+    const escapeCsv = (val) => {
+      if (val === null || val === undefined) return "";
+      const str = String(val);
+      if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const rows = list.map(flow => {
+      let attackLabel = "BENIGN";
+      if (flow.attack_type && flow.attack_type.toLowerCase() !== "benign" && flow.attack_type.toLowerCase() !== "none") {
+        attackLabel = flow.attack_type.toUpperCase();
+      } else if (flow.severity && flow.severity.toLowerCase() !== "none") {
+        attackLabel = "ATTACK";
+      }
+
+      let severityLabel = (flow.severity || "NONE").toUpperCase();
+
+      return [
+        escapeCsv(flow.src_ip || ""),
+        Number(flow.src_port) || 0,
+        escapeCsv(flow.dst_ip || ""),
+        Number(flow.dst_port) || 0,
+        escapeCsv((flow.protocol || "UNKNOWN").toUpperCase()),
+        Number(flow.packet_count) || 0,
+        Number(flow.byte_count) || 0,
+        escapeCsv(attackLabel),
+        escapeCsv(severityLabel),
+        escapeCsv(flow.first_seen ? new Date(flow.first_seen).toISOString() : ""),
+        escapeCsv(flow.last_seen ? new Date(flow.last_seen).toISOString() : ""),
+        escapeCsv(flow.interface || selectedIface || "")
+      ].join(",");
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setCsvNotification({
+      type: "success",
+      title: "CSV exported successfully",
+      filename: filename
+    });
+  }, [flows, filter, showAttackOnly, selectedIface]);
+
+  // --- Derived data ---
+  const filteredFlows = useMemo(() => {
+    let list = Object.values(flows);
+    if (showAttackOnly) {
+      list = list.filter(f => f.severity && f.severity !== "none");
+    }
+    if (filter) {
+      const q = filter.toLowerCase();
+      list = list.filter(f =>
+        (f.src_ip || "").toLowerCase().includes(q) ||
+        (f.dst_ip || "").toLowerCase().includes(q) ||
+        (f.protocol || "").toLowerCase().includes(q) ||
+        (f.attack_type || "").toLowerCase().includes(q)
+      );
+    }
+    return list.sort((a, b) => (b.packet_count || 0) - (a.packet_count || 0));
   }, [flows, filter, showAttackOnly]);
+
+  const flowList = useMemo(() => {
+    return filteredFlows.slice(0, 100);
+  }, [filteredFlows]);
 
   const protoDist = useMemo(() => {
     const counts = {};
@@ -987,6 +1097,42 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
           </div>
           <button
             onClick={() => setPcapNotification(null)}
+            className="text-xs opacity-60 hover:opacity-100 font-mono-tech px-2 py-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* CSV Export Notification Toast */}
+      {csvNotification && (
+        <div className={`border rounded-xl p-4 flex items-center justify-between gap-3 animate-fade-in ${
+          csvNotification.type === "success"
+            ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-400"
+            : csvNotification.type === "warning"
+            ? "bg-amber-950/40 border-amber-800/60 text-amber-400"
+            : "bg-rose-950/40 border-rose-800/60 text-rose-400"
+        }`}>
+          <div className="flex items-center gap-3">
+            {csvNotification.type === "success" ? (
+              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+            ) : csvNotification.type === "warning" ? (
+              <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
+            )}
+            <div>
+              <p className="text-xs font-bold font-mono-tech">{csvNotification.title}</p>
+              {csvNotification.filename && (
+                <p className="text-[10px] opacity-80 font-mono-tech mt-0.5 font-bold">{csvNotification.filename}</p>
+              )}
+              {csvNotification.message && (
+                <p className="text-[10px] opacity-80 font-mono-tech mt-0.5">{csvNotification.message}</p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setCsvNotification(null)}
             className="text-xs opacity-60 hover:opacity-100 font-mono-tech px-2 py-1"
           >
             ✕
@@ -1204,6 +1350,16 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                 {topoNodeList.length} nodes · {topoLinks.length} links
               </span>
             </div>
+            {onNavigateToTopology && (
+              <button
+                onClick={onNavigateToTopology}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-purple-950/40 hover:bg-purple-900/50 border border-purple-800/60 hover:border-purple-500 text-purple-300 hover:text-purple-200 text-[9px] font-mono-tech font-bold uppercase transition-all"
+                title="Scroll to sidebar 3D topology"
+              >
+                <Network className="h-3 w-3" />
+                <span>View Topology</span>
+              </button>
+            )}
             <div className="flex items-center gap-2 text-[8px] font-mono-tech">
               {[
                 { label: "Critical", color: SEV_COLORS.critical },
@@ -1320,7 +1476,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         </div>
       </section>
 
-      {/* Filter + Attack toggle */}
+      {/* Filter + Attack toggle + Export CSV */}
       <section className="flex items-center gap-3">
         <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 flex-1 max-w-md">
           <Search className="h-4 w-4 text-slate-500" />
@@ -1342,6 +1498,14 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         >
           <ShieldAlert className="h-3.5 w-3.5" />
           <span>Attacks Only</span>
+        </button>
+        <button
+          onClick={handleExportCsv}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[10px] font-mono-tech uppercase transition-all shadow-sm"
+          title="Export current captured flow dataset as CSV"
+        >
+          <Download className="h-3.5 w-3.5 text-cyan-400" />
+          <span>Export CSV</span>
         </button>
       </section>
 

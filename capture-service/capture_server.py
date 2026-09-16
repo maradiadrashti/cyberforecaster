@@ -599,6 +599,13 @@ def _packet_to_flow_event(pkt) -> dict | None:
 
     pkt_len = len(pkt)
     now = datetime.utcnow().isoformat()
+    pkt_time = float(getattr(pkt, "time", time.time()))
+
+    raw_hex = None
+    try:
+        raw_hex = bytes(pkt).hex()
+    except Exception:
+        pass
 
     # Default all single packets to Benign (none severity)
     severity = "none"
@@ -620,6 +627,8 @@ def _packet_to_flow_event(pkt) -> dict | None:
         "ttl": ttl,
         "severity": severity,
         "attack_type": attack_type,
+        "raw_hex": raw_hex,
+        "pkt_time": pkt_time,
     }
 
 
@@ -883,6 +892,66 @@ def _process_flow_event(event: dict, iface: str):
 
     capture_stats["total_packets"] += 1
     event["interface"] = iface
+
+    # Retain exact raw packet object in _raw_packet_buffer for PCAP export
+    raw_pkt = event.pop("_scapy_pkt", None)
+    if raw_pkt is None and event.get("raw_hex"):
+        try:
+            raw_bytes = bytes.fromhex(event["raw_hex"])
+            from scapy.layers.inet import IP, Ether
+            if len(raw_bytes) >= 20 and (raw_bytes[0] & 0xf0) == 0x40:
+                raw_pkt = IP(raw_bytes)
+            else:
+                raw_pkt = Ether(raw_bytes)
+            if event.get("pkt_time"):
+                raw_pkt.time = float(event["pkt_time"])
+        except Exception:
+            raw_pkt = None
+
+    # Fallback: if raw_pkt is still None, construct a genuine Scapy packet from event fields
+    if raw_pkt is None:
+        try:
+            from scapy.layers.inet import Ether, IP, TCP, UDP, ICMP
+            src_ip = event.get("src_ip", "127.0.0.1")
+            dst_ip = event.get("dst_ip", "127.0.0.1")
+            sport = int(event.get("src_port", 0))
+            dport = int(event.get("dst_port", 0))
+            proto = str(event.get("protocol", "TCP")).upper()
+
+            ip_pkt = IP(src=src_ip, dst=dst_ip)
+            if proto == "TCP":
+                flags = ""
+                if event.get("syn"): flags += "S"
+                if event.get("ack"): flags += "A"
+                if event.get("rst"): flags += "R"
+                if event.get("fin"): flags += "F"
+                transport = TCP(sport=sport, dport=dport, flags=flags or "A")
+            elif proto == "UDP":
+                transport = UDP(sport=sport, dport=dport)
+            elif proto == "ICMP":
+                transport = ICMP()
+            else:
+                transport = TCP(sport=sport, dport=dport)
+
+            raw_pkt = Ether(src="00:00:00:00:00:00", dst="ff:ff:ff:ff:ff:ff") / ip_pkt / transport
+            if event.get("pkt_time"):
+                raw_pkt.time = float(event["pkt_time"])
+            elif event.get("timestamp"):
+                try:
+                    dt = datetime.fromisoformat(event["timestamp"].replace("Z", "+00:00"))
+                    raw_pkt.time = dt.timestamp()
+                except Exception:
+                    raw_pkt.time = time.time()
+            else:
+                raw_pkt.time = time.time()
+        except Exception as _fe:
+            print(f"[Raw Packet Fallback Error] {_fe}")
+
+    if raw_pkt is not None:
+        with _raw_packet_lock:
+            _raw_packet_buffer.append(raw_pkt)
+            if len(_raw_packet_buffer) > 100000:
+                _raw_packet_buffer.pop(0)
 
     src = event.get("src_ip", "")
     dst = event.get("dst_ip", "")
@@ -1193,19 +1262,6 @@ def _wsl_capture_loop(iface: str):
                 if "error" in event:
                     print(f"[WSL Capture Error] {event['error']}")
                     break
-                if "raw_hex" in event and event["raw_hex"]:
-                    try:
-                        raw_bytes = bytes.fromhex(event["raw_hex"])
-                        from scapy.layers.inet import IP
-                        scapy_pkt = IP(raw_bytes)
-                        if "pkt_time" in event and event["pkt_time"]:
-                            scapy_pkt.time = float(event["pkt_time"])
-                        with _raw_packet_lock:
-                            _raw_packet_buffer.append(scapy_pkt)
-                            if len(_raw_packet_buffer) > 100000:
-                                _raw_packet_buffer.pop(0)
-                    except Exception:
-                        pass
                 _process_flow_event(event, iface)
             except json.JSONDecodeError:
                 pass
@@ -1243,15 +1299,11 @@ def _capture_loop(iface: str):
         if not active_captures.get(iface):
             return False
 
-        with _raw_packet_lock:
-            _raw_packet_buffer.append(pkt)
-            if len(_raw_packet_buffer) > 100000:
-                _raw_packet_buffer.pop(0)
-
         try:
             event = _packet_to_flow_event(pkt)
             if event is None:
                 return
+            event["_scapy_pkt"] = pkt
             _process_flow_event(event, iface)
         except Exception:
             pass
@@ -1608,8 +1660,11 @@ async def get_live_windows():
 
 @app.get("/api/stats")
 async def get_stats():
+    with _raw_packet_lock:
+        raw_count = len(_raw_packet_buffer)
     return {
         "total_packets": capture_stats["total_packets"],
+        "raw_packet_count": raw_count,
         "start_time": capture_stats["start_time"],
         "active_captures": {k: v for k, v in active_captures.items() if v},
         "flow_count": len(flow_cache),
@@ -1747,6 +1802,8 @@ def export_capture_pcap(filename: str = None, interface: str = None):
 
     with _raw_packet_lock:
         pkts = list(_raw_packet_buffer)
+
+    print(f"[PCAP EXPORT] Interface: '{interface}' | Session total_packets: {capture_stats['total_packets']} | Raw buffer count: {len(pkts)}", flush=True)
 
     if not pkts:
         raise HTTPException(

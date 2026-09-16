@@ -1,4 +1,4 @@
-# CyberForecaster - Capture Service & Core Python Dependencies
+# CyberForecaster - Core Python Dependencies
 
 # Web API & Streaming Server
 fastapi>=0.100.0
