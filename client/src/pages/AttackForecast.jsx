@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Target, ShieldCheck, Cpu, Clock, Layers,
   Database, RefreshCw, Activity, Wifi,
@@ -634,6 +634,7 @@ function getFeatureDescription(name) {
 // (SHAP GradientExplainer on the model's risk head). Nothing is hardcoded.
 function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
   const [selectedIdx, setSelectedIdx] = useState(null);
+  const pieRef = useRef(null);
 
   const rawFeatures = Array.isArray(explainData?.features) ? explainData.features : [];
 
@@ -641,6 +642,19 @@ function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
   useEffect(() => {
     setSelectedIdx(null);
   }, [explainData]);
+
+  // Click outside pie chart container resets selection to overall info
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (pieRef.current && !pieRef.current.contains(event.target)) {
+        setSelectedIdx(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   if (rawFeatures.length === 0) {
     return (
@@ -747,13 +761,20 @@ function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
   return (
     <div className="flex flex-col lg:flex-row items-center justify-between gap-8 py-2">
       {/* Larger Solid Pie Chart (Filling Left Side of Card) */}
-      <div className="relative shrink-0 select-none max-w-full flex items-center justify-center p-1">
+      <div
+        ref={pieRef}
+        onClick={() => setSelectedIdx(null)}
+        className="relative shrink-0 select-none max-w-full flex items-center justify-center p-1"
+      >
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="overflow-visible w-[540px] max-w-full h-auto">
           {slices.map((slice) => (
             <g
               key={slice.idx}
               className={slice.isOther ? "group" : "cursor-pointer group"}
-              onClick={() => { if (!slice.isOther) setSelectedIdx(slice.idx === selectedIdx ? null : slice.idx); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!slice.isOther) setSelectedIdx(slice.idx === selectedIdx ? null : slice.idx);
+              }}
             >
               <path
                 d={slice.pathD}
@@ -808,7 +829,10 @@ function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
             {topDrivers.map((f, i) => (
               <button
                 key={f.name}
-                onClick={() => setSelectedIdx(i)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedIdx(i);
+                }}
                 className="w-full text-left p-3.5 bg-surface rounded-xl border border-border hover:border-gold/60 transition-colors cursor-pointer"
               >
                 <div className="flex items-center justify-between gap-3">
