@@ -220,7 +220,7 @@ def test_forecaster_rejects_zero_padding_for_partial_history():
     assert res.get("input_shape") == [1, 10, 14]
     assert "predicted_stage" in res
 
-    print("  PASS: 7 real windows -> instant real GRU inference")
+    print("  PASS: 7 real windows -> instant real LSTM inference")
 
 
 if __name__ == "__main__":

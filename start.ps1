@@ -102,7 +102,7 @@ function Wait-ServicePort([string]$ServiceName, [int]$Port, [int]$TimeoutSeconds
 }
 
 # =============================================================================
-#  STEP 1 - Capture & AI Forecaster Service (Scapy + GRU Engine)
+#  STEP 1 - Capture & AI Forecaster Service (Scapy + LSTM world model)
 # =============================================================================
 # Fresh launch = no uploaded file yet. Clear the previous session's forecast
 # so the Forecast page starts empty until a new CSV/PCAP is uploaded.

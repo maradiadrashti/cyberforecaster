@@ -33,7 +33,7 @@ client = TestClient(app)
 class TestFileUploadAPI(unittest.TestCase):
     def test_benign_csv_analysis(self):
         """Test 1: Upload a known-benign CSV sample (label=benign).
-        Real GRU output is used — stage is whatever the model decides.
+        Real LSTM output is used — stage is whatever the model decides.
         We verify: HTTP 200, pipeline ran, no flows flagged as attacks,
         and the infiltration_probability_timeline was populated.
         """

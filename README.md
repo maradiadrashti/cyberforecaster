@@ -17,6 +17,24 @@
 
 ---
 
+## 🏷️ Problem statement
+
+| | |
+| :--- | :--- |
+| **Problem Statement ID** | SIH26153 |
+| **Title** | AI-based Network Attack Forecasting from Network Traffic Data |
+| **Organization** | National Technical Research Organisation (NTRO) |
+| **Theme** | Blockchain & Cybersecurity |
+| **Category** | Software |
+| **Team** | Ninja · Team ID 143440 |
+
+**The problem.** Conventional intrusion-detection systems are reactive: they flag an attack once it is
+already happening. Multi-stage attacks (reconnaissance → initial access → lateral movement → command &
+control → exfiltration) unfold over time, so defenders need to know **what the attacker is likely to do
+next**, how soon, and why the system thinks so.
+
+---
+
 ## 📌 Overview
 
 Most intrusion-detection systems answer *"is this traffic malicious right now?"*.
@@ -32,7 +50,7 @@ explanation run **locally on a normal laptop CPU** — no cloud service or GPU n
 | 🧠 **World model** | A 2-layer **LSTM** learns network-state dynamics from sequences of 5 flows per conversation and predicts the current stage + attack risk. |
 | 🔮 **K-step forecast** | A kill-chain **stage-transition matrix** learned from **DAPT-2020** rolls the state forward *t+1 … t+5*, giving the next MITRE stage and an infiltration probability per step. |
 | 🗺️ **MITRE ATT&CK** | 6 stages: Normal → Reconnaissance → Initial Access → Lateral Movement → Command & Control → Exfiltration. |
-| 🔍 **Explainable** | **SHAP** (`GradientExplainer`) attributions on the model's risk head show which traffic features drove each prediction. |
+| 🔍 **Explainable** | **SHAP** (`GradientExplainer`) attributions on the model's risk head show which traffic features drove each prediction — every value on screen is the real SHAP output, measured against real benign traffic. |
 | 📥 **Three input paths** | Live capture (Scapy/Npcap) · PCAP upload (dpkt) · CSV upload — including raw **CICFlowMeter** CSVs, auto-converted to the model's schema. |
 | 📊 **Benchmarked** | Compared against a logistic-regression baseline on a dataset neither model was trained on ([results](#-results)). |
 
@@ -77,75 +95,108 @@ The extractor additionally computes **inter-arrival-time statistics** (`iat_mean
 
 ## 🚀 Setup & run
 
+> Every command below must be run **from inside the project folder**. Opening PowerShell / Terminal
+> somewhere else and typing `.\start.ps1` gives *"is not recognized"* — `cd` into the folder first.
+
 ### Prerequisites
 
-| Requirement | Version | Notes |
+| Requirement | Version | Download |
 | :--- | :--- | :--- |
-| **Python** | 3.10 or newer | `python --version` |
-| **Node.js** | 18 or newer (with npm) | `node --version` |
-| **Git** | any | to clone the repo |
-| **Npcap** *(Windows, live capture only)* | latest | [npcap.com](https://npcap.com/#download) — tick **"WinPcap API-compatible Mode"** during install |
+| **Python** | 3.10 or newer | [python.org/downloads](https://www.python.org/downloads/) — on Windows tick **"Add python.exe to PATH"** |
+| **Node.js** (includes npm) | 18 or newer (LTS) | [nodejs.org](https://nodejs.org/) |
+| **Git** *(optional)* | any | [git-scm.com](https://git-scm.com/downloads) — or use **Code → Download ZIP** on GitHub |
+| **Npcap** *(Windows, live capture only)* | latest | [npcap.com](https://npcap.com/#download) — tick **"WinPcap API-compatible Mode"** |
 
-> Live capture needs **Administrator** (Windows) or **root** (Linux/macOS). PCAP and CSV upload work without it.
+Check them in a new terminal: `python --version` and `node --version`.
+PCAP and CSV upload work without Npcap; only live capture needs it (plus Administrator / root rights).
 
-### 1. Clone
+---
 
-```bash
-git clone https://github.com/maradiadrashti/cyberforecaster.git
-cd cyberforecaster
-```
+### 🪟 Windows
 
-### 2. Install (one time)
-
-**Windows (PowerShell)**
+**Step 1 — Get the code**
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass   # allow the local script to run
+git clone https://github.com/maradiadrashti/cyberforecaster.git
+```
+
+*(or download the ZIP from GitHub and extract it, e.g. to `C:\Users\<you>\Downloads\cyberforecaster`)*
+
+**Step 2 — Open PowerShell and go into the project folder**
+
+Press **Start**, type **PowerShell**, open **Windows PowerShell**, then `cd` to where the project is:
+
+```powershell
+cd C:\Users\<you>\Downloads\cyberforecaster
+```
+
+> Tip: in File Explorer, open the `cyberforecaster` folder, click the address bar, type `powershell`
+> and press **Enter** — PowerShell opens already inside the folder.
+> Check you are in the right place: `dir` should list `setup.ps1`, `start.ps1` and `requirements.txt`.
+
+**Step 3 — Allow the project scripts to run (this PowerShell window only)**
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+Windows blocks `.ps1` scripts by default (*"running scripts is disabled on this system"*). This allows them
+only for the current window and changes nothing permanently. Answer **Y** if asked.
+
+**Step 4 — Install everything (first time only, ~5–10 min)**
+
+```powershell
 .\setup.ps1
 ```
 
-**Linux / macOS**
+This creates a Python virtual environment in `.venv\`, installs the Python packages from
+`requirements.txt`, and installs the dashboard packages in `client\`.
+
+**Step 5 — Start CyberForecaster**
+
+```powershell
+.\start.ps1
+```
+
+`start.ps1` asks for **Administrator** permission (needed for live packet capture) — click **Yes**.
+A new window starts the backend and the dashboard and opens **http://127.0.0.1:5173** in your browser.
+Keep that window open; press **Enter** in it to stop everything.
+
+**Next time** you only need Steps 2, 3 and 5.
+
+---
+
+### 🐧 Linux / 🍎 macOS
 
 ```bash
+git clone https://github.com/maradiadrashti/cyberforecaster.git
+cd cyberforecaster            # every command below runs from this folder
 chmod +x setup.sh start.sh
-./setup.sh
+./setup.sh                    # first time only
+sudo ./start.sh               # sudo is needed for live packet capture
 ```
 
-The setup script creates a Python virtual environment in `.venv/`, installs the Python packages from
-`requirements.txt`, and installs the dashboard's Node packages in `client/`.
+Then open **http://127.0.0.1:5173**. Press **Ctrl + C** in the terminal to stop.
 
-<details>
-<summary><b>Manual install (if you prefer not to use the scripts)</b></summary>
+---
 
-```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate      Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
-cd client && npm install && cd ..
-```
+### Manual start (any OS, if you prefer not to use the scripts)
 
-</details>
-
-### 3. Start
-
-**Windows** — `.\start.ps1` (it asks for Administrator rights so live capture can work, then opens the dashboard)
-
-**Linux / macOS** — `sudo ./start.sh`
-
-<details>
-<summary><b>Start the two services manually</b></summary>
+Open **two** terminals, both inside the project folder, after running the setup script once.
 
 ```bash
 # Terminal 1 — backend / AI engine
+#   Windows:      .venv\Scripts\activate
+#   Linux/macOS:  source .venv/bin/activate
 cd capture-service
 python -m uvicorn capture_server:app --host 127.0.0.1 --port 8080
+```
 
+```bash
 # Terminal 2 — dashboard
 cd client
 npm run dev
 ```
-
-</details>
 
 | Service | URL |
 | :--- | :--- |
@@ -154,7 +205,9 @@ npm run dev
 
 > The first forecast after start-up takes a few extra seconds while the model and SHAP explainer load.
 
-### 4. Try it in 60 seconds
+---
+
+### ▶️ Try it in 60 seconds
 
 1. Open the dashboard → **File Upload**.
 2. Upload **`samples/real_sample_v4.csv`** (108 labeled flows, 11 conversations).
@@ -246,6 +299,7 @@ cyberforecaster/
 │   ├── stage_forecaster_lstm_v1.pth / _meta.json   LSTM world model (≈230 KB)
 │   ├── stage_forecaster_lstm_infer.py              loads the model, runs forecasts
 │   ├── stage_transition_matrix.json                DAPT-2020 kill-chain matrix
+│   ├── shap_background_benign.json                 SHAP reference: 100 real benign windows
 │   ├── logreg_baseline_*.joblib / _meta.json       benchmark model
 │   └── flow_classifier_*                           XGBoost live per-flow classifier
 ├── data_prep/                  dataset mapping, labeling, transition-matrix estimation
@@ -272,7 +326,7 @@ cyberforecaster/
 | Target | the MITRE stage **3 flows ahead** of the window (forecasting, not just classification) |
 | Training | Adam, class-weighted cross-entropy (stage) + BCE (risk), gradient clipping (max-norm 5), early stopping |
 | Forecast | Markov roll-out over the DAPT-2020 kill-chain transition matrix, K = 5 steps |
-| Explainability | SHAP `GradientExplainer` on the risk head, averaged over the 5 time-steps |
+| Explainability | SHAP `GradientExplainer` on the risk head, with 100 **real benign** 5-flow windows from the training data as the reference (`models/shap_background_benign.json`); values averaged over the 5 time-steps |
 
 ### Datasets
 
@@ -324,7 +378,9 @@ python -m unittest tests.test_upload_pipeline tests.test_file_upload_api -v
 | Problem | Fix |
 | :--- | :--- |
 | No interfaces / capture won't start (Windows) | Install **Npcap** with *WinPcap API-compatible Mode*, and run `start.ps1` as Administrator. |
-| `start.ps1` is blocked | Run `Set-ExecutionPolicy -Scope Process Bypass` in the same PowerShell window first. |
+| `.\start.ps1 : The term ... is not recognized` | You are not inside the project folder. `cd` into it first (Step 2) — `dir` must show `start.ps1`. |
+| *"running scripts is disabled on this system"* | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same PowerShell window, then retry. |
+| `setup.ps1` says Python / Node.js was not found | Install it (see Prerequisites), then open a **new** PowerShell window so the PATH is refreshed. |
 | Port 8080 or 5173 already in use | `start.ps1` frees them automatically; otherwise stop the other program or change `VITE_CAPTURE_PORT` in `client/.env` (copy `client/.env.example`). |
 | Dashboard loads but shows no forecast | Upload a file on **File Upload** first — a conversation needs **≥ 5 flows** to be scored. |
 | CSV upload predicts "normal" for everything | Check whether the CSV has a TTL column; see the TTL limitation above. |

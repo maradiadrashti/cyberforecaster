@@ -1585,7 +1585,7 @@ def _finalize_live_windows():
                 print(f"[LIVE_WINDOW]\nsrc={src_ip}\ndst={dst_ip}\nwindows_collected={history_len}", flush=True)
 
                 if history_len == MIN_LIVE_WINDOWS:
-                    print(f"[GRU_READY]\nsrc={src_ip}\ndst={dst_ip}\nwindows={history_len}\ninput_shape=(1,10,14)", flush=True)
+                    print(f"[LSTM_READY]\nsrc={src_ip}\ndst={dst_ip}\nwindows={history_len}\ninput_shape=(1,5,15)", flush=True)
 
                 # Live capture decoupled from forecast generation per requirements
                 pass
@@ -1658,7 +1658,7 @@ def _run_live_forecast(src_ip: str, dst_ip: str, history: list):
 
         print(f"[LIVE_FORECAST_UPDATE]\nsrc={src_ip}\ndst={dst_ip}\nwindows={windows_collected}\nstatus=READY", flush=True)
         print(f"[LIVE_FORECAST_BROADCAST]\nsrc={src_ip}\ndst={dst_ip}\nwindows={windows_collected}\nmodel_status=READY", flush=True)
-        print(f"[LIVE_GRU]\nsrc={src_ip}\ndst={dst_ip}\nwindows={windows_collected}\ninput_shape={tuple(forecast.get('input_shape') or (1, MIN_LIVE_WINDOWS, 14))}\nattack_probability={risk_score:.4f}\npredicted_stage={predicted_stage}", flush=True)
+        print(f"[LIVE_LSTM]\nsrc={src_ip}\ndst={dst_ip}\nwindows={windows_collected}\ninput_shape={tuple(forecast.get('input_shape') or (1, MIN_LIVE_WINDOWS, 14))}\nattack_probability={risk_score:.4f}\npredicted_stage={predicted_stage}", flush=True)
 
         # Update the real live host registry with the latest forecast state.
         _register_live_host(dst_ip, role="target", predicted_stage=predicted_stage,
@@ -1732,7 +1732,7 @@ def _run_live_forecast(src_ip: str, dst_ip: str, history: list):
 
 
 async def _stage_forecast_loop():
-    """Background loop: finalize 5-second live windows per pair and run gated GRU inference."""
+    """Background loop: finalize 5-second live windows per pair and run gated LSTM world-model inference."""
     print("[LIVE_WINDOW_FINALIZER]\nstarted=true", flush=True)
     loop_count = 0
     while True:
@@ -1760,7 +1760,7 @@ async def list_interfaces():
 
 @app.get("/api/forecasts")
 async def get_forecasts():
-    """Return latest GRU stage forecasts for all active REAL (src, dst) pairs."""
+    """Return latest LSTM stage forecasts for all active REAL (src, dst) pairs."""
     return _latest_stage_forecasts
 
 
@@ -2895,7 +2895,7 @@ def _run_pipeline_on_flows(flows: list[dict], filename: str, file_type: str, tot
     flagged_flows.sort(key=lambda x: x["probability"], reverse=True)
     flagged_flows = flagged_flows[:50]
     
-    # 2. Time-windowed stage forecaster (PyTorch GRU World Model)
+    # 2. Time-windowed stage forecaster (PyTorch LSTM World Model)
     num_windows = 10
     window_size = max(1, len(flows) // num_windows)
     timeline = []
@@ -3506,7 +3506,7 @@ _shap_lock = threading.Lock()
 
 
 def _get_shap_explainer():
-    """Builds and caches a shap.GradientExplainer over ~100 normalized 5-flow background windows from benign traffic."""
+    """Builds and caches a shap.GradientExplainer whose background is 100 real benign 5-flow windows (models/shap_background_benign.json)."""
     global _shap_explainer
     if _shap_explainer is not None:
         return _shap_explainer
@@ -3530,47 +3530,18 @@ def _get_shap_explainer():
             feat_max = np.array(_meta["normalizer"]["feature_max"], dtype=np.float32)
             seq_len = _meta.get("sequence_length", 5)
 
-            bg_windows = []
-            latest = _get_latest_forecast()
-            if latest and isinstance(latest, dict) and latest.get("status") in ("success", "ok") and latest.get("results"):
-                for conv in latest["results"]:
-                    c_flows = conv.get("flows", [])
-                    if len(c_flows) >= seq_len:
-                        for i in range(len(c_flows) - seq_len + 1):
-                            window = c_flows[i:i + seq_len]
-                            mat = lstm_infer._flows_to_matrix(window, feature_cols, log_cols, feat_min, feat_max, seq_len)
-                            bg_windows.append(mat)
-                            if len(bg_windows) >= 100:
-                                break
-                    if len(bg_windows) >= 100:
-                        break
-
-            if len(bg_windows) < 100:
-                np.random.seed(42)
-                needed = 100 - len(bg_windows)
-                for b in range(needed):
-                    flows_5 = []
-                    for t in range(seq_len):
-                        flow = {
-                            "duration": float(np.random.uniform(0.001, 2.0)),
-                            "packet_count": float(np.random.randint(1, 20)),
-                            "byte_count": float(np.random.randint(64, 5000)),
-                            "syn_flag": int(np.random.choice([0, 1], p=[0.8, 0.2])),
-                            "ack_flag": int(np.random.choice([0, 1], p=[0.2, 0.8])),
-                            "fin_flag": 0,
-                            "rst_flag": 0,
-                            "ttl_mean": float(np.random.choice([64.0, 128.0])),
-                            "ttl_var": float(np.random.uniform(0.0, 2.0)),
-                            "win_mean": float(np.random.choice([8192.0, 64240.0, 65535.0])),
-                            "win_var": float(np.random.uniform(0.0, 500.0)),
-                            "frag_ratio": 0.0,
-                            "payload_mean": float(np.random.uniform(0.0, 300.0)),
-                            "payload_std": float(np.random.uniform(0.0, 50.0)),
-                            "retransmit_count": 0,
-                        }
-                        flows_5.append(flow)
-                    mat = lstm_infer._flows_to_matrix(flows_5, feature_cols, log_cols, feat_min, feat_max, seq_len)
-                    bg_windows.append(mat)
+            # SHAP reference distribution: REAL benign 5-flow windows sampled from the
+            # labeled training corpus (built by data_prep/build_shap_background.py).
+            # Attributions therefore explain "why this window looks riskier / safer
+            # than ordinary benign traffic". No synthetic or upload-dependent data.
+            bg_path = os.path.join(os.path.dirname(lstm_infer.__file__), "shap_background_benign.json")
+            with open(bg_path, "r") as f:
+                bg_json = json.load(f)
+            if bg_json.get("feature_columns") != feature_cols:
+                raise ValueError("shap_background_benign.json feature columns do not match the model")
+            bg_windows = [np.array(w, dtype=np.float32) for w in bg_json["windows"]]
+            if not bg_windows or bg_windows[0].shape != (seq_len, len(feature_cols)):
+                raise ValueError("shap_background_benign.json has an unexpected window shape")
 
             bg_tensor = torch.tensor(np.array(bg_windows), dtype=torch.float32)
 

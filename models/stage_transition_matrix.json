@@ -107,7 +107,7 @@
       0
     ]
   ],
-  "source_file": "/sessions/rcw-01mwtqrzvruaf9m1jekxbdrf/mnt/ml-data/dapt_mapped_v1.csv",
+  "source_file": "dapt_mapped_v1.csv (DAPT-2020 mapped with data_prep/map_dapt_to_schema.py)",
   "n_transitions": 11,
   "mode": "killchain_host_attackonly"
 }
