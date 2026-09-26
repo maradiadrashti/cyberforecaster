@@ -52,7 +52,7 @@ explanation run **locally on a normal laptop CPU** — no cloud service or GPU n
 | 🗺️ **MITRE ATT&CK** | 6 stages: Normal → Reconnaissance → Initial Access → Lateral Movement → Command & Control → Exfiltration. |
 | 🔍 **Explainable** | **SHAP** (`GradientExplainer`) attributions on the model's risk head show which traffic features drove each prediction — every value on screen is the real SHAP output, measured against real benign traffic. |
 | 📥 **Three input paths** | Live capture (Scapy/Npcap) · PCAP upload (dpkt) · CSV upload — including raw **CICFlowMeter** CSVs, auto-converted to the model's schema. |
-| 📊 **Benchmarked** | Compared against a logistic-regression baseline on a dataset neither model was trained on ([results](#-results)). |
+| 📊 **Benchmarked** | Compared against a logistic-regression baseline on a dataset neither model was trained on ([results and how the test was built](#-results)). |
 
 ---
 
@@ -236,10 +236,22 @@ Full method, raw numbers and limitations: **[VALIDATION.md](VALIDATION.md)**.
 
 ### LSTM world model vs. logistic-regression baseline — unseen dataset
 
-Both models were evaluated on **CIC-IDS-2017 (Thursday, Web Attacks)** — a different year and a
-different network from the training data. Neither model saw it during training. Both received the
-**same 15 input features**; the LSTM sees the last 5 flows of a conversation, the baseline sees only
-the latest flow. **170,170 windows, 2,176 of them attacks (1.3%).**
+Both models were evaluated on **CIC-IDS-2017 (Thursday, Web Attacks)**, a dataset from a different
+year and a different network. **Neither model was trained on it** — we checked that the training data
+(CSE-CIC-IDS-2018, CTU-13, DAPT-2020) contains no CIC-IDS-2017 hosts.
+
+**How the test set was built — please read before quoting the numbers:**
+
+- We used CIC-IDS-2017's public flow CSV (CICFlowMeter output). It has **no IP addresses and no
+  timestamps**, and its features are computed by CICFlowMeter, not by our extractor. Its columns were
+  mapped to our 15 features; TTL is not in that file and was set to 64 (the default TTL on
+  Linux, which the victim web server runs).
+- The LSTM needs conversations (sender → receiver). The **2,180 attack flows** were assigned the
+  attacker → victim pair documented by the dataset authors (`172.16.0.1 → 192.168.10.50`). The
+  **168,186 benign flows** were spread across 48 invented internal sender addresses (all → `192.168.10.50`).
+  **So the benign conversations are reconstructed, not real.**
+- The LSTM sees the last 5 flows of a conversation; the baseline sees only the latest flow.
+  **170,170 windows, 2,176 of them attacks (1.3%).**
 
 | Model | Accuracy | Precision | Recall | F1 | False-positive rate |
 | :--- | ---: | ---: | ---: | ---: | ---: |
@@ -247,11 +259,19 @@ the latest flow. **170,170 windows, 2,176 of them attacks (1.3%).**
 | LSTM world model (stage head) | 98.34% | 42.0% | 78.2% | 0.546 | 1.40% |
 | Logistic regression baseline | 5.47% | 1.3% | 100% | 0.026 | 95.75% |
 
-- On unseen traffic the per-flow baseline **collapses** — it flags almost every flow as an attack —
-  while the LSTM keeps benign traffic quiet (**0.48% false alarms**) and still catches ~3 of 4 attacks.
-- The LSTM assigns the **correct MITRE stage (Initial Access)** to **1,702 / 2,176 = 78.2%** of attack windows.
-- On its *own* training distribution the baseline is strong (95.7% accuracy, F1 0.959 — see
-  `models/logreg_baseline_meta.json`); the gap above is about **generalizing to a new network**.
+- On this data the per-flow baseline **collapses** — it flags almost every flow as an attack — while
+  the LSTM keeps false alarms at **0.48%** and catches about 3 of 4 attacks.
+- The LSTM gives the **correct MITRE stage (Initial Access)** to **1,702 / 2,176 = 78.2%** of attack windows.
+- Detection by attack type (LSTM risk head): **Brute Force 1,104 / 1,503 (73.5%)**, **XSS 556 / 652
+  (85.3%)**, **SQL Injection 0 / 21 (0%)**.
+- On its *own* training data the baseline is strong (95.7% accuracy, F1 0.959 — see
+  `models/logreg_baseline_meta.json`). Its collapse here comes from a new network **and** a different
+  flow-extraction tool: TCP flag counts (`ack_count`, `fin_count`, `syn_count`) are distributed very
+  differently in CICFlowMeter output, and a single-flow linear model cannot absorb that shift.
+- **The LSTM result depends on flows being grouped into conversations.** If the same flows are fed in
+  raw file order with no grouping (attack flows interleaved with benign ones), LSTM recall drops to
+  **6–8%**. The dashboard always groups traffic by sender → receiver, but the numbers above should be
+  read as "with conversation grouping", on partly reconstructed conversations.
 
 Saved run: [`evaluation/results/cic2017_webattacks.json`](evaluation/results/cic2017_webattacks.json).
 
@@ -264,18 +284,28 @@ Saved run: [`evaluation/results/cic2017_webattacks.json`](evaluation/results/cic
 | Lateral Movement | Exfiltration | 0.50 |
 
 These drive the *t+1 … t+5* forecast. They are learned from **11 real stage transitions across 7
-attacker hosts** — directionally correct, but a small sample (see limitations).
+attacker hosts** in DAPT-2020 (observed counts: 4, 6 and 1). Rows are smoothed, so the 0.50 for
+Lateral Movement → Exfiltration rests on a **single** observed transition. Holding out one attacker
+host at a time, the matrix predicts the next stage correctly **10 / 11** times. Directionally correct,
+but a small sample.
 
 ---
 
 ## ⚠️ Honest limitations
 
-- **Sparse multi-stage data.** Public datasets with genuine per-attacker stage progression are rare;
-  DAPT-2020 gives only 11 clean transitions. CIC-IDS-2018 and CTU-13 contain attacks but **no
-  multi-stage transitions**. The forecast is directionally right but statistically under-powered.
+- **Sparse multi-stage data.** All 11 learned stage transitions come from DAPT-2020. In our labeled
+  training data, **no CSE-CIC-IDS-2018 attacker (27 hosts) or CTU-13 attacker (2,377 hosts) moves
+  through more than one stage**, so those datasets contribute detection data but no transitions. They
+  also contain no Reconnaissance or Exfiltration flows. The forecast is directionally right but
+  statistically under-powered.
+- **Cross-dataset test uses reconstructed conversations.** See *How the test set was built* above. A
+  re-run on CIC-IDS-2017's labelled-flow files that include real IPs and timestamps would remove this
+  caveat.
 - **TTL dependency.** The model uses `ttl_mean`. Flow CSVs without TTL (e.g. CICFlowMeter) get a
-  default TTL of 64 and the backend logs a warning; with TTL = 0 accuracy drops sharply. PCAP and
-  live capture carry real TTL and are unaffected.
+  default TTL of 64 and the backend logs a warning. On the CIC-IDS-2017 test, setting TTL to 0 instead
+  drops stage-head accuracy to **34.8%**. PCAP and live capture carry real TTL and are unaffected.
+- **Missed attacks.** On CIC-IDS-2017 the risk head misses 516 of 2,176 attack windows: 399 Brute
+  Force (which looks like ordinary HTTP at flow level), 96 XSS and all 21 SQL Injection.
 - **Connectivity.** Analysis is fully local. Only the landing page's 3D scene and the web font are
   loaded from the internet; without internet they simply don't render.
 

@@ -11,7 +11,7 @@ Every number here comes from the model files in `models/` and can be reproduced 
 | | |
 | :--- | :--- |
 | **LSTM training data** | CSE-CIC-IDS-2018 + CTU-13 + DAPT-2020, mapped to one 15-feature flow schema |
-| **Baseline training data** | the same merged corpus (balanced 1:1 attack/normal subsample) |
+| **Baseline training data** | an earlier snapshot of the same corpus, before DAPT-2020 was added (balanced 1:1 attack/normal subsample) |
 | **Held-out evaluation data** | **CIC-IDS-2017, Thursday Web Attacks** (Brute Force, XSS, SQL Injection) — a different year and network, never used to train either model |
 | **Input to both models** | the same 15 features per flow |
 | **LSTM** | sliding window of the last 5 flows of each conversation (src → dst) |
@@ -20,8 +20,16 @@ Every number here comes from the model files in `models/` and can be reproduced 
 | **Script** | `python evaluation/eval_cross_dataset.py <labeled_csv> --out evaluation/results/<name>.json` |
 | **Saved run** | [`evaluation/results/cic2017_webattacks.json`](evaluation/results/cic2017_webattacks.json) |
 
-CIC-IDS-2017 CSVs come from CICFlowMeter and have **no TTL field**; TTL was set to 64, the real
-default TTL of the dataset's Ubuntu hosts (see §4).
+**How the test set was built (important):**
+
+- The public CIC-IDS-2017 flow CSV comes from CICFlowMeter. It has **no IP addresses, no timestamps
+  and no TTL field**. Its columns were mapped to our 15 features; TTL was set to 64 (the Linux default,
+  which the victim web server runs). Its TCP flag counts are defined by CICFlowMeter, not by our extractor.
+- Conversations had to be reconstructed. The **2,180 attack flows** were assigned the attacker → victim
+  pair documented by the dataset authors (`172.16.0.1 → 192.168.10.50`). The **168,186 benign flows** were
+  spread across 48 invented internal sender addresses (all → `192.168.10.50`). **The benign
+  conversations are therefore synthetic.**
+- We checked that the training corpus contains no CIC-IDS-2017 hosts.
 
 ---
 
@@ -51,8 +59,22 @@ stage, **Initial Access** (web attacks map to MITRE TA0001).
   Precision, recall, F1 and FPR are reported for that reason. The risk head is the better detector
   (it is what drives the dashboard's risk score); the stage head is used for *which* stage.
 
-> An earlier run on a 34,053-window subset of the same file gave 98.4% accuracy (stage head), 98.7%
-> of benign correctly normal and 77.5% correct stage — consistent with the full-file run above.
+### Detection by attack type (risk head)
+
+| Attack type | Attack windows | Detected | Rate |
+| :--- | ---: | ---: | ---: |
+| Brute Force | 1,503 | 1,104 | 73.5% |
+| XSS | 652 | 556 | 85.3% |
+| SQL Injection | 21 | 0 | 0% |
+
+### Sensitivity to conversation grouping
+
+The LSTM's result depends on flows being grouped into conversations. Feeding the same 170,366 flows in
+raw file order with no grouping (attack flows interleaved with benign ones) gives LSTM recall of
+**6.0% (risk head) / 7.9% (stage head)**. The baseline is unaffected because it scores one flow at a
+time. The dashboard always groups traffic by sender → receiver, so the table above reflects how the
+system is used — but on partly reconstructed conversations. A re-run on CIC-IDS-2017's labelled-flow
+files that contain real IPs and timestamps would remove this caveat.
 
 ---
 
@@ -87,13 +109,16 @@ order in which each DAPT-2020 attacker host moved through attack stages.
 
 Rows are smoothed, so unobserved transitions keep a small probability.
 
-A 5-fold hold-out over attacker hosts predicted the next stage correctly **10 / 11** times.
+Holding out attacker hosts (leave-one-host-out, and 5-fold over hosts) the matrix predicts the next stage correctly **10 / 11** times; the single miss is the only Lateral Movement → Exfiltration transition.
 
 **Caveat:** DAPT-2020 has thousands of attack flows but only **11 clean stage transitions across 7
 attacker hosts** (Exfiltration has 15 flows in total). The matrix is directionally right — it
 reproduces the textbook kill chain — but it is statistically under-powered, and "10/11" is not a
-robust accuracy figure. CSE-CIC-IDS-2018 and CTU-13 contain attacks but **no multi-stage
-transitions at all**, which is why DAPT-2020 is used for this part.
+robust accuracy figure. In our labeled training data **no CSE-CIC-IDS-2018 attacker (27 hosts) or
+CTU-13 attacker (2,377 hosts) moves through more than one stage**, and neither dataset has
+Reconnaissance or Exfiltration flows — so all 11 transitions come from DAPT-2020. (CIC-IDS-2018's
+infiltration scenario spans two machines — attacker, then infected victim — which a per-attacker-host
+view does not count as a transition.)
 
 ---
 
@@ -101,8 +126,9 @@ transitions at all**, which is why DAPT-2020 is used for this part.
 
 | Boundary | Effect | Status |
 | :--- | :--- | :--- |
-| **TTL missing in CSV** | with TTL = 0 the CIC-IDS-2017 accuracy drops to ~35%; with the hosts' real TTL (64) it is as in §2 | the CSV adapter imputes 64 and logs a warning; PCAP / live input carry real TTL |
-| **Web brute-force** | looks like normal HTTP at flow level → most of the ~22% missed attack windows | inherent to flow-level features |
+| **TTL missing in CSV** | with TTL = 0 the CIC-IDS-2017 stage-head accuracy drops to 34.8%; with TTL = 64 it is as in §2 | the CSV adapter imputes 64 and logs a warning; PCAP / live input carry real TTL |
+| **Missed web attacks** | risk head misses 516 / 2,176 attack windows: 399 Brute Force (looks like normal HTTP at flow level), 96 XSS, all 21 SQL Injection | inherent to flow-level features |
+| **Reconstructed conversations** | benign CIC-IDS-2017 conversations are synthetic (no IPs in the public CSV) | re-run on the labelled-flow files with real IPs |
 | **Very old traffic** (e.g. DARPA 2000) | not reliably detected — far outside the 2017–2020 training distribution | documented, not claimed |
 | **Sparse transitions** | forecast matrix built from 11 transitions | future work: more multi-stage APT data |
 
@@ -110,8 +136,9 @@ transitions at all**, which is why DAPT-2020 is used for this part.
 
 ## 6. Summary
 
-- **Shown with hard numbers:** detection generalizes to an unseen dataset — **99.2% accuracy,
-  0.48% false-positive rate, F1 0.72** — where a per-flow logistic-regression baseline collapses.
+- **Shown with hard numbers, with a caveat:** on an unseen dataset the LSTM reaches **99.2% accuracy,
+  0.48% false-positive rate, F1 0.72** where a per-flow logistic-regression baseline collapses — measured
+  on partly reconstructed conversations (see §1).
 - **Shown, but on little data:** multi-stage forecasting follows the real kill chain learned from
   DAPT-2020.
 - **Not claimed:** robustness to TTL-less CSVs without imputation, or to decades-old traffic.
