@@ -95,21 +95,30 @@ reprints them (`stage_val_accuracy`, `binary_val_accuracy`).
 
 ---
 
-## 4. Multi-stage forecasting — DAPT-2020 kill-chain matrix
+## 4. Multi-stage forecasting — kill-chain matrix (DAPT-2020 data + ATT&CK prior)
 
 The *t+1 … t+5* forecast is a Markov roll-out over a **host-level kill-chain transition matrix**
 (`models/stage_transition_matrix.json`), built by `data_prep/estimate_killchain_matrix.py` from the
-order in which each DAPT-2020 attacker host moved through attack stages.
+order in which each DAPT-2020 attacker host moved through attack stages, combined with an explicit
+MITRE ATT&CK ordering prior:
 
-| From | → Next (most likely) | P | Observed transitions |
-| :--- | :--- | :---: | :---: |
-| Reconnaissance | Initial Access | 0.77 | 4 |
-| Initial Access | Lateral Movement | 0.83 | 6 |
-| Lateral Movement | Exfiltration | 0.50 | 1 |
+`row_i = normalize(counts_i + 2 × prior_i + 0.25)` for attack stages, where `prior_i` = stay 0.4 /
+advance to the next ATT&CK stage 0.6. Normal and Exfiltration are absorbing.
 
-Rows are smoothed, so unobserved transitions keep a small probability.
+| From | Most likely next stage | P(next \| current) | Observed transitions | Where it comes from |
+| :--- | :--- | :---: | :---: | :--- |
+| Reconnaissance | Initial Access | 0.73 | 4 | data (DAPT-2020) + prior |
+| Initial Access | Lateral Movement | 0.78 | 6 | data (DAPT-2020) + prior |
+| Lateral Movement | Command & Control | 0.32 (Exfiltration 0.28) | 1 (→ Exfiltration) | mostly prior |
+| Command & Control | Exfiltration | 0.41 | 0 | **prior only** |
 
-Holding out attacker hosts (leave-one-host-out, and 5-fold over hosts) the matrix predicts the next stage correctly **10 / 11** times; the single miss is the only Lateral Movement → Exfiltration transition.
+The prior exists because the data has **no transition out of Command & Control** (and only one out of
+Lateral Movement): with data alone, a conversation classified as C&C — e.g. the botnet PCAP sample —
+could not be forecast any further. The counts, the prior and its weight are all saved in
+`models/stage_transition_matrix.json`.
+
+Holding out one attacker host at a time, the matrix predicts the next stage correctly **10 / 11** times;
+the single miss is the only Lateral Movement → Exfiltration transition (the prior prefers Command & Control).
 
 **Caveat:** DAPT-2020 has thousands of attack flows but only **11 clean stage transitions across 7
 attacker hosts** (Exfiltration has 15 flows in total). The matrix is directionally right — it

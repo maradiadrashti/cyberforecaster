@@ -48,7 +48,7 @@ explanation run **locally on a normal laptop CPU** — no cloud service or GPU n
 | | What it does |
 | :--- | :--- |
 | 🧠 **World model** | A 2-layer **LSTM** learns network-state dynamics from sequences of 5 flows per conversation and predicts the current stage + attack risk. |
-| 🔮 **K-step forecast** | A kill-chain **stage-transition matrix** learned from **DAPT-2020** rolls the state forward *t+1 … t+5*, giving the next MITRE stage and an infiltration probability per step. |
+| 🔮 **K-step forecast** | A kill-chain **stage-transition matrix** — transitions learned from **DAPT-2020** plus an explicit **MITRE ATT&CK ordering prior** — rolls the state forward *t+1 … t+5*, giving the next MITRE stage and an infiltration probability per step. |
 | 🗺️ **MITRE ATT&CK** | 6 stages: Normal → Reconnaissance → Initial Access → Lateral Movement → Command & Control → Exfiltration. |
 | 🔍 **Explainable** | **SHAP** (`GradientExplainer`) attributions on the model's risk head show which traffic features drove each prediction — every value on screen is the real SHAP output, measured against real benign traffic. |
 | 📥 **Three input paths** | Live capture (Scapy/Npcap) · PCAP upload (dpkt) · CSV upload — including raw **CICFlowMeter** CSVs, auto-converted to the model's schema. |
@@ -67,7 +67,7 @@ flowchart LR
     E --> F[LSTM world model<br/>2 layers · hidden 64]
     F --> G[Stage head<br/>6 MITRE stages]
     F --> H[Risk head<br/>attack probability]
-    G --> I[K-step forward simulation<br/>DAPT-2020 transition matrix]
+    G --> I[K-step forward simulation<br/>DAPT-2020 counts + ATT&CK prior]
     H --> I
     F --> J[SHAP explainer]
     I --> K[FastAPI + WebSocket<br/>:8080]
@@ -275,19 +275,29 @@ year and a different network. **Neither model was trained on it** — we checked
 
 Saved run: [`evaluation/results/cic2017_webattacks.json`](evaluation/results/cic2017_webattacks.json).
 
-### Learned kill-chain transitions (DAPT-2020)
+### Kill-chain transitions (DAPT-2020 data + MITRE ATT&CK prior)
 
-| From | Most likely next stage | P(next \| current) |
-| :--- | :--- | :---: |
-| Reconnaissance | Initial Access | 0.77 |
-| Initial Access | Lateral Movement | 0.83 |
-| Lateral Movement | Exfiltration | 0.50 |
+| From | Most likely next stage | P(next \| current) | Observed transitions | Where it comes from |
+| :--- | :--- | :---: | :---: | :--- |
+| Reconnaissance | Initial Access | 0.73 | 4 | data (DAPT-2020) + prior |
+| Initial Access | Lateral Movement | 0.78 | 6 | data (DAPT-2020) + prior |
+| Lateral Movement | Command & Control | 0.32 (Exfiltration 0.28) | 1 (→ Exfiltration) | mostly prior |
+| Command & Control | Exfiltration | 0.41 | 0 | **prior only** |
 
-These drive the *t+1 … t+5* forecast. They are learned from **11 real stage transitions across 7
-attacker hosts** in DAPT-2020 (observed counts: 4, 6 and 1). Rows are smoothed, so the 0.50 for
-Lateral Movement → Exfiltration rests on a **single** observed transition. Holding out one attacker
-host at a time, the matrix predicts the next stage correctly **10 / 11** times. Directionally correct,
-but a small sample.
+These drive the *t+1 … t+5* forecast. The matrix combines two clearly separated sources
+(`data_prep/estimate_killchain_matrix.py`; both are stored in `models/stage_transition_matrix.json`):
+
+- **Data:** **11 real stage transitions across 7 attacker hosts** in DAPT-2020 (counts 4, 6 and 1).
+- **Prior:** the MITRE ATT&CK tactic order (Reconnaissance → Initial Access → Lateral Movement →
+  Command & Control → Exfiltration): each attack stage "stays" with 40% or "advances" with 60%,
+  added as 2 pseudo-counts per row. Normal and Exfiltration are absorbing, so a normal conversation
+  is never forecast to turn into an attack.
+
+Where data exists it dominates (Reconnaissance, Initial Access). **No attacker in any of our datasets
+moves on from Command & Control**, so that row — and most of Lateral Movement — comes from the
+ATT&CK prior, not from data. Holding out one attacker host at a time, the matrix predicts the next
+stage correctly **10 / 11** times (the miss is the single Lateral Movement → Exfiltration transition,
+where the prior prefers Command & Control).
 
 ---
 
@@ -319,7 +329,7 @@ cyberforecaster/
 ├── models/                     trained artifacts + inference code
 │   ├── stage_forecaster_lstm_v1.pth / _meta.json   LSTM world model (≈230 KB)
 │   ├── stage_forecaster_lstm_infer.py              loads the model, runs forecasts
-│   ├── stage_transition_matrix.json                DAPT-2020 kill-chain matrix
+│   ├── stage_transition_matrix.json                kill-chain matrix (DAPT-2020 counts + ATT&CK prior)
 │   ├── shap_background_benign.json                 SHAP reference: 100 real benign windows
 │   ├── logreg_baseline_*.joblib / _meta.json       benchmark model
 │   └── flow_classifier_*                           XGBoost live per-flow classifier
@@ -346,7 +356,7 @@ cyberforecaster/
 | Input | 5 consecutive flows × 15 features, log-transformed (skewed counts) + min-max normalized |
 | Target | the MITRE stage **3 flows ahead** of the window (forecasting, not just classification) |
 | Training | Adam, class-weighted cross-entropy (stage) + BCE (risk), gradient clipping (max-norm 5), early stopping |
-| Forecast | Markov roll-out over the DAPT-2020 kill-chain transition matrix, K = 5 steps |
+| Forecast | Markov roll-out over the kill-chain transition matrix (DAPT-2020 counts + MITRE ATT&CK ordering prior), K = 5 steps |
 | Explainability | SHAP `GradientExplainer` on the risk head, with 100 **real benign** 5-flow windows from the training data as the reference (`models/shap_background_benign.json`); values averaged over the 5 time-steps |
 
 ### Datasets
