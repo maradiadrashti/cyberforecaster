@@ -276,10 +276,6 @@ attacker hosts** — directionally correct, but a small sample (see limitations)
 - **TTL dependency.** The model uses `ttl_mean`. Flow CSVs without TTL (e.g. CICFlowMeter) get a
   default TTL of 64 and the backend logs a warning; with TTL = 0 accuracy drops sharply. PCAP and
   live capture carry real TTL and are unaffected.
-- **Very old traffic.** Datasets far outside the 2017–2020 distribution (e.g. DARPA 2000) are not
-  reliably detected.
-- **Web brute-force** looks like ordinary HTTP at the flow level; that is most of the 22% of
-  attack windows the LSTM misses on CIC-IDS-2017.
 - **Connectivity.** Analysis is fully local. Only the landing page's 3D scene and the web font are
   loaded from the internet; without internet they simply don't render.
 
