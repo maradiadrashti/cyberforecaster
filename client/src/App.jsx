@@ -7,9 +7,6 @@ import LiveTraffic from "./pages/LiveTraffic";
 import AttackForecast from "./pages/AttackForecast";
 import UploadAnalysis from "./pages/UploadAnalysis";
 import LandingPage from "./pages/LandingPage";
-import {
-  HOSTS, generateTrafficEvent, generateForecast
-} from "./demoData";
 
 // Sidebar Navigation Groups
 const NAV_GROUPS = [
@@ -65,12 +62,7 @@ export default function App() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [trafficEvents, setTrafficEvents] = useState([]);
-  const [forecasts, setForecasts] = useState({});
   const [alerts, setAlerts] = useState([]);
-  const [hosts, setHosts] = useState(HOSTS.map(h => ({ ...h, status: "ONLINE" })));
-  const [tick, setTick] = useState(0);
-  const tickRef = useRef(0);
   const mainScrollRef = useRef(null);
   const [realInterfaces, setRealInterfaces] = useState([]);
   const [captureStats, setCaptureStats] = useState({ total_packets: 0, flow_count: 0 });
@@ -133,25 +125,6 @@ export default function App() {
     const interval = setInterval(fetchStats, 2000);
     return () => clearInterval(interval);
   }, [view]);
-
-  // Simulate live traffic for demo pages (only when capture server is NOT connected/running)
-  useEffect(() => {
-    const hasCaptureServer = captureStats && captureStats.active_captures !== undefined;
-    if (hasCaptureServer) return;
-
-    const interval = setInterval(() => {
-      tickRef.current++;
-      setTick(tickRef.current);
-
-      const evt = generateTrafficEvent(HOSTS);
-      setTrafficEvents(prev => [evt, ...prev].slice(0, 100));
-
-      const fc = generateForecast(evt.dstIp);
-      setForecasts(prev => ({ ...prev, [evt.dstIp]: fc }));
-    }, 1800);
-
-    return () => clearInterval(interval);
-  }, [captureStats]);
 
   // Callbacks for LiveTraffic to lift state up
   const handleInterfaceChange = useCallback((iface, ifaceInfo) => {

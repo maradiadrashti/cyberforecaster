@@ -610,34 +610,49 @@ function AttackProgressionFlow({ predictedStage = "NORMAL", forecastTimeline = [
 // Helper to map feature name to plain English description
 function getFeatureDescription(name) {
   const map = {
-    duration: "connection length",
-    rst_count: "RST packet count",
-    ack_count: "ACK packet count",
-    payload_mean: "average payload size",
-    payload_std: "payload size variation",
-    packet_count: "total packet volume",
-    win_mean: "TCP window size",
+    duration: "how long the connection stayed open",
+    packet_count: "how many packets were exchanged",
+    byte_count: "how much data was transferred",
+    syn_count: "how many TCP SYN (connection-start) packets were sent",
+    ack_count: "how many TCP ACK (acknowledgement) packets were sent",
+    fin_count: "how many TCP FIN (connection-close) packets were sent",
+    rst_count: "how many TCP RST (connection-reset) packets were sent",
+    ttl_mean: "the average TTL (hop limit) of the packets",
+    ttl_var: "how much the packet TTL varied",
+    win_mean: "the average TCP window size",
+    win_var: "how much the TCP window size varied",
+    frag_ratio: "the share of fragmented packets",
+    payload_mean: "the average payload size per packet",
+    payload_std: "how much the payload size varied",
+    retransmit_count: "how many packets were retransmitted",
   };
   return map[name] || name.replace(/_/g, " ");
 }
 
 // ─── SHAP Interactive Pie Chart ──────────────────────────────────────────────
+// Every number shown here comes from the backend's /api/explain response
+// (SHAP GradientExplainer on the model's risk head). Nothing is hardcoded.
 function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
   const [selectedIdx, setSelectedIdx] = useState(null);
 
-  const rawFeatures = (explainData?.features && explainData.features.length > 0)
-    ? explainData.features
-    : [
-        { feature: "rst_count", percent: 30.6, direction: "+" },
-        { feature: "duration", percent: 28.0, direction: "+" },
-        { feature: "payload_mean", percent: 20.1, direction: "+" },
-        { feature: "ack_count", percent: 12.7, direction: "-" },
-        { feature: "packet_count", percent: 4.6, direction: "+" },
-        { feature: "payload_std", percent: 2.2, direction: "-" },
-        { feature: "win_mean", percent: 0.9, direction: "-" },
-      ];
+  const rawFeatures = Array.isArray(explainData?.features) ? explainData.features : [];
 
-  const totalSum = rawFeatures.reduce((acc, f) => acc + (Math.abs(f.percent) || 0), 0) || 1;
+  // Reset the selection whenever a different conversation's explanation arrives
+  useEffect(() => {
+    setSelectedIdx(null);
+  }, [explainData]);
+
+  if (rawFeatures.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-2 font-mono-tech text-center">
+        <span className="text-base font-bold text-white">SHAP explanation not available</span>
+        <span className="text-sm text-text-muted max-w-md">
+          {explainData?.message ||
+            "No SHAP attributions were returned for this conversation. Select a conversation with at least 5 flows."}
+        </span>
+      </div>
+    );
+  }
 
   const colorPalette = [
     "#CBA135", // Gold
@@ -649,50 +664,33 @@ function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
     "#4B5563"  // Dark Slate
   ];
 
-  const featuresData = rawFeatures.map((f, i) => ({
-    name: f.feature,
-    percent: Number(((Math.abs(f.percent) / totalSum) * 100).toFixed(1)),
-    direction: f.direction || "+",
-    color: colorPalette[i % colorPalette.length],
-  }));
+  // percent = this feature's share of the total |SHAP| across all 15 features (computed by the backend)
+  const featuresData = rawFeatures.map((f, i) => {
+    const shapVal = Number(f.val);
+    const hasVal = Number.isFinite(shapVal);
+    return {
+      name: f.feature,
+      percent: Number((Math.abs(Number(f.percent)) || 0).toFixed(1)),
+      shapVal: hasVal ? shapVal : null,
+      increases: hasVal ? shapVal >= 0 : f.direction !== "-",
+      color: colorPalette[i % colorPalette.length],
+      isOther: false,
+    };
+  });
 
-  // Exact SHAP Values & Metadata Map
-  const featureShapMeta = {
-    rst_count: {
-      shapValueStr: "+0.32",
-      isPositive: true,
-      whatItMeans: "rst_count represents the number of TCP reset packets in the flow. Its positive SHAP contribution pushes the model toward a higher attack-risk prediction."
-    },
-    duration: {
-      shapValueStr: "-0.28",
-      isPositive: false,
-      whatItMeans: "duration represents the length of time the connection remained active. Its negative SHAP contribution pushes the model away from an attack-risk prediction."
-    },
-    payload_mean: {
-      shapValueStr: "+0.21",
-      isPositive: true,
-      whatItMeans: "payload_mean represents the average payload size across packets. Its positive SHAP contribution pushes the model toward a higher attack-risk prediction."
-    },
-    ack_count: {
-      shapValueStr: "+0.13",
-      isPositive: true,
-      whatItMeans: "ack_count represents the number of TCP acknowledgement packets. Its positive SHAP contribution pushes the model toward a higher attack-risk prediction."
-    },
-    packet_count: {
-      shapValueStr: "+0.05",
-      isPositive: true,
-      whatItMeans: "packet_count represents the total number of packets exchanged. Its positive SHAP contribution pushes the model toward a higher attack-risk prediction."
-    },
-    payload_std: {
-      shapValueStr: "-0.03",
-      isPositive: false,
-      whatItMeans: "payload_std represents the variation in packet payload size. Its negative SHAP contribution pushes the model away from an attack-risk prediction."
-    },
-    win_mean: {
-      shapValueStr: "+0.01",
-      isPositive: true,
-      whatItMeans: "win_mean represents the average TCP window size. Its positive SHAP contribution pushes the model toward a higher attack-risk prediction."
-    }
+  // The backend returns the top 7 features; the remaining features' combined share is shown as one grey slice
+  const shownSum = featuresData.reduce((acc, f) => acc + f.percent, 0);
+  const otherPct = Number((100 - shownSum).toFixed(1));
+  if (otherPct >= 0.1) {
+    featuresData.push({ name: "other features", percent: otherPct, shapVal: null, increases: null, color: "#2A313C", isOther: true });
+  }
+  const pieTotal = featuresData.reduce((acc, f) => acc + f.percent, 0) || 1;
+
+  const formatShap = (v) => {
+    if (v === null) return "—";
+    const abs = Math.abs(v);
+    const digits = abs !== 0 && abs < 0.001 ? 6 : 4;
+    return `${v >= 0 ? "+" : "−"}${abs.toFixed(digits)}`;
   };
 
   // Larger SVG parameters to fill the card cleanly
@@ -705,7 +703,7 @@ function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
   let cumulativeAngle = -Math.PI / 2; // Start at 12 o'clock
 
   const slices = featuresData.map((item, idx) => {
-    const angleSpan = (item.percent / 100) * 2 * Math.PI;
+    const angleSpan = (item.percent / pieTotal) * 2 * Math.PI;
     const startAngle = cumulativeAngle;
     const endAngle = cumulativeAngle + angleSpan;
     const midAngle = startAngle + angleSpan / 2;
@@ -722,7 +720,10 @@ function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
     const y2 = sliceCy + R * Math.sin(endAngle);
 
     const largeArc = angleSpan > Math.PI ? 1 : 0;
-    const pathD = `M ${sliceCx} ${sliceCy} L ${x1} ${y1} A ${R} ${R} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+    // A single feature holding 100% needs a full circle (an arc can't start and end at the same point)
+    const pathD = angleSpan >= 2 * Math.PI - 1e-6
+      ? `M ${sliceCx - R} ${sliceCy} A ${R} ${R} 0 1 1 ${sliceCx + R} ${sliceCy} A ${R} ${R} 0 1 1 ${sliceCx - R} ${sliceCy} Z`
+      : `M ${sliceCx} ${sliceCy} L ${x1} ${y1} A ${R} ${R} 0 ${largeArc} 1 ${x2} ${y2} Z`;
 
     // Label position inside slice
     const labelRadius = isSelected ? R * 0.60 : R * 0.56;
@@ -741,24 +742,18 @@ function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
   });
 
   const activeItem = selectedIdx !== null ? featuresData[selectedIdx] : null;
-  const activeMeta = activeItem
-    ? (featureShapMeta[activeItem.name] || {
-        shapValueStr: activeItem.direction === "-" ? "-0.05" : "+0.05",
-        isPositive: activeItem.direction !== "-",
-        whatItMeans: `${activeItem.name} represents ${getFeatureDescription(activeItem.name)}. Its ${activeItem.direction === "-" ? "negative" : "positive"} SHAP contribution pushes the model ${activeItem.direction === "-" ? "away from an attack-risk prediction" : "toward a higher attack-risk prediction"}.`
-      })
-    : null;
+  const topDrivers = featuresData.filter((f) => !f.isOther).slice(0, 3);
 
   return (
     <div className="flex flex-col lg:flex-row items-center justify-between gap-8 py-2">
-      {/* Larger Solid Pie Chart (Filling Left Side of Card) - LOCKED */}
+      {/* Larger Solid Pie Chart (Filling Left Side of Card) */}
       <div className="relative shrink-0 select-none max-w-full flex items-center justify-center p-1">
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="overflow-visible w-[540px] max-w-full h-auto">
           {slices.map((slice) => (
             <g
               key={slice.idx}
-              className="cursor-pointer group"
-              onClick={() => setSelectedIdx(slice.idx === selectedIdx ? null : slice.idx)}
+              className={slice.isOther ? "group" : "cursor-pointer group"}
+              onClick={() => { if (!slice.isOther) setSelectedIdx(slice.idx === selectedIdx ? null : slice.idx); }}
             >
               <path
                 d={slice.pathD}
@@ -796,88 +791,86 @@ function ShapPieChart({ explainData, srcIp = "N/A", dstIp = "N/A" }) {
         </svg>
       </div>
 
-      {/* Redesigned RHS Model Explanation Panel */}
-      {selectedIdx === null ? (
-        /* DEFAULT UNSELECTED STATE */
-        <div className="flex-1 w-full bg-surface-2 border border-border p-7 rounded-2xl space-y-6 font-mono-tech flex flex-col justify-center">
-          <div className="space-y-2 border-b border-border pb-4">
+      {/* RHS explanation panel — real SHAP values only */}
+      {activeItem === null ? (
+        /* DEFAULT: top drivers of this prediction */
+        <div className="flex-1 w-full bg-surface-2 border border-border p-7 rounded-2xl space-y-5 font-mono-tech">
+          <div className="space-y-1.5 border-b border-border pb-4">
             <span className="text-xl font-black text-white uppercase tracking-wider block">
-              SELECT A FEATURE
+              WHAT DROVE THIS PREDICTION
             </span>
-            <p className="text-sm text-gold font-medium">
-              Click any section of the chart to understand how that feature influenced the prediction.
+            <p className="text-sm text-text-muted font-sans">
+              Top features for <span className="text-gold font-bold">{srcIp} → {dstIp}</span>. Click a slice for details.
             </p>
           </div>
 
-          <p className="text-sm text-text leading-relaxed font-sans">
-            SHAP explains how individual features push a model's prediction higher or lower.
-          </p>
-
-          <div className="p-4 bg-surface rounded-xl border border-border space-y-2 text-xs font-mono-tech">
-            <span className="text-[11px] uppercase font-bold text-text-muted block">MODEL SIGNAL</span>
-            <p className="text-text-muted">
-              Positive SHAP values push the prediction toward attack risk.
-            </p>
-            <p className="text-text-muted">
-              Negative SHAP values push the prediction away from attack risk.
-            </p>
+          <div className="space-y-3">
+            {topDrivers.map((f, i) => (
+              <button
+                key={f.name}
+                onClick={() => setSelectedIdx(i)}
+                className="w-full text-left p-3.5 bg-surface rounded-xl border border-border hover:border-gold/60 transition-colors cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-base font-black text-white">{f.name}</span>
+                  <span className="text-base font-black text-gold">{f.percent}%</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 mt-1">
+                  <span className={`text-xs font-bold uppercase ${f.increases ? "text-red-400" : "text-emerald-400"}`}>
+                    {f.increases ? "▲ Raises attack risk" : "▼ Lowers attack risk"}
+                  </span>
+                  <span className="text-xs text-text-muted">SHAP {formatShap(f.shapVal)}</span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       ) : (
-        /* SELECTED FEATURE STATE */
+        /* SELECTED FEATURE */
         <div className="flex-1 w-full bg-surface-2 border border-border p-7 rounded-2xl space-y-5 font-mono-tech">
-          {/* Top Feature Title */}
           <div className="pb-3 border-b border-border">
-            <span className="text-[11px] uppercase font-bold text-text-muted tracking-wider block">
-              FEATURE
-            </span>
-            <span className="text-2xl font-black text-white font-mono-tech block mt-1">
+            <span className="text-2xl font-black text-white font-mono-tech block">
               {activeItem.name}
+            </span>
+            <span className="text-sm text-text-muted font-sans block mt-1">
+              {getFeatureDescription(activeItem.name).replace(/^./, (c) => c.toUpperCase())}
             </span>
           </div>
 
-          {/* Stat Box Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="p-3.5 bg-surface rounded-xl border border-border space-y-1">
-              <span className="text-[10px] uppercase font-bold text-text-muted block">SHAP CONTRIBUTION</span>
-              <span className="text-lg font-black text-gold font-mono-tech block">{activeMeta.shapValueStr}</span>
+              <span className="text-[11px] uppercase font-bold text-text-muted block">Share of explanation</span>
+              <span className="text-lg font-black text-gold font-mono-tech block">{activeItem.percent}%</span>
             </div>
 
             <div className="p-3.5 bg-surface rounded-xl border border-border space-y-1">
-              <span className="text-[10px] uppercase font-bold text-text-muted block">IMPACT</span>
-              <span className={`text-xs font-black uppercase block mt-1 ${
-                activeMeta.isPositive ? "text-red-400" : "text-emerald-400"
+              <span className="text-[11px] uppercase font-bold text-text-muted block">Effect</span>
+              <span className={`text-sm font-black uppercase block mt-1 ${
+                activeItem.increases ? "text-red-400" : "text-emerald-400"
               }`}>
-                {activeMeta.isPositive ? "INCREASES ATTACK RISK" : "DECREASES ATTACK RISK"}
+                {activeItem.increases ? "Raises attack risk" : "Lowers attack risk"}
               </span>
             </div>
 
             <div className="p-3.5 bg-surface rounded-xl border border-border space-y-1">
-              <span className="text-[10px] uppercase font-bold text-text-muted block">RELATIVE IMPORTANCE</span>
-              <span className="text-lg font-black text-gold font-mono-tech block">{activeItem.percent}%</span>
+              <span className="text-[11px] uppercase font-bold text-text-muted block">SHAP value</span>
+              <span className="text-lg font-black text-white font-mono-tech block">{formatShap(activeItem.shapVal)}</span>
             </div>
           </div>
 
-          {/* WHAT THIS MEANS */}
-          <div className="space-y-1.5 pt-1">
-            <span className="text-[11px] uppercase font-bold text-text-muted tracking-wider block">
-              WHAT THIS MEANS
-            </span>
-            <p className="text-sm text-text leading-relaxed font-sans">
-              "{activeMeta.whatItMeans}"
-            </p>
-          </div>
+          <p className="text-sm text-text leading-relaxed font-sans">
+            <strong className="text-white">{activeItem.name}</strong> accounts for{" "}
+            <span className="text-gold font-bold">{activeItem.percent}%</span> of what drove the model's
+            prediction for <span className="text-white font-bold">{srcIp} → {dstIp}</span>, and it pushes the
+            attack risk <strong className={activeItem.increases ? "text-red-400" : "text-emerald-400"}>
+              {activeItem.increases ? "UP" : "DOWN"}
+            </strong>.
+          </p>
 
-          {/* MODEL SIGNAL */}
-          <div className="p-3.5 bg-surface rounded-xl border border-border space-y-1.5 text-xs font-mono-tech">
-            <span className="text-[11px] uppercase font-bold text-text-muted block">MODEL SIGNAL</span>
-            <p className="text-text-muted">
-              Positive SHAP values push the prediction toward attack risk.
-            </p>
-            <p className="text-text-muted">
-              Negative SHAP values push the prediction away from attack risk.
-            </p>
-          </div>
+          <p className="text-xs text-text-muted font-sans">
+            SHAP value = average contribution of this feature to the risk score across the 5 flows in the window
+            (positive raises risk, negative lowers it).
+          </p>
         </div>
       )}
     </div>

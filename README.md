@@ -200,8 +200,7 @@ the latest flow. **170,170 windows, 2,176 of them attacks (1.3%).**
 - On its *own* training distribution the baseline is strong (95.7% accuracy, F1 0.959 — see
   `models/logreg_baseline_meta.json`); the gap above is about **generalizing to a new network**.
 
-Reproduce: `python evaluation/eval_cross_dataset.py <labeled_flows.csv>` → saved run in
-[`evaluation/results/cic2017_webattacks.json`](evaluation/results/cic2017_webattacks.json).
+Saved run: [`evaluation/results/cic2017_webattacks.json`](evaluation/results/cic2017_webattacks.json).
 
 ### Learned kill-chain transitions (DAPT-2020)
 
@@ -284,9 +283,8 @@ cyberforecaster/
 | DAPT-2020 | training + kill-chain transition matrix | [gitlab.com/asu22/dapt2020](https://gitlab.com/asu22/dapt2020) |
 | CIC-IDS-2017 | **held-out evaluation** of the LSTM and the baseline | [UNB CIC](https://www.unb.ca/cic/datasets/ids-2017.html) |
 
-The datasets are large and are **not** stored in this repo. The trained models are included, so the
-dashboard works straight after cloning. To retrain from scratch, see [`training/README.md`](training/README.md)
-and [`data_prep/README.md`](data_prep/README.md).
+You do **not** need to download any dataset to run CyberForecaster — the trained models are included
+in `models/`, so the dashboard works straight after cloning.
 
 > The XGBoost per-flow classifier used for live traffic labels was trained on CIC-IDS-2017; the
 > cross-dataset benchmark above evaluates the **LSTM world model** and the baseline, not this classifier.
