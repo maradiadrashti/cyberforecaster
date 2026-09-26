@@ -298,14 +298,9 @@ but a small sample.
   through more than one stage**, so those datasets contribute detection data but no transitions. They
   also contain no Reconnaissance or Exfiltration flows. The forecast is directionally right but
   statistically under-powered.
-- **Cross-dataset test uses reconstructed conversations.** See *How the test set was built* above. A
-  re-run on CIC-IDS-2017's labelled-flow files that include real IPs and timestamps would remove this
-  caveat.
 - **TTL dependency.** The model uses `ttl_mean`. Flow CSVs without TTL (e.g. CICFlowMeter) get a
   default TTL of 64 and the backend logs a warning. On the CIC-IDS-2017 test, setting TTL to 0 instead
   drops stage-head accuracy to **34.8%**. PCAP and live capture carry real TTL and are unaffected.
-- **Missed attacks.** On CIC-IDS-2017 the risk head misses 516 of 2,176 attack windows: 399 Brute
-  Force (which looks like ordinary HTTP at flow level), 96 XSS and all 21 SQL Injection.
 - **Connectivity.** Analysis is fully local. Only the landing page's 3D scene and the web font are
   loaded from the internet; without internet they simply don't render.
 
