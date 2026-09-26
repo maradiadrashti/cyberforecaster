@@ -512,10 +512,22 @@ function KStepSimulationChart({ forecastTimeline = [] }) {
 function AttackProgressionFlow({ predictedStage = "NORMAL", forecastTimeline = [] }) {
   const norm = (x) => (x || "").trim().toLowerCase().replace(/_/g, " ");
   const current = norm(predictedStage);
+
+  // Build map: stage name → earliest step it appears in the forecast timeline
   const fc = {};
   (forecastTimeline || []).forEach((it) => {
     const nm = norm(it.predicted_stage);
-    if (!(nm in fc)) fc[nm] = { step: it.step, prob: it.infiltration_probability };
+    if (!(nm in fc) || it.step < fc[nm].step) {
+      fc[nm] = { step: it.step, prob: it.infiltration_probability };
+    }
+  });
+
+  // Also collect all unique forecast stages in order so we can show
+  // progression even when the same stage dominates multiple steps
+  const forecastOrder = [];
+  (forecastTimeline || []).forEach((it) => {
+    const nm = norm(it.predicted_stage);
+    if (!forecastOrder.includes(nm)) forecastOrder.push(nm);
   });
 
   const stages = [
@@ -532,26 +544,28 @@ function AttackProgressionFlow({ predictedStage = "NORMAL", forecastTimeline = [
       {stages.map((st, idx) => {
         const isCurrent = current === st.name;
         const hit = fc[st.name];
-        const isForecast = !isCurrent && !!hit;
+        // A stage is "forecasted" if it appears anywhere in the K-step simulation
+        // (even if it's also the current stage — show both NOW + T+N badges)
+        const isForecast = !!hit;
         const Icon = st.icon;
 
-        const cardStyle = isForecast
+        const cardStyle = isCurrent
+          ? "bg-surface-2 border-2 border-blue-hi shadow-lg"
+          : isForecast
           ? "bg-surface-2 border-2 border-gold shadow-md"
-          : isCurrent
-          ? "bg-surface-2 border-2 border-blue-hi"
-          : "bg-surface border border-border opacity-50";
+          : "bg-surface border border-border opacity-40";
 
-        const iconStyle = isForecast
-          ? "bg-gold text-bg font-bold"
-          : isCurrent
+        const iconStyle = isCurrent
           ? "bg-blue-hi text-white font-bold"
+          : isForecast
+          ? "bg-gold text-bg font-bold"
           : "bg-surface-2 text-text-muted";
 
-        const textHeaderStyle = isForecast || isCurrent
+        const textHeaderStyle = isCurrent || isForecast
           ? "text-sm font-bold text-white uppercase tracking-tight break-words whitespace-normal leading-tight"
           : "text-xs font-semibold text-text-muted uppercase tracking-tight break-words whitespace-normal leading-tight";
 
-        const arrowColor = isForecast ? "text-gold" : isCurrent ? "text-blue-hi" : "text-border";
+        const arrowColor = isCurrent ? "text-blue-hi" : isForecast ? "text-gold" : "text-border";
 
         return (
           <React.Fragment key={st.name}>
@@ -561,16 +575,18 @@ function AttackProgressionFlow({ predictedStage = "NORMAL", forecastTimeline = [
                   <div className={`p-1.5 rounded-lg shrink-0 ${iconStyle}`}>
                     <Icon className="h-4 w-4" />
                   </div>
-                  {isForecast && (
-                    <span className="px-2 py-0.5 text-xs font-extrabold uppercase rounded bg-gold text-bg tracking-wider">
-                      T+{hit.step}
-                    </span>
-                  )}
-                  {isCurrent && (
-                    <span className="px-2 py-0.5 text-xs font-bold uppercase rounded bg-blue-hi text-white tracking-wider">
-                      NOW
-                    </span>
-                  )}
+                  <div className="flex flex-col items-end gap-0.5">
+                    {isCurrent && (
+                      <span className="px-2 py-0.5 text-xs font-bold uppercase rounded bg-blue-hi text-white tracking-wider">
+                        NOW
+                      </span>
+                    )}
+                    {isForecast && hit && (
+                      <span className="px-2 py-0.5 text-xs font-extrabold uppercase rounded bg-gold text-bg tracking-wider">
+                        T+{hit.step}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <h4 className={textHeaderStyle}>
@@ -578,26 +594,33 @@ function AttackProgressionFlow({ predictedStage = "NORMAL", forecastTimeline = [
                 </h4>
               </div>
 
-              {isForecast ? (
+              {isCurrent ? (
+                <div className="mt-2 pt-1.5 border-t border-blue-hi/30">
+                  <span className="text-xs font-bold text-blue-hi block">Active Stage</span>
+                  {isForecast && hit && (
+                    <span className="text-base font-black text-gold block leading-tight">
+                      {(hit.prob * 100).toFixed(0)}% Risk
+                    </span>
+                  )}
+                </div>
+              ) : isForecast && hit ? (
                 <div className="mt-2 pt-1.5 border-t border-gold/30">
                   <span className="text-[11px] uppercase tracking-wider text-text-muted block font-semibold">Forecast</span>
                   <span className="text-base font-black text-gold block leading-tight">
                     {(hit.prob * 100).toFixed(0)}% Risk
                   </span>
                 </div>
-              ) : isCurrent ? (
-                <div className="mt-2 pt-1.5 border-t border-blue-hi/30">
-                  <span className="text-xs font-bold text-blue-hi block">Active Stage</span>
-                </div>
               ) : (
-                <p className="text-[11px] text-text-muted font-medium leading-tight mt-2">
-                  {st.description}
-                </p>
+                <div className="mt-2 pt-1.5 border-t border-border/30">
+                  <span className="text-[11px] uppercase tracking-wider text-text-muted block font-semibold">Not Predicted</span>
+                </div>
               )}
             </div>
+
+            {/* Arrow connector between cards */}
             {idx < stages.length - 1 && (
-              <div className="flex items-center justify-center shrink-0">
-                <span className={`font-bold text-base px-0.5 ${arrowColor}`}>→</span>
+              <div className={`flex items-center justify-center shrink-0 text-lg font-black ${arrowColor}`}>
+                →
               </div>
             )}
           </React.Fragment>
