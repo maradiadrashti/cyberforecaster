@@ -123,7 +123,7 @@ def test_temporal_history_keyed_by_real_pair():
 
 def test_warmup_blocks_inference_before_10_windows():
     """forecast_host must return WARMING UP for empty flow history and run instant real inference when flows exist."""
-    from models.stage_forecaster_infer import forecast_host
+    from models.stage_forecaster_lstm_infer import forecast_host
 
     res = forecast_host(TARGET, [])
     assert res.get("model_status") == "WARMING UP", f"FAIL: with 0 windows model_status={res.get('model_status')}"
@@ -209,7 +209,7 @@ def test_full_pipeline_forecast_payload_has_real_ips():
 
 def test_forecaster_rejects_zero_padding_for_partial_history():
     """Direct unit check: partial real histories run instant inference on real traffic features."""
-    from models.stage_forecaster_infer import forecast_host
+    from models.stage_forecaster_lstm_infer import forecast_host
 
     partial = [{"duration": 0.3, "packet_count": 8, "byte_count": 480,
                 "dst_port": 445, "protocol": "TCP",

@@ -29,6 +29,8 @@ trap 'echo ""; echo "[✖] Stopping all services..."; kill $(jobs -p) 2>/dev/nul
 # ── 1. Capture Service & AI Forecasting Engine ──────────────
 echo "[▶] Starting Capture & AI Forecasting Service on 0.0.0.0:8080 (requires root for Scapy)..."
 cd "$ROOT/capture-service"
+# Fresh launch = no uploaded file yet: clear the previous forecast result
+rm -f "$(dirname "$0")/logs/latest_forecast.json"
 "$PYTHON" -m uvicorn capture_server:app --host 0.0.0.0 --port 8080 &
 
 # ── 2. React / Vite Frontend ─────────────────────────────────

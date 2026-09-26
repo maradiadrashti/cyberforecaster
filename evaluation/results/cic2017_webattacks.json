@@ -1,0 +1,39 @@
+{
+  "dataset": "cic2017_webattacks_cyberforecaster.csv",
+  "windows": 170170,
+  "attack_windows": 2176,
+  "lstm_risk_head_threshold_0.5": {
+    "accuracy": 0.9922,
+    "precision": 0.6734,
+    "recall": 0.7629,
+    "f1": 0.7154,
+    "false_positive_rate": 0.0048,
+    "tp": 1660,
+    "fp": 805,
+    "fn": 516,
+    "tn": 167189
+  },
+  "lstm_stage_head_not_normal": {
+    "accuracy": 0.9834,
+    "precision": 0.4196,
+    "recall": 0.7822,
+    "f1": 0.5462,
+    "false_positive_rate": 0.014,
+    "tp": 1702,
+    "fp": 2354,
+    "fn": 474,
+    "tn": 165640
+  },
+  "logistic_regression_baseline": {
+    "accuracy": 0.0547,
+    "precision": 0.0133,
+    "recall": 1.0,
+    "f1": 0.0263,
+    "false_positive_rate": 0.9575,
+    "tp": 2176,
+    "fp": 160861,
+    "fn": 0,
+    "tn": 7133
+  },
+  "lstm_exact_stage_on_attack_windows": "1702/2176"
+}

@@ -184,21 +184,98 @@ def _check_admin():
         else:
             print("[+] Running as Administrator - Scapy capture enabled.")
 
-_check_admin()
-
 app = FastAPI(title="AETHERIS Capture Server")
 
+_TRANSITION_MATRIX_DATA = None
+
+def _load_transition_matrix():
+    global _TRANSITION_MATRIX_DATA
+    if _TRANSITION_MATRIX_DATA is not None:
+        return _TRANSITION_MATRIX_DATA
+
+    matrix_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'models', 'stage_transition_matrix.json'))
+    if not os.path.exists(matrix_path):
+        print(f"[WARNING] Stage transition matrix not found at {matrix_path}. K-step forecast timeline will be unavailable.")
+        return None
+    try:
+        with open(matrix_path, "r", encoding="utf-8") as f:
+            _TRANSITION_MATRIX_DATA = json.load(f)
+        print(f"[ML] Stage transition matrix loaded successfully from {matrix_path}.")
+        return _TRANSITION_MATRIX_DATA
+    except Exception as e:
+        print(f"[WARNING] Could not load stage transition matrix: {e}")
+        return None
+
+def kstep_forward(current_stage_probs, K: int = 5) -> list:
+    """
+    Computes K-step forward simulation of attack progression using the learned Markov transition matrix:
+      p_{t+k} = p_t @ T^k
+    Returns list of K dicts with step, infiltration_probability (1 - P(normal)), predicted_stage, stage_distribution.
+    """
+    matrix_data = _load_transition_matrix()
+    if not matrix_data or "matrix" not in matrix_data or "stages" not in matrix_data:
+        return []
+
+    import numpy as np
+    stages = matrix_data["stages"]
+    T = np.array(matrix_data["matrix"], dtype=np.float64)
+
+    if isinstance(current_stage_probs, dict):
+        p = np.array([float(current_stage_probs.get(st, 0.0)) for st in stages], dtype=np.float64)
+    elif isinstance(current_stage_probs, (list, tuple, np.ndarray)):
+        p = np.array(current_stage_probs, dtype=np.float64)
+    else:
+        return []
+
+    total_p = p.sum()
+    if total_p > 0:
+        p = p / total_p
+    else:
+        p = np.zeros(len(stages), dtype=np.float64)
+        p[0] = 1.0
+
+    normal_idx = stages.index("normal") if "normal" in stages else 0
+
+    timeline = []
+    p_curr = p.copy()
+
+    for step in range(1, K + 1):
+        p_curr = p_curr @ T
+        s = p_curr.sum()
+        if s > 0:
+            p_curr = p_curr / s
+
+        infil_prob = float(1.0 - p_curr[normal_idx])
+        pred_idx = int(np.argmax(p_curr))
+        pred_stage = stages[pred_idx]
+        dist = {st: float(p_curr[i]) for i, st in enumerate(stages)}
+
+        timeline.append({
+            "step": step,
+            "infiltration_probability": round(infil_prob, 6),
+            "predicted_stage": pred_stage,
+            "stage_distribution": dist
+        })
+
+    return timeline
 
 @app.on_event("startup")
 async def _on_startup():
-    """Build Scapy device map, capture running event loop, start ML forecast loop, sync live firewall rules."""
+    """Build Scapy device map, capture running event loop, start ML forecast loop, sync live firewall rules, pre-initialize SHAP."""
     global _main_loop
     _main_loop = asyncio.get_event_loop()
     _build_scapy_map()
     _init_live_flow_writer()
     _sync_live_block_state()
+    _load_transition_matrix()
     print(f"[Startup] Scapy device map built: {len(iface_to_scapy)} Npcap devices found. Live firewall block state synchronized.")
     _ensure_stage_forecast_loop()
+    # NOTE: The SHAP explainer is built LAZILY on the first /api/explain request
+    # (see _get_shap_explainer).
+    # Pre-initializing it here could block/slow server STARTUP (building a
+    # GradientExplainer over the LSTM is heavy), which made ALL uploads appear to
+    # "not load". Do NOT pre-initialize SHAP at startup.
+
 
 
 @app.on_event("shutdown")
@@ -263,6 +340,7 @@ LIVE_WINDOW_HISTORY: dict[tuple, list] = {}
 
 # Active 5-second window accumulators per pair for fixed time boundary closing
 _pair_window_buckets: dict[tuple, dict] = {}
+_flow_last_seq: dict = {}  # 5-tuple key -> last TCP seq seen (retransmit detection)
 
 # Number of consecutive finalized 5-second windows required before LSTM inference
 MIN_LIVE_WINDOWS = 10
@@ -581,6 +659,10 @@ def _packet_to_flow_event(pkt) -> dict | None:
     dport = 0
     syn = ack = rst = fin = 0
 
+    win_size = 0
+    seq_num = None
+    payload_len = 0
+
     if pkt.haslayer(TCP):
         proto_name = "TCP"
         sport = pkt[TCP].sport
@@ -590,12 +672,32 @@ def _packet_to_flow_event(pkt) -> dict | None:
         ack = 1 if flags.A else 0
         rst = 1 if flags.R else 0
         fin = 1 if flags.F else 0
+        try:
+            win_size = int(getattr(pkt[TCP], "window", 0) or 0)
+            seq_num = int(getattr(pkt[TCP], "seq", 0) or 0)
+            payload_len = len(bytes(pkt[TCP].payload)) if pkt[TCP].payload else 0
+        except Exception:
+            pass
     elif pkt.haslayer(UDP):
         proto_name = "UDP"
         sport = pkt[UDP].sport
         dport = pkt[UDP].dport
+        try:
+            payload_len = len(bytes(pkt[UDP].payload)) if pkt[UDP].payload else 0
+        except Exception:
+            pass
     elif pkt.haslayer(ICMP):
         proto_name = "ICMP"
+
+    frag_flag = 0
+    if pkt.haslayer(IP):
+        try:
+            ip_flags = pkt[IP].flags
+            frag_offset = getattr(pkt[IP], "frag", 0)
+            if (hasattr(ip_flags, "MF") and ip_flags.MF) or (frag_offset and frag_offset > 0):
+                frag_flag = 1
+        except Exception:
+            pass
 
     pkt_len = len(pkt)
     now = datetime.utcnow().isoformat()
@@ -625,6 +727,10 @@ def _packet_to_flow_event(pkt) -> dict | None:
         "rst": rst,
         "fin": fin,
         "ttl": ttl,
+        "win_size": win_size,
+        "frag_flag": frag_flag,
+        "payload_len": payload_len,
+        "seq": seq_num,
         "severity": severity,
         "attack_type": attack_type,
         "raw_hex": raw_hex,
@@ -986,6 +1092,11 @@ def _process_flow_event(event: dict, iface: str):
                     "severity": "none",
                     "attack_type": "Benign",
                     "last_seen_ts": now_ts,
+                    "ttl_list": [],
+                    "win_list": [],
+                    "payload_list": [],
+                    "frag_count": 0,
+                    "retransmit_count": 0,
                 }
             if pair_key not in _latest_stage_forecasts:
                 cur_len = len(LIVE_WINDOW_HISTORY.get(pair, []))
@@ -1011,6 +1122,16 @@ def _process_flow_event(event: dict, iface: str):
             b["ack_flag"] += event.get("ack", 0)
             b["rst_flag"] += event.get("rst", 0)
             b["fin_flag"] += event.get("fin", 0)
+            b.setdefault("ttl_list", []).append(event.get("ttl", 64))
+            b.setdefault("win_list", []).append(event.get("win_size", 0))
+            b.setdefault("payload_list", []).append(event.get("payload_len", 0))
+            b["frag_count"] = b.get("frag_count", 0) + event.get("frag_flag", 0)
+            _seq = event.get("seq")
+            if _seq is not None:
+                _last_seq = _flow_last_seq.get(key)
+                if _last_seq is not None and _seq == _last_seq:
+                    b["retransmit_count"] = b.get("retransmit_count", 0) + 1
+                _flow_last_seq[key] = _seq
             b["dst_port"] = dport
             b["src_port"] = sport
             b["protocol"] = proto
@@ -1224,7 +1345,7 @@ def _wsl_capture_loop(iface: str):
         wsl_internal_iface = iface.split("(")[1].split(")")[0]
 
     script_win_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "wsl_sniffer.py"))
-    wsl_script_path = f"/mnt/c/{script_win_path[3:].replace('\\', '/')}"
+    wsl_script_path = "/mnt/c/" + script_win_path[3:].replace('\\', '/')
     try:
         res = subprocess.run(
             ["wsl.exe", "wslpath", "-u", script_win_path.replace("\\", "/")],
@@ -1334,7 +1455,7 @@ def _lazy_load_stage_forecaster():
     try:
         import sys as _sys
         _sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-        from models.stage_forecaster_infer import forecast_host
+        from models.stage_forecaster_lstm_infer import forecast_host
         _stage_forecaster = forecast_host
         print('[ML] Stage forecaster loaded successfully.')
         return True
@@ -1416,6 +1537,19 @@ def _finalize_live_windows():
 
             # Window boundary condition: 5.0 seconds passed OR forced test expiration
             if now >= win_end or bucket.get("last_seen_ts", 0) <= cutoff:
+                _ttl_list = bucket.get("ttl_list") or [64]
+                _win_list = bucket.get("win_list") or [0]
+                _payload_list = bucket.get("payload_list") or [0]
+                _pkt_ct = max(1, bucket.get("packet_count", 0))
+                _ttl_mean = sum(_ttl_list) / len(_ttl_list)
+                _ttl_var = sum((v - _ttl_mean) ** 2 for v in _ttl_list) / len(_ttl_list)
+                _win_mean = sum(_win_list) / len(_win_list)
+                _win_var = sum((v - _win_mean) ** 2 for v in _win_list) / len(_win_list)
+                _payload_mean = sum(_payload_list) / len(_payload_list)
+                _payload_var = sum((v - _payload_mean) ** 2 for v in _payload_list) / len(_payload_list)
+                _payload_std = _payload_var ** 0.5
+                _frag_ratio = bucket.get("frag_count", 0) / _pkt_ct
+
                 window = {
                     "duration": round(min(5.0, max(0.001, now - win_start)), 6),
                     "packet_count": max(1, bucket.get("packet_count", 0)),
@@ -1430,6 +1564,14 @@ def _finalize_live_windows():
                     "flow_count": bucket.get("flow_count", 0),
                     "severity": bucket.get("severity", "none"),
                     "attack_type": bucket.get("attack_type", "Benign"),
+                    "ttl_mean": round(_ttl_mean, 3),
+                    "ttl_var": round(_ttl_var, 3),
+                    "win_mean": round(_win_mean, 3),
+                    "win_var": round(_win_var, 3),
+                    "frag_ratio": round(_frag_ratio, 4),
+                    "payload_mean": round(_payload_mean, 3),
+                    "payload_std": round(_payload_std, 3),
+                    "retransmit_count": bucket.get("retransmit_count", 0),
                     "last_seen_ts": now,
                 }
 
@@ -1445,8 +1587,8 @@ def _finalize_live_windows():
                 if history_len == MIN_LIVE_WINDOWS:
                     print(f"[GRU_READY]\nsrc={src_ip}\ndst={dst_ip}\nwindows={history_len}\ninput_shape=(1,10,14)", flush=True)
 
-                # Trigger forecast / warm-up telemetry update
-                _run_live_forecast(src_ip, dst_ip, history)
+                # Live capture decoupled from forecast generation per requirements
+                pass
 
                 # Reset bucket for the NEXT 5-second window
                 _pair_window_buckets[pair] = {
@@ -1464,6 +1606,11 @@ def _finalize_live_windows():
                     "severity": "none",
                     "attack_type": "Benign",
                     "last_seen_ts": now,
+                    "ttl_list": [],
+                    "win_list": [],
+                    "payload_list": [],
+                    "frag_count": 0,
+                    "retransmit_count": 0,
                 }
 
 
@@ -1840,8 +1987,8 @@ def export_capture_pcap(filename: str = None, interface: str = None):
 
     clean_iface = _sanitize_iface_name(interface)
     now = datetime.now()  # Local machine time
-    ts = now.strftime("%Y-%m-%d_%H-%M-%S")
-    default_filename = f"cyberforecaster_{clean_iface}_{ts}.pcap"
+    ts = now.strftime("%Y%m%d_%H%M%S")
+    default_filename = f"live_capture_{ts}.pcap"
     out_filename = filename or default_filename
     if not out_filename.endswith(".pcap"):
         out_filename = f"{out_filename}.pcap"
@@ -2859,196 +3006,853 @@ def _run_pipeline_on_flows(flows: list[dict], filename: str, file_type: str, tot
     }
 
 
-def _analyze_pcap_bytes(content: bytes, filename: str) -> dict:
-    """Parse raw PCAP bytes using Scapy, extract flows, and run inference pipeline."""
-    import io
-    from scapy.utils import PcapReader
-    
-    events = []
-    try:
-        pcap_io = io.BytesIO(content)
-        reader = PcapReader(pcap_io)
-        for pkt in reader:
-            evt = _packet_to_flow_event(pkt)
-            if evt:
-                events.append(evt)
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Corrupt or invalid PCAP file ({filename}): {str(e)}"
-        )
-        
-    if not events:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No valid IP network packets found in PCAP file ({filename})."
-        )
-        
-    flow_map = {}
-    total_packets = len(events)
-    
-    for evt in events:
-        src = evt["src_ip"]
-        dst = evt["dst_ip"]
-        sport = evt["src_port"]
-        dport = evt["dst_port"]
-        proto = evt["protocol"]
-        key = f"{src}:{sport}-{dst}:{dport}-{proto}"
-        
-        if key not in flow_map:
-            flow_map[key] = {
-                "src_ip": src,
-                "dst_ip": dst,
-                "src_port": sport,
-                "dst_port": dport,
-                "protocol": proto,
-                "packet_count": 1,
-                "byte_count": evt.get("length", 0),
-                "duration": 0.001,
-                "syn_flag": evt.get("syn", 0),
-                "ack_flag": evt.get("ack", 0),
-                "rst_flag": evt.get("rst", 0),
-                "fin_flag": evt.get("fin", 0),
-                "first_seen": evt.get("timestamp"),
-                "last_seen": evt.get("timestamp"),
-            }
-        else:
-            f = flow_map[key]
-            f["packet_count"] += 1
-            f["byte_count"] += evt.get("length", 0)
-            f["syn_flag"] += evt.get("syn", 0)
-            f["ack_flag"] += evt.get("ack", 0)
-            f["rst_flag"] += evt.get("rst", 0)
-            f["fin_flag"] += evt.get("fin", 0)
-            f["last_seen"] = evt.get("timestamp")
-            
-    flows = list(flow_map.values())
-    return _run_pipeline_on_flows(flows, filename=filename, file_type="pcap", total_packets=total_packets, dataset_source="Raw Packet Capture")
+EXTRACTOR_PATH = os.environ.get("EXTRACTOR_PATH", r"C:\ml-data\extract_packet_features_v2.py")
 
 
-def _analyze_csv_bytes(content: bytes, filename: str) -> dict:
-    """Parse CSV bytes (CIC-IDS or standard flow schema) into flow dicts and run inference pipeline."""
-    import io
-    import pandas as pd
-    
-    try:
-        df = pd.read_csv(io.BytesIO(content))
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Could not parse CSV file ({filename}): {str(e)}"
-        )
-        
-    if df.empty:
-        raise HTTPException(
-            status_code=400,
-            detail=f"CSV file ({filename}) is empty."
-        )
-        
-    col_map = {col: col.strip().lower() for col in df.columns}
-    df.rename(columns=col_map, inplace=True)
-    
-    # Detect dataset format
-    dataset_source = "Flow Dataset"
-    if 'destination port' in col_map or 'flow duration' in col_map or 'total fwd packets' in col_map:
-        dataset_source = "CIC-IDS-2018"
-    elif 'dur' in col_map and ('spkts' in col_map or 'dpkts' in col_map or 'sbytes' in col_map):
-        dataset_source = "CTU-13 / UNSW-NB15"
-    elif 'label' in col_map:
-        dataset_source = "CIC-IDS Flow Format"
-        
-    def _find_col(df_cols, aliases):
-        for a in aliases:
-            if a in df_cols:
-                return a
-        return None
-        
-    col_src_ip = _find_col(df.columns, ['src_ip', 'source ip', 'src', 'srcip', 'source_ip'])
-    col_dst_ip = _find_col(df.columns, ['dst_ip', 'destination ip', 'dst', 'dstip', 'destination_ip'])
-    col_src_port = _find_col(df.columns, ['src_port', 'source port', 'sport', 'src_port_num'])
-    col_dst_port = _find_col(df.columns, ['dst_port', 'destination port', 'dport', 'dst_port_num'])
-    col_proto = _find_col(df.columns, ['protocol', 'proto', 'protocol_name'])
-    col_pkts = _find_col(df.columns, ['packet_count', 'total fwd packets', 'packets', 'tot_pkts', 'fwd packets'])
-    col_bytes = _find_col(df.columns, ['byte_count', 'total length of fwd packets', 'bytes', 'tot_bytes', 'fwd bytes'])
-    col_dur = _find_col(df.columns, ['duration', 'flow duration', 'dur', 'duration_sec'])
-    col_syn = _find_col(df.columns, ['syn_flag', 'syn flag count', 'fwd psh flags', 'syn'])
-    col_ack = _find_col(df.columns, ['ack_flag', 'ack flag count', 'ack'])
-    col_rst = _find_col(df.columns, ['rst_flag', 'rst flag count', 'rst'])
-    col_fin = _find_col(df.columns, ['fin_flag', 'fin flag count', 'fin'])
-    col_label = _find_col(df.columns, ['label', 'attack_type', 'class', 'target'])
-    
-    flows = []
-    for idx, row in df.iterrows():
+def _get_extractor_module():
+    """Dynamically import extract_packet_features_v2 from EXTRACTOR_PATH or local extractor package."""
+    import importlib.util
+    if os.path.exists(EXTRACTOR_PATH):
         try:
-            dur = float(row[col_dur]) if col_dur and pd.notnull(row[col_dur]) else 0.001
-            if dur > 10000:
-                dur = dur / 1e6
-            dur = max(dur, 0.001)
-            
-            pkts = int(row[col_pkts]) if col_pkts and pd.notnull(row[col_pkts]) else 1
-            pkts = max(pkts, 1)
-            
-            bts = int(row[col_bytes]) if col_bytes and pd.notnull(row[col_bytes]) else 64
-            
-            lbl = str(row[col_label]) if col_label and pd.notnull(row[col_label]) else "benign"
-            
-            flow = {
-                "src_ip": str(row[col_src_ip]) if col_src_ip and pd.notnull(row[col_src_ip]) else "192.168.1.100",
-                "dst_ip": str(row[col_dst_ip]) if col_dst_ip and pd.notnull(row[col_dst_ip]) else "192.168.1.20",
-                "src_port": int(row[col_src_port]) if col_src_port and pd.notnull(row[col_src_port]) else 54321,
-                "dst_port": int(row[col_dst_port]) if col_dst_port and pd.notnull(row[col_dst_port]) else 80,
-                "protocol": str(row[col_proto]).upper() if col_proto and pd.notnull(row[col_proto]) else "TCP",
-                "packet_count": pkts,
-                "byte_count": bts,
-                "duration": dur,
-                "syn_flag": int(row[col_syn]) if col_syn and pd.notnull(row[col_syn]) else 0,
-                "ack_flag": int(row[col_ack]) if col_ack and pd.notnull(row[col_ack]) else 0,
-                "rst_flag": int(row[col_rst]) if col_rst and pd.notnull(row[col_rst]) else 0,
-                "fin_flag": int(row[col_fin]) if col_fin and pd.notnull(row[col_fin]) else 0,
-                "label": lbl,
-            }
-            flows.append(flow)
+            spec = importlib.util.spec_from_file_location("extract_packet_features_v2", EXTRACTOR_PATH)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+        except Exception as e:
+            print(f"[Extractor Import Warning] Failed loading from {EXTRACTOR_PATH}: {e}", flush=True)
+    try:
+        from extractor import extract_packet_features_v2 as mod
+        return mod
+    except Exception as e:
+        raise ImportError(f"Could not import extract_packet_features_v2 module: {e}")
+
+
+def _run_extractor_on_pcap(pcap_path: str, known_clean: bool = False) -> pd.DataFrame:
+    """Run extract_packet_features_v2 on a PCAP file and return DataFrame with exact 24 columns."""
+    import tempfile
+    import csv
+    import pandas as pd
+
+    ext_mod = _get_extractor_module()
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp_csv:
+        tmp_csv_path = tmp_csv.name
+
+    try:
+        ext_mod.extract(pcap_path, tmp_csv_path)
+
+        rows = []
+        with open(tmp_csv_path, "r", newline="") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                r["label"] = "Benign" if known_clean else ""
+                r["attack_stage"] = "normal" if known_clean else ""
+                rows.append(r)
+
+        fieldnames = [
+            "src_ip", "dst_ip", "src_port", "dst_port", "protocol",
+            "flow_start", "flow_end", "duration", "packet_count", "byte_count",
+            "syn_count", "ack_count", "fin_count", "rst_count",
+            "ttl_mean", "ttl_var", "win_mean", "win_var",
+            "frag_ratio", "payload_mean", "payload_std", "retransmit_count",
+            "iat_mean", "iat_std", "bwd_fwd_ratio",
+            "label", "attack_stage"
+        ]
+        df = pd.DataFrame(rows, columns=fieldnames)
+        return df
+    finally:
+        if os.path.exists(tmp_csv_path):
+            try:
+                os.remove(tmp_csv_path)
+            except Exception:
+                pass
+
+
+def _pcap_bytes_to_flow_df(content: bytes) -> pd.DataFrame:
+    """Extract flows using extract_packet_features_v2 so PCAP and CSV uploads produce identical data."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".pcap", delete=False) as tmp_pcap:
+        tmp_pcap.write(content)
+        tmp_pcap_path = tmp_pcap.name
+
+    try:
+        df = _run_extractor_on_pcap(tmp_pcap_path, known_clean=False)
+        REQUIRED_COLUMNS = [
+            "src_ip", "dst_ip", "src_port", "dst_port", "protocol", "flow_start", "flow_end",
+            "duration", "packet_count", "byte_count", "syn_count", "ack_count", "fin_count",
+            "rst_count", "ttl_mean", "ttl_var", "win_mean", "win_var", "frag_ratio",
+            "payload_mean", "payload_std", "retransmit_count"
+        ]
+        if df.empty:
+            raise ValueError("No valid IP network packets/flows found in PCAP file.")
+        return df[REQUIRED_COLUMNS]
+    except Exception as e:
+        raise ValueError(f"Extractor failed to parse PCAP file: {e}")
+    finally:
+        if os.path.exists(tmp_pcap_path):
+            try:
+                os.remove(tmp_pcap_path)
+            except Exception:
+                pass
+
+
+_latest_forecast_result = {"status": "no_upload"}
+_LATEST_FORECAST_FILE = os.path.join(_LIVE_DATA_DIR, 'latest_forecast.json')
+
+
+def _save_latest_forecast(data: dict):
+    global _latest_forecast_result
+    _latest_forecast_result = data
+    try:
+        os.makedirs(_LIVE_DATA_DIR, exist_ok=True)
+        with open(_LATEST_FORECAST_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"[Latest Forecast Save Error]: {e}", flush=True)
+
+
+def _get_latest_forecast() -> dict:
+    global _latest_forecast_result
+    if os.path.exists(_LATEST_FORECAST_FILE):
+        try:
+            with open(_LATEST_FORECAST_FILE, 'r') as f:
+                data = json.load(f)
+                _latest_forecast_result = data
+                return data
+        except Exception as e:
+            print(f"[Latest Forecast Load Error]: {e}", flush=True)
+    else:
+        _latest_forecast_result = {"status": "no_upload"}
+    return _latest_forecast_result
+
+
+TARGET_24_COLUMNS = [
+    "src_ip", "dst_ip", "src_port", "dst_port", "protocol", "flow_start", "flow_end",
+    "duration", "packet_count", "byte_count", "syn_count", "ack_count", "fin_count",
+    "rst_count", "ttl_mean", "ttl_var", "win_mean", "win_var", "frag_ratio",
+    "payload_mean", "payload_std", "retransmit_count", "label", "attack_stage"
+]
+
+
+def _adapt_arbitrary_csv_to_schema(df):
+    """
+    Adapts arbitrary network flow CSVs (including raw CICFlowMeter exports) into our 24-column target schema.
+    Returns DataFrame with exact 24 columns in order.
+    """
+    import pandas as pd
+    import numpy as np
+
+    if df is None or df.empty:
+        return df
+
+    # Strip leading/trailing spaces from headers
+    df.columns = [str(c).strip() for c in df.columns]
+    col_map_lower = {c.lower(): c for c in df.columns}
+
+    required_features = TARGET_24_COLUMNS[:22]
+
+    # 1. If CSV already matches our schema (has all 22 required feature columns)
+    if all(c.lower() in col_map_lower for c in required_features):
+        rename_map = {col_map_lower[c.lower()]: c for c in required_features}
+        for c in ["label", "attack_stage"]:
+            if c.lower() in col_map_lower:
+                rename_map[col_map_lower[c.lower()]] = c
+
+        adapted = df.rename(columns=rename_map).copy()
+        if "label" not in adapted.columns:
+            adapted["label"] = ""
+        if "attack_stage" not in adapted.columns:
+            adapted["attack_stage"] = ""
+        return adapted[TARGET_24_COLUMNS]
+
+    # 2. Smart mapping for CICFlowMeter or arbitrary flow CSVs
+    out = pd.DataFrame(index=df.index)
+
+    def find_col(*candidates):
+        for cand in candidates:
+            cl = cand.strip().lower()
+            if cl in col_map_lower:
+                return col_map_lower[cl]
+        return None
+
+    unmapped_needed = []
+
+    # IP & Ports
+    src_ip_col = find_col("src_ip", "source ip", "src ip", "source_ip", "srcip", "sourceip")
+    dst_ip_col = find_col("dst_ip", "destination ip", "dst ip", "destination_ip", "dstip", "destinationip")
+    src_port_col = find_col("src_port", "source port", "src port", "source_port", "srcport")
+    dst_port_col = find_col("dst_port", "destination port", "dst port", "destination_port", "dstport")
+
+    out["src_ip"] = df[src_ip_col].astype(str) if src_ip_col else "0.0.0.0"
+    out["dst_ip"] = df[dst_ip_col].astype(str) if dst_ip_col else "0.0.0.0"
+    out["src_port"] = pd.to_numeric(df[src_port_col], errors="coerce").fillna(0).astype(int) if src_port_col else 0
+    out["dst_port"] = pd.to_numeric(df[dst_port_col], errors="coerce").fillna(0).astype(int) if dst_port_col else 0
+
+    # Protocol
+    proto_col = find_col("protocol", "proto")
+    if proto_col:
+        def _norm_p(v):
+            vs = str(v).strip()
+            if vs == "6" or vs.lower() == "tcp":
+                return "TCP"
+            if vs == "17" or vs.lower() == "udp":
+                return "UDP"
+            if vs == "1" or vs.lower() == "icmp":
+                return "ICMP"
+            return vs.upper() if vs else "TCP"
+        out["protocol"] = df[proto_col].apply(_norm_p)
+    else:
+        out["protocol"] = "TCP"
+
+    # Duration: "Flow Duration" / 1e6 (CICFlowMeter is in microseconds)
+    dur_col = find_col("duration", "flow duration", "flow_duration")
+    if dur_col:
+        raw_dur = pd.to_numeric(df[dur_col], errors="coerce").fillna(0.0)
+        out["duration"] = (raw_dur / 1e6) if dur_col.lower() == "flow duration" else raw_dur
+    else:
+        unmapped_needed.append("duration / Flow Duration")
+
+    # Timestamps: flow_start, flow_end
+    start_col = find_col("flow_start", "timestamp", "flow start", "start time")
+    if start_col:
+        out["flow_start"] = df[start_col].astype(str)
+    else:
+        import time
+        now = time.time()
+        out["flow_start"] = [now + i for i in range(len(df))]
+
+    end_col = find_col("flow_end", "flow end", "end time")
+    if end_col:
+        out["flow_end"] = df[end_col].astype(str)
+    else:
+        try:
+            starts = pd.to_numeric(out["flow_start"], errors="coerce").fillna(0.0)
+            out["flow_end"] = (starts + out["duration"]).astype(str)
         except Exception:
-            continue
+            out["flow_end"] = out["flow_start"]
 
-    if not flows:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Could not parse valid flow rows from CSV file ({filename}). Please ensure required flow fields are present."
-        )
+    # Packet count: "Total Fwd Packets" + "Total Backward Packets"
+    pkt_col = find_col("packet_count", "total packets", "packet count", "tot pkts")
+    if pkt_col:
+        out["packet_count"] = pd.to_numeric(df[pkt_col], errors="coerce").fillna(0.0)
+    else:
+        fwd_p = find_col("total fwd packets", "total fwd packet", "fwd packets", "tot fwd pkts")
+        bwd_p = find_col("total backward packets", "total bwd packets", "bwd packets", "tot bwd pkts")
+        if fwd_p or bwd_p:
+            fv = pd.to_numeric(df[fwd_p], errors="coerce").fillna(0.0) if fwd_p else 0.0
+            bv = pd.to_numeric(df[bwd_p], errors="coerce").fillna(0.0) if bwd_p else 0.0
+            out["packet_count"] = fv + bv
+        else:
+            unmapped_needed.append("packet_count / Total Fwd Packets")
 
-    total_pkts = sum(f["packet_count"] for f in flows)
-    return _run_pipeline_on_flows(flows, filename=filename, file_type="csv", total_packets=total_pkts, dataset_source=dataset_source)
+    # Byte count: "Total Length of Fwd Packets" + "Total Length of Bwd Packets"
+    byte_col = find_col("byte_count", "total bytes", "byte count", "tot bytes")
+    if byte_col:
+        out["byte_count"] = pd.to_numeric(df[byte_col], errors="coerce").fillna(0.0)
+    else:
+        fwd_b = find_col("total length of fwd packets", "total fwd bytes", "tot fwd bytes", "fwd header length")
+        bwd_b = find_col("total length of bwd packets", "total bwd bytes", "tot bwd bytes", "bwd header length")
+        if fwd_b or bwd_b:
+            fv = pd.to_numeric(df[fwd_b], errors="coerce").fillna(0.0) if fwd_b else 0.0
+            bv = pd.to_numeric(df[bwd_b], errors="coerce").fillna(0.0) if bwd_b else 0.0
+            out["byte_count"] = fv + bv
+        else:
+            unmapped_needed.append("byte_count / Total Length of Fwd Packets")
+
+    # Flags
+    syn_col = find_col("syn_count", "syn flag count", "syn_flag_count", "syn flag")
+    ack_col = find_col("ack_count", "ack flag count", "ack_flag_count", "ack flag")
+    fin_col = find_col("fin_count", "fin flag count", "fin_flag_count", "fin flag")
+    rst_col = find_col("rst_count", "rst flag count", "rst_flag_count", "rst flag")
+
+    out["syn_count"] = pd.to_numeric(df[syn_col], errors="coerce").fillna(0.0) if syn_col else 0.0
+    out["ack_count"] = pd.to_numeric(df[ack_col], errors="coerce").fillna(0.0) if ack_col else 0.0
+    out["fin_count"] = pd.to_numeric(df[fin_col], errors="coerce").fillna(0.0) if fin_col else 0.0
+    out["rst_count"] = pd.to_numeric(df[rst_col], errors="coerce").fillna(0.0) if rst_col else 0.0
+
+    # Win mean & win var
+    win_mean_col = find_col("win_mean", "init_win_bytes_forward", "init win bytes forward", "init_win_bytes_backward")
+    if win_mean_col:
+        out["win_mean"] = pd.to_numeric(df[win_mean_col], errors="coerce").fillna(0.0).clip(lower=0)
+    else:
+        out["win_mean"] = 0.0
+
+    win_var_col = find_col("win_var", "win var", "window variance")
+    out["win_var"] = pd.to_numeric(df[win_var_col], errors="coerce").fillna(0.0) if win_var_col else 0.0
+
+    # Payload mean & std
+    pay_mean_col = find_col("payload_mean", "average packet size", "avg packet size", "packet length mean", "fwd packet length mean")
+    out["payload_mean"] = pd.to_numeric(df[pay_mean_col], errors="coerce").fillna(0.0) if pay_mean_col else 0.0
+
+    pay_std_col = find_col("payload_std", "packet length std", "fwd packet length std")
+    out["payload_std"] = pd.to_numeric(df[pay_std_col], errors="coerce").fillna(0.0) if pay_std_col else 0.0
+
+    # TTL Handling (Requirement 4)
+    ttl_mean_col = find_col("ttl_mean", "ttl mean", "average ttl")
+    ttl_var_col = find_col("ttl_var", "ttl var", "ttl variance")
+
+    if ttl_mean_col:
+        out["ttl_mean"] = pd.to_numeric(df[ttl_mean_col], errors="coerce").fillna(64.0)
+        out["ttl_var"] = pd.to_numeric(df[ttl_var_col], errors="coerce").fillna(0.0) if ttl_var_col else 0.0
+    else:
+        out["ttl_mean"] = 64.0
+        out["ttl_var"] = 0.0
+        print("[WARNING] CSV missing 'ttl_mean'. Imputed default TTL=64 (ttl_var=0). Threat detection accuracy on this file may be reduced.", flush=True)
+
+    frag_col = find_col("frag_ratio", "fragment ratio")
+    out["frag_ratio"] = pd.to_numeric(df[frag_col], errors="coerce").fillna(0.0) if frag_col else 0.0
+
+    retx_col = find_col("retransmit_count", "retransmit count")
+    out["retransmit_count"] = pd.to_numeric(df[retx_col], errors="coerce").fillna(0.0) if retx_col else 0.0
+
+    # Label & attack_stage
+    lbl_col = find_col("label", "attack_stage", "attack stage")
+    if lbl_col:
+        out["label"] = df[lbl_col].astype(str).fillna("")
+        out["attack_stage"] = df[lbl_col].astype(str).fillna("")
+    else:
+        out["label"] = ""
+        out["attack_stage"] = ""
+
+    if unmapped_needed:
+        raise ValueError(f"Could not map mandatory flow metrics: {', '.join(unmapped_needed)}")
+
+    for col in TARGET_24_COLUMNS:
+        if col not in out.columns:
+            out[col] = 0.0 if col not in ("src_ip", "dst_ip", "protocol", "flow_start", "flow_end", "label", "attack_stage") else ""
+
+    return out[TARGET_24_COLUMNS]
 
 
-@app.post("/api/analyze_file")
-async def analyze_file(file: UploadFile = File(...)):
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
     """
-    POST /api/analyze_file
-    Accepts an offline PCAP (.pcap, .pcapng) or CSV (.csv) file, runs feature extraction,
-    Random Forest flow classification, and PyTorch GRU world model stage forecasting.
-    Returns infiltration probability timeline, MITRE stage, flagged flows, and feature attributions.
+    POST /api/upload
+    Accepts an offline PCAP (.pcap, .pcapng) or CSV (.csv) file.
+    Validates CSV columns or converts PCAP to flow CSV, runs LSTM model inference per conversation.
+    Returns upload summary and per-conversation forecast results.
     """
+    start_time = time.time()
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="No file provided in request.")
-        
+
     filename = file.filename
     ext = os.path.splitext(filename)[1].lower()
-    
+
     if ext not in (".pcap", ".pcapng", ".csv"):
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file extension '{ext}'. CyberForecaster only accepts .pcap, .pcapng, and .csv files."
         )
-        
+
     content = await file.read()
     if not content or len(content) == 0:
         raise HTTPException(status_code=400, detail=f"Uploaded file '{filename}' is empty.")
-        
-    if ext in (".pcap", ".pcapng"):
-        return _analyze_pcap_bytes(content, filename)
+
+    REQUIRED_COLUMNS = [
+        "src_ip", "dst_ip", "src_port", "dst_port", "protocol", "flow_start", "flow_end",
+        "duration", "packet_count", "byte_count", "syn_count", "ack_count", "fin_count",
+        "rst_count", "ttl_mean", "ttl_var", "win_mean", "win_var", "frag_ratio",
+        "payload_mean", "payload_std", "retransmit_count"
+    ]
+
+    import pandas as pd
+    import io
+    import uuid
+
+    if ext == ".csv":
+        try:
+            df = pd.read_csv(io.BytesIO(content))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not parse CSV file ({filename}): {str(e)}")
+
+        if df.empty:
+            raise HTTPException(status_code=400, detail=f"CSV file ({filename}) is empty.")
+
+        try:
+            df = _adapt_arbitrary_csv_to_schema(df)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"CSV schema adaptation failed for ({filename}): {str(e)}"
+            )
+
+        col_map = {c.strip().lower(): c for c in df.columns}
+        missing = [col for col in REQUIRED_COLUMNS if col not in col_map]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required columns: {missing}"
+            )
+
+        df = df.rename(columns={col_map[col]: col for col in REQUIRED_COLUMNS if col in col_map})
+
     else:
-        return _analyze_csv_bytes(content, filename)
+        try:
+            df = _pcap_bytes_to_flow_df(content)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Error parsing PCAP file ({filename}): {str(e)}"
+            )
+
+    numeric_cols = [c for c in REQUIRED_COLUMNS if c not in ("src_ip", "dst_ip", "protocol")]
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    import numpy as np
+    df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], 0.0).fillna(0.0)
+
+    # Text columns (e.g. empty label / attack_stage in live captures) can be NaN.
+    # NaN is not valid JSON, so the response would crash with a 500 and the
+    # browser shows "Failed to fetch". Replace missing text values with "".
+    text_cols = [c for c in df.columns if c not in numeric_cols]
+    for c in text_cols:
+        df[c] = df[c].astype(object).where(df[c].notna(), "")
+
+    df["src_ip"] = df["src_ip"].astype(str)
+    df["dst_ip"] = df["dst_ip"].astype(str)
+    df["protocol"] = df["protocol"].astype(str)
+
+    from models.stage_forecaster_lstm_infer import forecast_host, _load_model
+    import models.stage_forecaster_lstm_infer as lstm_infer
+    _load_model()
+    _meta = lstm_infer._meta
+    seq_len = _meta.get("sequence_length", 5)
+
+    total_flows = len(df)
+    conversation_groups = df.groupby(["src_ip", "dst_ip"])
+    total_conversations = len(conversation_groups)
+
+    results = []
+    skipped_too_short = 0
+
+    for (src_ip, dst_ip), group in conversation_groups:
+        group_sorted = group.sort_values("flow_start")
+        flows = group_sorted.to_dict(orient="records")
+
+        if len(flows) < seq_len:
+            skipped_too_short += 1
+            continue
+
+        # Run sliding window inference for every sequence_length window
+        window_timeline = []
+        for i in range(0, len(flows) - seq_len + 1):
+            window_slice = flows[i : i + seq_len]
+            fc_win = forecast_host(dst_ip, window_slice, src_ip=src_ip)
+            window_timeline.append({
+                "window_idx": i,
+                "flow_index": i + seq_len,
+                "forecast_target_flow": i + seq_len + _meta.get("forecast_horizon", 3),
+                "risk_score": fc_win["risk_score"],
+                "predicted_stage": fc_win["predicted_stage"],
+                "stage_probabilities": fc_win["stage_probs"],
+            })
+
+        latest_fc = window_timeline[-1] if window_timeline else forecast_host(dst_ip, flows, src_ip=src_ip)
+        latest_probs = latest_fc["stage_probabilities"] if "stage_probabilities" in latest_fc else latest_fc.get("stage_probs", {})
+        forecast_tl = kstep_forward(latest_probs, K=5)
+
+        results.append({
+            "src_ip": src_ip,
+            "dst_ip": dst_ip,
+            "infiltration_probability": latest_fc["risk_score"],
+            "predicted_stage": latest_fc["predicted_stage"],
+            "stage_probabilities": latest_probs,
+            "forecast_timeline": forecast_tl,
+            "flows_used": len(flows),
+            "windows_analyzed": len(window_timeline),
+            "window_timeline": window_timeline,
+            "flows": flows,
+        })
+
+    # Sort conversations by infiltration_probability descending (most suspicious first)
+    results.sort(key=lambda c: c["infiltration_probability"], reverse=True)
+
+    response_data = {
+        "status": "success" if results else "no_conversations_qualified",
+        "upload_id": str(uuid.uuid4()),
+        "filename": filename,
+        "total_flows": total_flows,
+        "total_conversations": total_conversations,
+        "conversations_skipped_too_short": skipped_too_short,
+        "sequence_length": seq_len,
+        "forecast_horizon": _meta.get("forecast_horizon"),
+        "results": results,
+        "all_flows": df[["src_ip", "dst_ip", "packet_count", "byte_count", "protocol"]].head(2500).to_dict(orient="records") if "src_ip" in df.columns and "dst_ip" in df.columns else [],
+    }
+
+    _save_latest_forecast(response_data)
+    elapsed = time.time() - start_time
+    print(f"[UPLOAD] File: {filename} | Rows: {total_flows} | Conversations: {total_conversations} | Forecasted: {len(results)} | Time: {elapsed:.3f}s", flush=True)
+
+    if not results:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File processed: {total_flows} flows, {total_conversations} conversations, 0 had enough flows (need >= 5 per src/dst pair)"
+        )
+
+    return response_data
+
+
+@app.get("/api/forecast/latest")
+def get_latest_forecast():
+    """Returns the result of the most recent upload, or {"status": "no_upload"} if nothing was uploaded."""
+    return _get_latest_forecast()
+
+
+_shap_explainer = None
+_shap_lock = threading.Lock()
+
+
+def _get_shap_explainer():
+    """Builds and caches a shap.GradientExplainer over ~100 normalized 5-flow background windows from benign traffic."""
+    global _shap_explainer
+    if _shap_explainer is not None:
+        return _shap_explainer
+    with _shap_lock:
+        if _shap_explainer is not None:
+            return _shap_explainer
+
+        try:
+            import torch
+            import numpy as np
+            import shap
+            import models.stage_forecaster_lstm_infer as lstm_infer
+
+            lstm_infer._load_model()
+            _meta = lstm_infer._meta
+            _model = lstm_infer._model
+
+            feature_cols = _meta["feature_columns"]
+            log_cols = _meta.get("log_transform_columns", [])
+            feat_min = np.array(_meta["normalizer"]["feature_min"], dtype=np.float32)
+            feat_max = np.array(_meta["normalizer"]["feature_max"], dtype=np.float32)
+            seq_len = _meta.get("sequence_length", 5)
+
+            bg_windows = []
+            latest = _get_latest_forecast()
+            if latest and isinstance(latest, dict) and latest.get("status") in ("success", "ok") and latest.get("results"):
+                for conv in latest["results"]:
+                    c_flows = conv.get("flows", [])
+                    if len(c_flows) >= seq_len:
+                        for i in range(len(c_flows) - seq_len + 1):
+                            window = c_flows[i:i + seq_len]
+                            mat = lstm_infer._flows_to_matrix(window, feature_cols, log_cols, feat_min, feat_max, seq_len)
+                            bg_windows.append(mat)
+                            if len(bg_windows) >= 100:
+                                break
+                    if len(bg_windows) >= 100:
+                        break
+
+            if len(bg_windows) < 100:
+                np.random.seed(42)
+                needed = 100 - len(bg_windows)
+                for b in range(needed):
+                    flows_5 = []
+                    for t in range(seq_len):
+                        flow = {
+                            "duration": float(np.random.uniform(0.001, 2.0)),
+                            "packet_count": float(np.random.randint(1, 20)),
+                            "byte_count": float(np.random.randint(64, 5000)),
+                            "syn_flag": int(np.random.choice([0, 1], p=[0.8, 0.2])),
+                            "ack_flag": int(np.random.choice([0, 1], p=[0.2, 0.8])),
+                            "fin_flag": 0,
+                            "rst_flag": 0,
+                            "ttl_mean": float(np.random.choice([64.0, 128.0])),
+                            "ttl_var": float(np.random.uniform(0.0, 2.0)),
+                            "win_mean": float(np.random.choice([8192.0, 64240.0, 65535.0])),
+                            "win_var": float(np.random.uniform(0.0, 500.0)),
+                            "frag_ratio": 0.0,
+                            "payload_mean": float(np.random.uniform(0.0, 300.0)),
+                            "payload_std": float(np.random.uniform(0.0, 50.0)),
+                            "retransmit_count": 0,
+                        }
+                        flows_5.append(flow)
+                    mat = lstm_infer._flows_to_matrix(flows_5, feature_cols, log_cols, feat_min, feat_max, seq_len)
+                    bg_windows.append(mat)
+
+            bg_tensor = torch.tensor(np.array(bg_windows), dtype=torch.float32)
+
+            class RiskModelWrapper(torch.nn.Module):
+                def __init__(self, m):
+                    super().__init__()
+                    self.m = m
+
+                def forward(self, x):
+                    _, risk_pred = self.m(x)
+                    return risk_pred
+
+            wrapper = RiskModelWrapper(_model)
+            wrapper.eval()
+
+            _shap_explainer = shap.GradientExplainer(wrapper, bg_tensor)
+            print(f"[SHAP] GradientExplainer initialized with background dataset of shape {bg_tensor.shape}", flush=True)
+            return _shap_explainer
+        except Exception as e:
+            print(f"[SHAP Init Error] Failed to initialize GradientExplainer: {e}", flush=True)
+            raise e
+
+
+@app.get("/api/explain")
+def get_feature_explainability(src_ip: str = "", dst_ip: str = ""):
+    """Computes SHAP feature attributions (SHAP GradientExplainer) for a given conversation's latest window."""
+    latest = _get_latest_forecast()
+    if not latest or latest.get("status") not in ("success", "ok") or not latest.get("results"):
+        raise HTTPException(status_code=404, detail="No forecast data available")
+
+    results = latest["results"]
+    target_conv = None
+    if src_ip and dst_ip:
+        for c in results:
+            if c.get("src_ip") == src_ip and c.get("dst_ip") == dst_ip:
+                target_conv = c
+                break
+    if not target_conv:
+        raise HTTPException(status_code=404, detail=f"Conversation {src_ip} -> {dst_ip} not found in latest upload")
+
+    flows = target_conv.get("flows", [])
+    if not flows:
+        raise HTTPException(status_code=404, detail="No flows found for conversation")
+
+    import torch
+    import numpy as np
+    import models.stage_forecaster_lstm_infer as lstm_infer
+    lstm_infer._load_model()
+    _meta = lstm_infer._meta
+    _model = lstm_infer._model
+
+    feature_cols = _meta["feature_columns"]
+    log_cols = _meta.get("log_transform_columns", [])
+    feat_min = np.array(_meta["normalizer"]["feature_min"], dtype=np.float32)
+    feat_max = np.array(_meta["normalizer"]["feature_max"], dtype=np.float32)
+    seq_len = _meta.get("sequence_length", 5)
+
+    recent_flows = flows[-seq_len:]
+    window_norm = lstm_infer._flows_to_matrix(recent_flows, feature_cols, log_cols, feat_min, feat_max, seq_len)
+    x = torch.tensor(window_norm, dtype=torch.float32).unsqueeze(0)
+
+    features = []
+    used_method = "SHAP (GradientExplainer)"
+
+    try:
+        explainer = _get_shap_explainer()
+        shap_vals = explainer.shap_values(x)
+
+        shap_matrix = shap_vals[0] if isinstance(shap_vals, list) else shap_vals
+        if shap_matrix.ndim == 4:
+            shap_matrix = shap_matrix[0, :, :, 0]
+        elif shap_matrix.ndim == 3:
+            shap_matrix = shap_matrix[0]
+
+        abs_shap = np.mean(np.abs(shap_matrix), axis=0)
+        signed_shap = np.mean(shap_matrix, axis=0)
+
+        for idx, col in enumerate(feature_cols):
+            val = float(signed_shap[idx])
+            imp = float(abs_shap[idx])
+            features.append({
+                "feature": col,
+                "importance": round(imp, 6),
+                "val": round(val, 6),
+                "direction": "+" if val >= 0 else "-"
+            })
+
+    except Exception as shap_err:
+        # SHAP-only explainability: no Integrated-Gradients fallback. If SHAP fails,
+        # return an empty explanation gracefully so the dashboard shows its
+        # "explanation not available" state instead of crashing or hanging.
+        print(f"[SHAP] GradientExplainer execution failed: {shap_err}", flush=True)
+        features = []
+
+    features.sort(key=lambda item: item["importance"], reverse=True)
+    total_imp = sum(f["importance"] for f in features) or 1.0
+    for f in features:
+        f["percent"] = round((f["importance"] / total_imp) * 100, 1)
+
+    return {
+        "status": "success",
+        "src_ip": target_conv.get("src_ip"),
+        "dst_ip": target_conv.get("dst_ip"),
+        "method": used_method,
+        "features": features[:7]
+    }
+
+
+
+
+@app.get("/api/capture/summary")
+def get_capture_summary():
+    """Return current packet capture summary computed with the training extractor."""
+    with _raw_packet_lock:
+        pkts = list(_raw_packet_buffer)
+
+    packet_count = len(pkts)
+    if not pkts:
+        return {
+            "packets_captured": 0,
+            "flows_extracted": 0,
+            "forecastable_conversations": 0
+        }
+
+    import tempfile
+    from scapy.utils import wrpcap
+    from scapy.layers.inet import Ether, IP
+
+    normalized_pkts = []
+    for p in pkts:
+        try:
+            if isinstance(p, bytes):
+                if len(p) >= 20 and (p[0] & 0xf0) == 0x40:
+                    p = IP(p)
+                else:
+                    p = Ether(p)
+            if not getattr(p, "haslayer", None):
+                continue
+            if not p.haslayer(Ether):
+                p_norm = Ether(dst="ff:ff:ff:ff:ff:ff", src="00:00:00:00:00:00") / p
+                if hasattr(p, "time"):
+                    p_norm.time = p.time
+                normalized_pkts.append(p_norm)
+            else:
+                normalized_pkts.append(p)
+        except Exception:
+            pass
+
+    if not normalized_pkts:
+        return {
+            "packets_captured": packet_count,
+            "flows_extracted": 0,
+            "forecastable_conversations": 0
+        }
+
+    tmp_pcap_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pcap", delete=False) as tmp:
+            tmp_pcap_path = tmp.name
+        wrpcap(tmp_pcap_path, normalized_pkts)
+
+        df = _run_extractor_on_pcap(tmp_pcap_path, known_clean=False)
+        flows_extracted = len(df)
+        if not df.empty:
+            conv_counts = df.groupby(["src_ip", "dst_ip"]).size()
+            forecastable = int((conv_counts >= 5).sum())
+        else:
+            forecastable = 0
+
+        return {
+            "packets_captured": packet_count,
+            "flows_extracted": flows_extracted,
+            "forecastable_conversations": forecastable
+        }
+    except Exception as e:
+        print(f"[Capture Summary Error] {e}", flush=True)
+        return {
+            "packets_captured": packet_count,
+            "flows_extracted": 0,
+            "forecastable_conversations": 0
+        }
+    finally:
+        if tmp_pcap_path and os.path.exists(tmp_pcap_path):
+            try:
+                os.remove(tmp_pcap_path)
+            except Exception:
+                pass
+
+
+@app.get("/api/capture/download")
+def download_capture(format: str = "pcap", known_clean: int = 0):
+    """Download current/latest capture files as PCAP or CSV using the training extractor."""
+    from starlette.responses import Response
+    import tempfile
+    from scapy.utils import wrpcap
+    from scapy.layers.inet import Ether, IP
+
+    with _raw_packet_lock:
+        pkts = list(_raw_packet_buffer)
+    if not pkts:
+        raise HTTPException(status_code=404, detail="No capture data available for download.")
+
+    normalized_pkts = []
+    for p in pkts:
+        try:
+            if isinstance(p, bytes):
+                if len(p) >= 20 and (p[0] & 0xf0) == 0x40:
+                    p = IP(p)
+                else:
+                    p = Ether(p)
+            if not getattr(p, "haslayer", None):
+                continue
+            if not p.haslayer(Ether):
+                p_norm = Ether(dst="ff:ff:ff:ff:ff:ff", src="00:00:00:00:00:00") / p
+                if hasattr(p, "time"):
+                    p_norm.time = p.time
+                normalized_pkts.append(p_norm)
+            else:
+                normalized_pkts.append(p)
+        except Exception as _pe:
+            print(f"[Download Normalization Warning] {_pe}", flush=True)
+
+    if not normalized_pkts:
+        raise HTTPException(status_code=404, detail="No valid packet data available for download.")
+
+    now = datetime.now()
+    ts_str = now.strftime("%Y%m%d_%H%M%S")
+
+    tmp_pcap_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pcap", delete=False) as tmp:
+            tmp_pcap_path = tmp.name
+
+        wrpcap(tmp_pcap_path, normalized_pkts)
+
+        if format == "csv":
+            df = _run_extractor_on_pcap(tmp_pcap_path, known_clean=bool(known_clean))
+            csv_str = df.to_csv(index=False)
+            filename = f"live_capture_{ts_str}.csv"
+            return Response(
+                content=csv_str.encode("utf-8"),
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Access-Control-Expose-Headers": "Content-Disposition",
+                }
+            )
+        else:
+            with open(tmp_pcap_path, "rb") as f:
+                pcap_bytes = f.read()
+            filename = f"live_capture_{ts_str}.pcap"
+            return Response(
+                content=pcap_bytes,
+                media_type="application/vnd.tcpdump.pcap",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Access-Control-Expose-Headers": "Content-Disposition",
+                }
+            )
+    finally:
+        if tmp_pcap_path and os.path.exists(tmp_pcap_path):
+            try:
+                os.remove(tmp_pcap_path)
+            except Exception:
+                pass
+
+
+def _analyze_pcap_bytes(content: bytes, filename: str) -> dict:
+    """Legacy endpoint helper for /api/analyze_file."""
+    return upload_file(UploadFile(filename=filename, file=io.BytesIO(content)))
+
+
+def _analyze_csv_bytes(content: bytes, filename: str) -> dict:
+    """Legacy endpoint helper for /api/analyze_file."""
+    return upload_file(UploadFile(filename=filename, file=io.BytesIO(content)))
+
+
+@app.post("/api/analyze_file")
+async def analyze_file(file: UploadFile = File(...)):
+    """Legacy alias endpoint redirecting to POST /api/upload."""
+    return await upload_file(file)
+
 
 
 # ---------------------------------------------------------------------------

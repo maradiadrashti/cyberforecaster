@@ -1,77 +1,34 @@
-# Cyberforecaster ML Training Pipeline
+# training/
 
-## Overview
+Offline training scripts. **You do not need these to run the dashboard** — the trained models are
+already in `models/`. Use them to reproduce or retrain.
 
-This directory contains the training scripts for Cyberforecaster's two ML models.
+| Script | Trains | Output (written to the current directory) |
+| :--- | :--- | :--- |
+| `train_lstm_world_model.py` | **LSTM world model** — 2-layer LSTM, stage head (6 MITRE stages) + risk head. Input: 5 flows × 15 features; target: the stage 3 flows ahead. | `stage_forecaster_lstm_v1.pth`, `stage_forecaster_lstm_v1_meta.json` |
+| `train_logreg_baseline.py` | **Logistic-regression benchmark** on the same 15 features, one flow at a time (no memory). | `logreg_baseline_v1.joblib`, `logreg_baseline_scaler_v1.joblib`, `logreg_baseline_meta.json` |
+| `train_flow_classifier.py` | XGBoost per-flow classifier used for live traffic labels (with SMOTE). | `flow_classifier_v1.joblib`, `flow_label_encoder_v1.joblib`, `flow_classifier_meta.json` |
+| `train_from_cic_ids2017.py` | Same XGBoost classifier, trained directly from the raw CIC-IDS-2017 CSVs. | same as above |
 
-### Scripts
+## Reproduce the world model
 
-- **train_flow_classifier.py** — XGBoost multi-class per-flow attack classifier
-- **train_stage_forecaster.py** — GRU sequence model for attack stage forecasting
+1. Build the labeled, merged flow CSV (see [`../data_prep/README.md`](../data_prep/README.md)).
+2. Train:
 
-### Model 1: Flow Classifier (XGBoost)
+   ```bash
+   python training/train_lstm_world_model.py merged_final_v5.csv
+   python training/train_logreg_baseline.py  merged_final_v5.csv
+   ```
 
-**Purpose:** Classify every captured network flow in real-time as one of:
-benign, port_scan, brute_force, dos_ddos, arp_spoof, exfiltration
+3. Copy the output files into `models/` (replacing the existing ones).
+4. Rebuild the kill-chain matrix: `python data_prep/estimate_killchain_matrix.py merged_final_v5.csv`
+5. Benchmark: `python evaluation/eval_cross_dataset.py <held-out labeled csv>`
 
-**Features (14 total):**
-- duration, packet_count, byte_count, src_port, dst_port
-- packets_per_second, bytes_per_packet (derived ratios)
-- syn_flag, ack_flag, rst_flag, fin_flag
-- protocol_tcp, protocol_udp, protocol_other (one-hot)
+Training the LSTM on the full corpus (~6 GB CSV) takes a few hours on a laptop CPU; a CUDA GPU is
+used automatically if available.
 
-**Architecture:** XGBoost gradient boosting (chosen over RandomForest for faster
-inference ~1-2ms, better handling of class imbalance, and superior tabular data
-performance at this scale).
+## Hyper-parameters (LSTM)
 
-**Class imbalance:** SMOTE oversampling on training set only.
-
-```bash
-python training/train_flow_classifier.py labeled_flows.csv public_flows.csv
-```
-
-### Model 2: Stage Forecaster (GRU)
-
-**Purpose:** For a given host, predict the current attack stage and project
-future risk over 30 seconds.
-
-**Stages:** normal → reconnaissance → initial_access → lateral_movement →
-command_control → exfiltration
-
-**Architecture:** 2-layer GRU (hidden=64, dropout=0.2) + classification head
-+ regression head.
-
-- Hidden size 64: Double the reference project's 32 for 14 features (vs 6).
-  Large enough for stage transitions, small enough for <1ms inference.
-- 2 layers: Layer 1 captures per-flow patterns, layer 2 captures temporal
-  transitions. 3rd layer risks overfitting on limited data.
-- Sequence length 10: ~5 min of traffic context at typical flow rates.
-
-**Training data:** Bootstrapped sequences chaining real labeled flows in
-artificial temporal order. TEMPORARY bootstrapping strategy — see training
-notes in output metadata.
-
-```bash
-python training/train_stage_forecaster.py labeled_flows.csv public_flows.csv
-```
-
-### Output
-
-Both scripts save to `models/`:
-- `flow_classifier_v1.joblib` + `flow_label_encoder_v1.joblib`
-- `stage_forecaster_v1.pth`
-- `flow_classifier_infer.py` / `stage_forecaster_infer.py` (auto-generated)
-
-### Hyperparameters
-
-| Parameter | Classifier | Forecaster |
-|-----------|-----------|------------|
-| Model | XGBoost | GRU (PyTorch) |
-| Hidden size | N/A | 64 |
-| Layers | N/A | 2 |
-| Sequence length | N/A | 10 flows |
-| Batch size | N/A | 32 |
-| Learning rate | 0.1 | 0.001 |
-| Epochs | 300 (n_estimators) | 50 |
-| Dropout | N/A | 0.2 |
-| Regularization | L1=0.1, L2=1.0 | weight_decay=1e-5 |
+`hidden_size=64`, `num_layers=2`, `dropout=0.3`, `seq_len=5`, `forecast_horizon=3`, Adam,
+class-weighted cross-entropy (stage) + BCE (risk), gradient clipping `max_norm=5.0`,
+early stopping (patience 12) on `0.7 × binary_val_acc + 0.3 × stage_val_acc`.

@@ -38,12 +38,12 @@ const SEVERITY_MAP = {
 };
 
 const STAGE_COLORS = {
-  Normal: "#22c55e",
-  Reconnaissance: "#38bdf8",
-  "Initial Access": "#f59e0b",
-  "Lateral Movement": "#f97316",
-  "Command & Control": "#ef4444",
-  Exfiltration: "#ff0055",
+  Normal: "#262E3A",
+  Reconnaissance: "#3E63C7",
+  "Initial Access": "#3E63C7",
+  "Lateral Movement": "#CBA135",
+  "Command & Control": "#CBA135",
+  Exfiltration: "#E0C36A",
 };
 
 const STAGE_INDEX = {
@@ -71,10 +71,10 @@ const FEATURE_IMPORTANCE = [
 
 // Model performance data
 const MODEL_BENCHMARKS = [
-  { model: "Static LR (Baseline)", precision: 0.944, recall: 0.944, f1: 0.944, fpr: 5.56, mae: null, rmse: null, color: "#64748b" },
-  { model: "Temporal LR (Baseline B)", precision: 0.942, recall: 0.907, f1: 0.925, fpr: 5.56, mae: null, rmse: null, color: "#94a3b8" },
-  { model: "PyTorch GRU", precision: 0.944, recall: 0.944, f1: 0.944, fpr: 5.56, mae: 0.386, rmse: 0.657, color: "#00f0ff" },
-  { model: "Temporal GNN World Model", precision: 0.944, recall: 0.944, f1: 0.944, fpr: 5.56, mae: 0.336, rmse: 0.634, color: "#9d4edd" },
+  { model: "Static LR (Baseline)", precision: 0.944, recall: 0.944, f1: 0.944, fpr: 5.56, mae: null, rmse: null, color: "#9BA6B4" },
+  { model: "Temporal LR (Baseline B)", precision: 0.942, recall: 0.907, f1: 0.925, fpr: 5.56, mae: null, rmse: null, color: "#3E63C7" },
+  { model: "PyTorch LSTM", precision: 0.944, recall: 0.944, f1: 0.944, fpr: 5.56, mae: 0.386, rmse: 0.657, color: "#CBA135" },
+  { model: "Temporal GNN World Model", precision: 0.944, recall: 0.944, f1: 0.944, fpr: 5.56, mae: 0.336, rmse: 0.634, color: "#E0C36A" },
 ];
 
 // K-step forecast data generator

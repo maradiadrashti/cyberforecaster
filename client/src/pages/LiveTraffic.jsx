@@ -28,40 +28,132 @@ const IFACE_ICONS = {
 
 // Protocol colors for chart
 const PROTO_COLORS = {
-  TCP: "#00f0ff",
-  UDP: "#a855f7",
-  ICMP: "#f59e0b",
-  OTHER: "#38bdf8",
-  HTTP: "#10b981",
-  HTTPS: "#06b6d4",
-  DNS: "#6366f1",
-  SSH: "#ec4899",
+  TCP: "#3E63C7",
+  UDP: "#22386E",
+  ICMP: "#CBA135",
+  OTHER: "#9BA6B4",
+  HTTP: "#3E63C7",
+  HTTPS: "#3E63C7",
+  DNS: "#22386E",
+  SSH: "#CBA135",
 };
 
 // Severity color
 const SEV_COLORS = {
-  none: "#334155",
-  low: "#38bdf8",
-  medium: "#f59e0b",
-  high: "#f97316",
-  critical: "#ff0055",
+  none: "#262E3A",
+  low: "#3E63C7",
+  medium: "#3E63C7",
+  high: "#CBA135",
+  critical: "#CBA135",
 };
 
 // ── Force-Directed Topology Component ───────────────────────────────────────
 
-function ForceDirectedTopology({ nodes, links, onNodeClick }) {
+function isPrivateIp(ip) {
+  if (!ip) return false;
+  if (ip === "127.0.0.1" || ip === "localhost" || ip.startsWith("127.") || ip.startsWith("169.254.")) return true;
+  if (ip.startsWith("10.") || ip.startsWith("192.168.")) return true;
+  const parts = ip.split(".");
+  if (parts.length === 4 && parts[0] === "172") {
+    const secondOctet = parseInt(parts[1], 10);
+    if (!isNaN(secondOctet) && secondOctet >= 16 && secondOctet <= 31) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getNodeCategory(node, localHostIp) {
+  // 1. Threat (red) = actual attack / high-risk nodes
+  if (node.severity && node.severity !== "none") {
+    return {
+      type: "attack",
+      role: "Threat Node",
+      fill: "#DC2626",
+      stroke: "#EF4444",
+      ring: "#F87171",
+      textColor: "#FFFFFF",
+      dotColor: "#DC2626",
+    };
+  }
+
+  // 2. Local Host (gold) = ONLY the capture interface's own IP (EXACTLY ONE gold node)
+  if (localHostIp && node.ip === localHostIp) {
+    return {
+      type: "local",
+      role: "Local Host / Hub",
+      fill: "#CBA135",
+      stroke: "#DFB84C",
+      ring: "#F3D079",
+      textColor: "#0B0F14",
+      dotColor: "#CBA135",
+    };
+  }
+
+  // 3. Internal (blue) = any RFC1918 private IP that is not the local host
+  if (isPrivateIp(node.ip)) {
+    return {
+      type: "internal",
+      role: "Internal IP",
+      fill: "#3E63C7",
+      stroke: "#527CEB",
+      ring: "#789BF2",
+      textColor: "#FFFFFF",
+      dotColor: "#3E63C7",
+    };
+  }
+
+  // 4. External (grey/slate) = public IPs (everything else)
+  return {
+    type: "external",
+    role: "External IP",
+    fill: "#2C3A57",
+    stroke: "#4A5568",
+    ring: "#64748B",
+    textColor: "#FFFFFF",
+    dotColor: "#4A5568",
+  };
+}
+
+function ForceDirectedTopology({ nodes, links, localIp, onNodeClick }) {
   const svgRef = useRef(null);
   const positionsRef = useRef({});
   const velocitiesRef = useRef({});
   const nodesRef = useRef(nodes);
   const linksRef = useRef(links);
+  const [hoverNode, setHoverNode] = useState(null);
   const [tick, setTick] = useState(0);
 
-  // Keep refs in sync without causing re-render cascades
   nodesRef.current = nodes;
   linksRef.current = links;
 
-  // Throttled physics tick — updates React state max 10x/sec
+  // Determine connection degree map
+  const degreeMap = useMemo(() => {
+    const map = {};
+    links.forEach(l => {
+      map[l.source] = (map[l.source] || 0) + 1;
+      map[l.target] = (map[l.target] || 0) + 1;
+    });
+    return map;
+  }, [links]);
+
+  // Determine single local host IP (EXACTLY ONE gold node)
+  const localHostIp = useMemo(() => {
+    if (localIp && nodes.some(n => n.ip === localIp)) {
+      return localIp;
+    }
+    const explicitLocal = nodes.find(n => n.isLocal);
+    if (explicitLocal) {
+      return explicitLocal.ip;
+    }
+    let bestIp = null, maxD = -1;
+    Object.entries(degreeMap).forEach(([ip, d]) => {
+      if (d > maxD) { maxD = d; bestIp = ip; }
+    });
+    return bestIp || (nodes[0] ? nodes[0].ip : null);
+  }, [localIp, nodes, degreeMap]);
+
+  // Throttled physics simulation
   useEffect(() => {
     let frameId;
     let lastRender = 0;
@@ -69,8 +161,7 @@ function ForceDirectedTopology({ nodes, links, onNodeClick }) {
 
     const step = (ts) => {
       frameId = requestAnimationFrame(step);
-      // Only update React state every 100ms
-      if (ts - lastRender < 100) return;
+      if (ts - lastRender < 80) return;
       lastRender = ts;
 
       const curNodes = nodesRef.current;
@@ -81,41 +172,52 @@ function ForceDirectedTopology({ nodes, links, onNodeClick }) {
       const elapsed = (Date.now() - startTime) / 1000;
 
       // Init new nodes
-      nodeIps.forEach(ip => {
+      nodeIps.forEach((ip, idx) => {
         if (!pos[ip]) {
-          pos[ip] = { x: 400 + (Math.random() - 0.5) * 200, y: 175 + (Math.random() - 0.5) * 80 };
+          const angle = (idx / Math.max(1, nodeIps.length)) * Math.PI * 2;
+          const r = 80 + Math.random() * 40;
+          pos[ip] = { x: 400 + Math.cos(angle) * r, y: 130 + Math.sin(angle) * (r * 0.6) };
           vel[ip] = { x: 0, y: 0 };
         }
       });
+
       // Prune old
       Object.keys(pos).forEach(ip => { if (!nodeIps.includes(ip)) { delete pos[ip]; delete vel[ip]; } });
 
-      const ALPHA = Math.max(0.01, 0.3 - elapsed * 0.003);
-      const WIDTH = 800, HEIGHT = 350;
+      const ALPHA = Math.max(0.01, 0.35 - elapsed * 0.003);
+      const WIDTH = 800, HEIGHT = 260;
 
       nodeIps.forEach(a => {
         let fx = 0, fy = 0;
+        // Repulsion
         nodeIps.forEach(b => {
           if (a === b) return;
           const dx = pos[a].x - pos[b].x, dy = pos[a].y - pos[b].y;
           const d = Math.sqrt(dx * dx + dy * dy) + 1;
-          const f = 3000 / (d * d);
+          const f = 6000 / (d * d);
           fx += (dx / d) * f; fy += (dy / d) * f;
         });
+
+        // Attraction along links
         curLinks.forEach(lk => {
           let o = null;
           if (lk.source === a) o = lk.target;
           else if (lk.target === a) o = lk.source;
           if (!o || !pos[o]) return;
-          fx += (pos[o].x - pos[a].x) * 0.005;
-          fy += (pos[o].y - pos[a].y) * 0.005;
+          fx += (pos[o].x - pos[a].x) * 0.008;
+          fy += (pos[o].y - pos[a].y) * 0.008;
         });
+
+        // Center gravity
         fx += (WIDTH / 2 - pos[a].x) * 0.002;
         fy += (HEIGHT / 2 - pos[a].y) * 0.002;
-        vel[a].x = (vel[a].x + fx * ALPHA) * 0.85;
-        vel[a].y = (vel[a].y + fy * ALPHA) * 0.85;
-        pos[a].x = Math.max(50, Math.min(WIDTH - 50, pos[a].x + vel[a].x));
-        pos[a].y = Math.max(40, Math.min(HEIGHT - 40, pos[a].y + vel[a].y));
+
+        vel[a].x = (vel[a].x + fx * ALPHA) * 0.82;
+        vel[a].y = (vel[a].y + fy * ALPHA) * 0.82;
+
+        // Keep inside bounds with comfortable margin
+        pos[a].x = Math.max(45, Math.min(WIDTH - 45, pos[a].x + vel[a].x));
+        pos[a].y = Math.max(35, Math.min(HEIGHT - 35, pos[a].y + vel[a].y));
       });
 
       setTick(n => n + 1);
@@ -127,194 +229,202 @@ function ForceDirectedTopology({ nodes, links, onNodeClick }) {
   const pos = positionsRef.current;
   const maxPackets = Math.max(1, ...nodes.map(n => n.packets || 1));
 
+  // Neighbors of hovered node
+  const hoverNeighbors = useMemo(() => {
+    if (!hoverNode) return new Set();
+    const set = new Set([hoverNode]);
+    links.forEach(lk => {
+      if (lk.source === hoverNode) set.add(lk.target);
+      if (lk.target === hoverNode) set.add(lk.source);
+    });
+    return set;
+  }, [hoverNode, links]);
+
+  const activeHoverData = useMemo(() => {
+    if (!hoverNode) return null;
+    const n = nodes.find(item => item.ip === hoverNode);
+    if (!n) return null;
+    const cat = getNodeCategory(n, localHostIp);
+    return { node: n, category: cat, pos: pos[hoverNode] };
+  }, [hoverNode, nodes, localHostIp, pos]);
+
   return (
-    <svg ref={svgRef} viewBox="0 0 800 350" className="w-full" style={{ minHeight: 300 }}>
-      <defs>
-        <pattern id="topoGrid" width="30" height="30" patternUnits="userSpaceOnUse">
-          <path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(255,255,255,0.015)" strokeWidth="0.5" />
-        </pattern>
-        <filter id="topoGlow">
-          <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-          <feMerge>
-            <feMergeNode in="coloredBlur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-        <filter id="topoGlowStrong">
-          <feGaussianBlur stdDeviation="5" result="coloredBlur" />
-          <feMerge>
-            <feMergeNode in="coloredBlur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-        <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
-          <polygon points="0 0, 6 2, 0 4" fill="rgba(0,240,255,0.3)" />
-        </marker>
-      </defs>
-      <rect width="800" height="350" fill="url(#topoGrid)" />
+    <div className="relative w-full h-full bg-surface select-none">
+      <svg ref={svgRef} viewBox="0 0 800 260" className="w-full h-full bg-surface">
+        <defs>
+          <pattern id="topoGrid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#262E3A" strokeWidth="0.5" opacity="0.6" />
+          </pattern>
+          <marker id="arrowheadGold" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+            <polygon points="0 0, 6 2, 0 4" fill="#CBA135" />
+          </marker>
+          <marker id="arrowheadRed" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+            <polygon points="0 0, 6 2, 0 4" fill="#EF4444" />
+          </marker>
+        </defs>
+        <rect width="800" height="260" fill="url(#topoGrid)" />
 
-      {/* Links (edges) */}
-      {links.map((link, i) => {
-        const srcPos = pos[link.source];
-        const dstPos = pos[link.target];
-        if (!srcPos || !dstPos) return null;
-        const color = SEV_COLORS[link.severity] || SEV_COLORS.none;
-        const isAttack = link.severity && link.severity !== "none";
+        {/* Links (edges) */}
+        {links.map((link, i) => {
+          const srcPos = pos[link.source];
+          const dstPos = pos[link.target];
+          if (!srcPos || !dstPos) return null;
 
-        // Curved link
-        const midX = (srcPos.x + dstPos.x) / 2;
-        const midY = (srcPos.y + dstPos.y) / 2;
-        const dx = dstPos.x - srcPos.x;
-        const dy = dstPos.y - srcPos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const curve = Math.min(dist * 0.15, 30);
-        // Perpendicular offset for curve
-        const nx = -dy / dist;
-        const ny = dx / dist;
-        const cx = midX + nx * curve;
-        const cy = midY + ny * curve;
+          const isAttack = link.severity && link.severity !== "none";
+          const isHighlighted = hoverNode && (link.source === hoverNode || link.target === hoverNode);
+          const isDimmed = hoverNode && !isHighlighted;
 
-        return (
-          <g key={`link-${i}`}>
+          const midX = (srcPos.x + dstPos.x) / 2;
+          const midY = (srcPos.y + dstPos.y) / 2;
+          const dx = dstPos.x - srcPos.x;
+          const dy = dstPos.y - srcPos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const curve = Math.min(dist * 0.12, 24);
+          const nx = -dy / dist;
+          const ny = dx / dist;
+          const cx = midX + nx * curve;
+          const cy = midY + ny * curve;
+
+          const strokeColor = isAttack ? "#EF4444" : isHighlighted ? "#3E63C7" : "#262E3A";
+          const opacity = isDimmed ? 0.08 : isHighlighted ? 0.85 : isAttack ? 0.75 : 0.35;
+          const strokeWidth = isHighlighted ? 2.5 : isAttack ? 2 : 1.2;
+
+          return (
             <path
+              key={`link-${i}`}
               d={`M ${srcPos.x} ${srcPos.y} Q ${cx} ${cy} ${dstPos.x} ${dstPos.y}`}
               fill="none"
-              stroke={isAttack ? color : "rgba(0,240,255,0.12)"}
-              strokeWidth={isAttack ? (link.severity === "critical" ? 2.5 : 1.5) : 1}
-              strokeDasharray={link.severity === "critical" ? "6 3" : isAttack ? "4 2" : "0"}
-              opacity={isAttack ? 0.7 : 0.3}
-              filter={isAttack ? "url(#topoGlow)" : undefined}
-              markerEnd={isAttack ? "url(#arrowhead)" : undefined}
+              stroke={strokeColor}
+              strokeWidth={strokeWidth}
+              strokeOpacity={opacity}
+              markerEnd={isAttack ? "url(#arrowheadRed)" : undefined}
+            />
+          );
+        })}
+
+        {/* Nodes */}
+        {nodes.map((node) => {
+          const p = pos[node.ip];
+          if (!p) return null;
+
+          const cat = getNodeCategory(node, localHostIp);
+          const volume = node.packets || 1;
+          const radius = 12 + Math.min(14, Math.sqrt(volume / maxPackets) * 14);
+
+          const isHovered = hoverNode === node.ip;
+          const isNeighbor = hoverNeighbors.has(node.ip);
+          const isDimmed = hoverNode && !isNeighbor;
+
+          return (
+            <g
+              key={node.ip}
+              className="cursor-pointer transition-opacity duration-200"
+              opacity={isDimmed ? 0.25 : 1.0}
+              onMouseEnter={() => setHoverNode(node.ip)}
+              onMouseLeave={() => setHoverNode(null)}
+              onClick={() => onNodeClick && onNodeClick(node)}
             >
-              {isAttack && (
-                <animate
-                  attributeName="stroke-dashoffset"
-                  from="18"
-                  to="0"
-                  dur="1.2s"
-                  repeatCount="indefinite"
-                />
-              )}
-            </path>
-            {/* Animated particle along attack edges */}
-            {isAttack && (
-              <circle r="2" fill={color} opacity="0.9">
-                <animateMotion
-                  dur="2s"
-                  repeatCount="indefinite"
-                  path={`M ${srcPos.x} ${srcPos.y} Q ${cx} ${cy} ${dstPos.x} ${dstPos.y}`}
-                />
-              </circle>
-            )}
-          </g>
-        );
-      })}
+              {/* Outer Ring */}
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={radius + 3}
+                fill="none"
+                stroke={cat.ring}
+                strokeWidth={isHovered ? 2 : 1.2}
+                strokeOpacity={isHovered ? 0.9 : 0.4}
+              />
 
-      {/* Nodes */}
-      {nodes.map((node) => {
-        const p = pos[node.ip];
-        if (!p) return null;
-        const color = SEV_COLORS[node.severity] || SEV_COLORS.none;
-        const isAttacked = node.severity !== "none";
-        const volume = node.packets || 1;
-        const radius = 6 + (volume / maxPackets) * 18; // Size = traffic volume
-        const opacity = isAttacked ? 1 : 0.7;
+              {/* Node Body */}
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={radius}
+                fill={cat.fill}
+                stroke={cat.stroke}
+                strokeWidth={1.5}
+              />
 
-        return (
-          <g
-            key={node.ip}
-            className="cursor-pointer"
-            onClick={() => onNodeClick && onNodeClick(node)}
-          >
-            {/* Attack pulse ring */}
-            {isAttacked && (
-              <circle cx={p.x} cy={p.y} r={radius + 4} fill="none" stroke={color} strokeWidth="1" opacity="0.3">
-                <animate attributeName="r" from={radius} to={radius + 12} dur="2s" repeatCount="indefinite" />
-                <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
-              </circle>
-            )}
-
-            {/* Volume ring */}
-            <circle
-              cx={p.x}
-              cy={p.y}
-              r={radius + 2}
-              fill="none"
-              stroke={color}
-              strokeWidth="0.5"
-              opacity={0.2}
-            />
-
-            {/* Node body */}
-            <circle
-              cx={p.x}
-              cy={p.y}
-              r={radius}
-              fill={isAttacked ? color : "#1e293b"}
-              stroke={color}
-              strokeWidth={isAttacked ? 2 : 1}
-              opacity={opacity}
-              filter={isAttacked ? "url(#topoGlowStrong)" : undefined}
-            />
-
-            {/* Inner highlight */}
-            <circle
-              cx={p.x - radius * 0.2}
-              cy={p.y - radius * 0.2}
-              r={radius * 0.3}
-              fill="rgba(255,255,255,0.15)"
-            />
-
-            {/* IP label */}
-            <text
-              x={p.x}
-              y={p.y + radius + 14}
-              textAnchor="middle"
-              fontSize="7"
-              fontFamily="'Share Tech Mono', monospace"
-              fill="#94a3b8"
-            >
-              {node.ip}
-            </text>
-
-            {/* Severity label */}
-            {isAttacked && (
+              {/* Centered Packet Count */}
               <text
                 x={p.x}
-                y={p.y - radius - 6}
+                y={p.y + (radius > 16 ? 4 : 3.5)}
                 textAnchor="middle"
-                fontSize="7"
-                fontFamily="'Share Tech Mono', monospace"
-                fontWeight="bold"
-                fill={color}
+                fontSize={radius > 16 ? "11" : "10"}
+                fontFamily="Inter, sans-serif"
+                fontWeight="800"
+                fill={cat.textColor}
               >
-                {node.severity.toUpperCase()}
+                {volume}
               </text>
-            )}
 
-            {/* Packet count badge */}
-            <text
-              x={p.x}
-              y={p.y + 2}
-              textAnchor="middle"
-              fontSize={radius > 10 ? "6" : "5"}
-              fontFamily="'Share Tech Mono', monospace"
-              fill="white"
-              fontWeight="bold"
-            >
-              {volume}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+              {/* IP Label BELOW node */}
+              <text
+                x={p.x}
+                y={p.y + radius + 13}
+                textAnchor="middle"
+                fontSize="9.5"
+                fontFamily="Consolas, monospace"
+                fontWeight="600"
+                fill="#9BA6B4"
+              >
+                {node.ip}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Floating Hover Tooltip */}
+      {activeHoverData && activeHoverData.pos && (
+        <div
+          className="absolute pointer-events-none bg-surface-2 border border-border px-3 py-2 rounded-lg shadow-xl text-xs z-30 transition-opacity duration-150"
+          style={{
+            left: Math.max(10, Math.min(640, activeHoverData.pos.x + 15)),
+            top: Math.max(10, Math.min(180, activeHoverData.pos.y - 30)),
+          }}
+        >
+          <div className="flex items-center gap-1.5 font-mono-tech font-bold text-white mb-0.5">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: activeHoverData.category.dotColor }} />
+            <span>{activeHoverData.node.ip}</span>
+          </div>
+          <div className="text-[11px] text-text-muted space-y-0.5">
+            <div>Role: <span className="text-white font-semibold">{activeHoverData.category.role}</span></div>
+            <div>Packets: <span className="text-gold font-bold">{activeHoverData.node.packets || 1}</span></div>
+            {activeHoverData.node.severity && activeHoverData.node.severity !== "none" && (
+              <div className="text-red-400 font-bold uppercase">Threat: {activeHoverData.node.severity}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Category Legend Overlay (Bottom Left) */}
+      <div className="absolute bottom-2 left-2 bg-surface-2/90 border border-border/80 px-2.5 py-1.5 rounded-lg flex items-center gap-3 text-[10px] font-mono-tech text-text-muted pointer-events-none">
+        <div className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-[#CBA135]" />
+          <span>Local Host</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-[#3E63C7]" />
+          <span>Internal</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-[#4A5568]" />
+          <span>External</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-[#DC2626]" />
+          <span>Threat</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
 
 // ── Main Component ──────────────────────────────────────────────────────────
 
-export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowClick, onNavigateToTopology }) {
+export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowClick }) {
   // --- State ---
   const [interfaces, setInterfaces] = useState([]);
   const [selectedIface, setSelectedIface] = useState("");
@@ -329,6 +439,12 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   const [bpsHistory, setBpsHistory] = useState([]);
   const [error, setError] = useState(null);
   const [topoNodes, setTopoNodes] = useState({});
+  const [knownClean, setKnownClean] = useState(false);
+  const [summaryInfo, setSummaryInfo] = useState({
+    packets_captured: 0,
+    flows_extracted: 0,
+    forecastable_conversations: 0,
+  });
 
   const wsRef = useRef(null);
   const bpsRef = useRef([]);
@@ -341,6 +457,24 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   useEffect(() => { selectedIfaceRef.current = selectedIface; }, [selectedIface]);
   useEffect(() => { isCapturingRef.current = isCapturing; }, [isCapturing]);
   useEffect(() => { flowsRef.current = flows; }, [flows]);
+
+  // --- Fetch capture summary info ---
+  useEffect(() => {
+    const fetchSummary = () => {
+      fetch(`${CAPTURE_API}/api/capture/summary`)
+        .then(r => r.json())
+        .then(data => {
+          if (data && typeof data.packets_captured === "number") {
+            setSummaryInfo(data);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchSummary();
+    const interval = setInterval(fetchSummary, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   // --- Initialize smooth BPS graph baseline ---
   useEffect(() => {
@@ -391,7 +525,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         setError("Capture server not reachable. Start it with: python capture_server.py");
       });
 
-    // Check backend active captures to sync UI state
     fetch(`${CAPTURE_API}/api/capture/status`)
       .then(r => r.json())
       .then(status => {
@@ -399,9 +532,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         if (activeIfaces.length > 0) {
           setIsCapturing(true);
           isCapturingRef.current = true;
-          if (activeIfaces.includes(selectedIfaceRef.current)) {
-            // Already matched
-          } else {
+          if (!activeIfaces.includes(selectedIfaceRef.current)) {
             setSelectedIface(activeIfaces[0]);
             selectedIfaceRef.current = activeIfaces[0];
           }
@@ -444,13 +575,11 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               return;
             }
 
-            // Stage forecaster forecasts from ML background task
             if (data.type === "stage_forecasts" && data.data) {
               try { window.__mlStageForecasts = data.data; } catch (_) {}
               return;
             }
 
-            // Real per-pair LSTM forecast (REAL src/dst IPs, gated on 10 windows)
             if (data.type === "live_forecast_update" && data.data) {
               const f = data.data;
               try {
@@ -462,7 +591,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               return;
             }
 
-            // Real-IP attack alert emitted by the live pipeline
             if (data.type === "live_forecast_alert" && data.data) {
               try {
                 window.__liveAlertQueue = [ ...(window.__liveAlertQueue || []), data.data ].slice(-25);
@@ -471,10 +599,8 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               return;
             }
 
-            // If capture is stopped/paused, ignore incoming packet events
             if (!isCapturingRef.current) return;
 
-            // Enqueue regular packet event for live batch processing
             if (data.src_ip && data.dst_ip) {
               packetQueueRef.current.push(data);
             }
@@ -543,7 +669,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               byte_count: next[key].byte_count + (data.length || 0),
               last_seen: data.timestamp,
               last_updated_ms: nowMs,
-              // Always carry forward the latest severity/attack labels from backend
               severity: data.severity || next[key].severity,
               attack_type: data.attack_type || next[key].attack_type,
               ml_label: data.ml_label || next[key].ml_label,
@@ -575,7 +700,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     return () => clearInterval(flushInterval);
   }, []);
 
-  // --- Lift flows up to parent (throttled to prevent UI render thrashing) ---
+  // --- Lift flows up to parent ---
   const lastLiftTimeRef = useRef(0);
   useEffect(() => {
     const now = Date.now();
@@ -606,13 +731,12 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     return () => clearInterval(interval);
   }, []);
 
-  // --- Expandable alert/flow state + defense actions ---
+  // --- Defense state ---
   const [expandedAlertKey, setExpandedAlertKey] = useState(null);
   const [expandedFlowKey, setExpandedFlowKey] = useState(null);
   const [defenseLoading, setDefenseLoading] = useState({});
   const [localDefenseState, setLocalDefenseState] = useState({});
 
-  // Poll defense state from capture server
   useEffect(() => {
     const fetchDefense = () => {
       fetch(`${CAPTURE_API}/api/defense/state`)
@@ -623,27 +747,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     fetchDefense();
     const iv = setInterval(fetchDefense, 3000);
     return () => clearInterval(iv);
-  }, []);
-
-  const callDefenseApi = useCallback(async (endpoint, body, loadingKey) => {
-    setDefenseLoading(prev => ({ ...prev, [loadingKey]: true }));
-    try {
-      const res = await fetch(`${CAPTURE_API}/api/defense/${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      // Refresh defense state
-      const stateRes = await fetch(`${CAPTURE_API}/api/defense/state`);
-      setLocalDefenseState(await stateRes.json());
-      return data;
-    } catch (e) {
-      console.error("Defense action failed:", e);
-      return null;
-    } finally {
-      setDefenseLoading(prev => ({ ...prev, [loadingKey]: false }));
-    }
   }, []);
 
   // --- Switch Interface ---
@@ -691,210 +794,11 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     }
   }, [selectedIface]);
 
-  // --- Export Raw PCAP for the current telemetry session ---
-  const [isExportingPcap, setIsExportingPcap] = useState(false);
+  // Notifications
   const [pcapNotification, setPcapNotification] = useState(null);
   const [csvNotification, setCsvNotification] = useState(null);
 
-  const handleExportPcap = useCallback(async () => {
-    if (isExportingPcap) return;
-    setIsExportingPcap(true);
-    setPcapNotification(null);
-
-    try {
-      let rawIface = (selectedIface || "network").toLowerCase();
-      let ifaceSlug = "network";
-      if (rawIface.includes("wifi") || rawIface.includes("wi-fi") || rawIface.includes("wlan")) {
-        ifaceSlug = "wifi";
-      } else if (rawIface.includes("ethernet") || rawIface.includes("eth")) {
-        const match = rawIface.match(/ethernet[_\s]*(\d+)/);
-        ifaceSlug = match ? `ethernet_${match[1]}` : "ethernet";
-      } else {
-        ifaceSlug = rawIface.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "network";
-      }
-
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, "0");
-      const datePart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-      const timePart = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-      const defaultFilename = `cyberforecaster_${ifaceSlug}_${datePart}_${timePart}.pcap`;
-
-      const res = await fetch(`${CAPTURE_API}/api/capture/export-pcap?interface=${encodeURIComponent(selectedIface || "")}&filename=${encodeURIComponent(defaultFilename)}`);
-
-      if (!res.ok) {
-        let errDetail = "";
-        try {
-          const errData = await res.json();
-          errDetail = errData.detail || errData.message || "";
-        } catch (_) {}
-
-        if (res.status === 400 || errDetail.includes("No captured packets")) {
-          setPcapNotification({
-            type: "warning",
-            title: "No captured packets available to export.",
-            message: "Start a capture and collect packets before exporting."
-          });
-        } else {
-          setPcapNotification({
-            type: "error",
-            title: "PCAP export failed.",
-            message: errDetail || "Please try again after capturing network traffic."
-          });
-        }
-        return;
-      }
-
-      let downloadedFilename = defaultFilename;
-      const disposition = res.headers.get("Content-Disposition");
-      if (disposition && disposition.includes("filename=")) {
-        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
-        if (matches != null && matches[1]) {
-          downloadedFilename = matches[1].replace(/['"]/g, "");
-        }
-      }
-
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = downloadedFilename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-
-      setPcapNotification({
-        type: "success",
-        title: "PCAP exported successfully",
-        filename: downloadedFilename
-      });
-
-    } catch (err) {
-      console.error("PCAP Export error:", err);
-      setPcapNotification({
-        type: "error",
-        title: "PCAP export failed.",
-        message: "Please try again after capturing network traffic."
-      });
-    } finally {
-      setIsExportingPcap(false);
-    }
-  }, [selectedIface, isExportingPcap]);
-
-  // --- Export Processed Flow Data as CSV ---
-  const handleExportCsv = useCallback(() => {
-    let list = Object.values(flows);
-    if (showAttackOnly) {
-      list = list.filter(f => f.severity && f.severity !== "none");
-    }
-    if (filter) {
-      const q = filter.toLowerCase();
-      list = list.filter(f =>
-        (f.src_ip || "").toLowerCase().includes(q) ||
-        (f.dst_ip || "").toLowerCase().includes(q) ||
-        (f.protocol || "").toLowerCase().includes(q) ||
-        (f.attack_type || "").toLowerCase().includes(q)
-      );
-    }
-    list.sort((a, b) => (b.packet_count || 0) - (a.packet_count || 0));
-
-    if (list.length === 0) {
-      setCsvNotification({
-        type: "warning",
-        title: "No captured flows available to export.",
-        message: "Start a capture and collect flow data before exporting."
-      });
-      return;
-    }
-
-    setCsvNotification(null);
-
-    let rawIface = (selectedIface || "network").toLowerCase();
-    let ifaceSlug = "network";
-    if (rawIface.includes("wifi") || rawIface.includes("wi-fi") || rawIface.includes("wlan")) {
-      ifaceSlug = "wifi";
-    } else if (rawIface.includes("ethernet") || rawIface.includes("eth")) {
-      const match = rawIface.match(/ethernet[_\s]*(\d+)/);
-      ifaceSlug = match ? `ethernet_${match[1]}` : "ethernet";
-    } else {
-      ifaceSlug = rawIface.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "network";
-    }
-
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    const datePart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    const timePart = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-    const filename = `cyberforecaster_flows_${ifaceSlug}_${datePart}_${timePart}.csv`;
-
-    const headers = [
-      "source_ip",
-      "src_port",
-      "destination_ip",
-      "dst_port",
-      "protocol",
-      "packets",
-      "bytes",
-      "attack",
-      "severity",
-      "first_seen",
-      "last_seen",
-      "interface"
-    ];
-
-    const escapeCsv = (val) => {
-      if (val === null || val === undefined) return "";
-      const str = String(val);
-      if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
-        return `"${str.replace(/"/g, '""')}"`;
-      }
-      return str;
-    };
-
-    const rows = list.map(flow => {
-      let attackLabel = "BENIGN";
-      if (flow.attack_type && flow.attack_type.toLowerCase() !== "benign" && flow.attack_type.toLowerCase() !== "none") {
-        attackLabel = flow.attack_type.toUpperCase();
-      } else if (flow.severity && flow.severity.toLowerCase() !== "none") {
-        attackLabel = "ATTACK";
-      }
-
-      let severityLabel = (flow.severity || "NONE").toUpperCase();
-
-      return [
-        escapeCsv(flow.src_ip || ""),
-        Number(flow.src_port) || 0,
-        escapeCsv(flow.dst_ip || ""),
-        Number(flow.dst_port) || 0,
-        escapeCsv((flow.protocol || "UNKNOWN").toUpperCase()),
-        Number(flow.packet_count) || 0,
-        Number(flow.byte_count) || 0,
-        escapeCsv(attackLabel),
-        escapeCsv(severityLabel),
-        escapeCsv(flow.first_seen ? new Date(flow.first_seen).toISOString() : ""),
-        escapeCsv(flow.last_seen ? new Date(flow.last_seen).toISOString() : ""),
-        escapeCsv(flow.interface || selectedIface || "")
-      ].join(",");
-    });
-
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    setCsvNotification({
-      type: "success",
-      title: "CSV exported successfully",
-      filename: filename
-    });
-  }, [flows, filter, showAttackOnly, selectedIface]);
-
-  // --- Derived data ---
+  // Derived flow list
   const filteredFlows = useMemo(() => {
     let list = Object.values(flows);
     if (showAttackOnly) {
@@ -912,9 +816,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     return list.sort((a, b) => (b.packet_count || 0) - (a.packet_count || 0));
   }, [flows, filter, showAttackOnly]);
 
-  const flowList = useMemo(() => {
-    return filteredFlows.slice(0, 100);
-  }, [filteredFlows]);
+  const flowList = useMemo(() => filteredFlows.slice(0, 100), [filteredFlows]);
 
   const protoDist = useMemo(() => {
     const counts = {};
@@ -943,7 +845,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     const portScanPairs = new Set();
     const sevOrder = { critical: 4, high: 3, medium: 2, low: 1 };
 
-    // First identify threat types per src_ip|dst_ip pair
     attackFlows.forEach(flow => {
       if (flow.attack_type === 'Brute Force' || flow.ml_label === 'brute_force') {
         bruteForcePairs.add(`${flow.src_ip}|${flow.dst_ip}`);
@@ -960,32 +861,24 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
           ? flow.ml_label.replace(/_/g, ' ')
           : 'Unknown');
 
-      // Standardize ICMP attack display name so ALL ICMP threats consolidate into a single ICMP Flood card
       if (flow.protocol === 'ICMP') {
         displayType = 'ICMP Flood';
       }
 
-      // Suppress duplicate Port Scan card if a host is performing a targeted single-port Brute Force attack (unique ports < 4)
       if (displayType === 'Port Scan' && bruteForcePairs.has(`${flow.src_ip}|${flow.dst_ip}`)) {
         const allHostFlows = Object.values(flows).filter(f => f.src_ip === flow.src_ip && f.dst_ip === flow.dst_ip);
         const uniquePorts = new Set(allHostFlows.map(f => f.dst_port)).size;
-        if (uniquePorts < 4) {
-          return;
-        }
+        if (uniquePorts < 4) return;
       }
 
-      // Suppress transient Brute Force card if host is executing a multi-port Nmap scan (unless >= 8 attempts on a single auth port)
       if (displayType === 'Brute Force' && portScanPairs.has(`${flow.src_ip}|${flow.dst_ip}`)) {
         const samePortPkts = attackFlows
           .filter(f => f.src_ip === flow.src_ip && f.dst_ip === flow.dst_ip && f.dst_port === flow.dst_port)
           .reduce((sum, f) => sum + (f.packet_count || 1), 0);
-        if (samePortPkts < 8) {
-          return;
-        }
+        if (samePortPkts < 8) return;
       }
 
       const sev = flow.severity || 'low';
-      // Group by Source IP + Destination IP + Attack Type (severity upgrades dynamically)
       const key = `${flow.src_ip}|${flow.dst_ip}|${displayType}`;
 
       if (!map.has(key)) {
@@ -1009,7 +902,6 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         const existing = map.get(key);
         existing.count += 1;
         existing.allFlows.push(flow);
-        // Dynamically upgrade to highest severity level seen for this threat
         if ((sevOrder[sev] || 0) > (sevOrder[existing.severity] || 0)) {
           existing.severity = sev;
         }
@@ -1056,251 +948,158 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   };
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-5 animate-fade-in bg-bg text-text">
       {/* Error banner */}
       {error && (
-        <div className="bg-rose-950/30 border border-rose-800/50 rounded-xl p-4 flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
+        <div className="bg-surface border border-gold/40 rounded-xl p-4 flex items-center gap-3 text-gold">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
           <div>
-            <p className="text-xs font-bold text-rose-400 font-mono-tech">Capture Server Offline</p>
-            <p className="text-[10px] text-rose-500/70 font-mono-tech mt-0.5">{error}</p>
+            <p className="text-sm font-bold text-gold">Capture Server Offline</p>
+            <p className="text-xs mt-0.5 text-text-muted">{error}</p>
           </div>
-        </div>
-      )}
-
-      {/* PCAP Export Notification Toast */}
-      {pcapNotification && (
-        <div className={`border rounded-xl p-4 flex items-center justify-between gap-3 animate-fade-in ${
-          pcapNotification.type === "success"
-            ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-400"
-            : pcapNotification.type === "warning"
-            ? "bg-amber-950/40 border-amber-800/60 text-amber-400"
-            : "bg-rose-950/40 border-rose-800/60 text-rose-400"
-        }`}>
-          <div className="flex items-center gap-3">
-            {pcapNotification.type === "success" ? (
-              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
-            ) : pcapNotification.type === "warning" ? (
-              <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
-            )}
-            <div>
-              <p className="text-xs font-bold font-mono-tech">{pcapNotification.title}</p>
-              {pcapNotification.filename && (
-                <p className="text-[10px] opacity-80 font-mono-tech mt-0.5 font-bold">{pcapNotification.filename}</p>
-              )}
-              {pcapNotification.message && (
-                <p className="text-[10px] opacity-80 font-mono-tech mt-0.5">{pcapNotification.message}</p>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={() => setPcapNotification(null)}
-            className="text-xs opacity-60 hover:opacity-100 font-mono-tech px-2 py-1"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* CSV Export Notification Toast */}
-      {csvNotification && (
-        <div className={`border rounded-xl p-4 flex items-center justify-between gap-3 animate-fade-in ${
-          csvNotification.type === "success"
-            ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-400"
-            : csvNotification.type === "warning"
-            ? "bg-amber-950/40 border-amber-800/60 text-amber-400"
-            : "bg-rose-950/40 border-rose-800/60 text-rose-400"
-        }`}>
-          <div className="flex items-center gap-3">
-            {csvNotification.type === "success" ? (
-              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
-            ) : csvNotification.type === "warning" ? (
-              <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
-            )}
-            <div>
-              <p className="text-xs font-bold font-mono-tech">{csvNotification.title}</p>
-              {csvNotification.filename && (
-                <p className="text-[10px] opacity-80 font-mono-tech mt-0.5 font-bold">{csvNotification.filename}</p>
-              )}
-              {csvNotification.message && (
-                <p className="text-[10px] opacity-80 font-mono-tech mt-0.5">{csvNotification.message}</p>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={() => setCsvNotification(null)}
-            className="text-xs opacity-60 hover:opacity-100 font-mono-tech px-2 py-1"
-          >
-            ✕
-          </button>
         </div>
       )}
 
       {/* Interface Selector + Controls */}
-      <section className="glass-card rounded-xl border border-slate-800/50 p-4">
-        <div className="flex items-center gap-4 flex-wrap w-full">
+      <section className="bg-surface rounded-xl border border-border p-4">
+        <div className="flex items-center gap-4 flex-wrap justify-between w-full">
+          {/* Left Side: Interface label + Dropdown + Download PCAP */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <Radio className="h-4 w-4 text-cyan-400" />
-              <span className="text-xs font-bold uppercase tracking-wider font-mono-tech">Network Interface</span>
+              <Radio className="h-4 w-4 text-gold" />
+              <span className="text-sm font-bold uppercase tracking-wider text-white whitespace-nowrap">Network Interface</span>
             </div>
             <div className="relative">
               <select
                 value={selectedIface}
                 onChange={(e) => handleInterfaceChange(e.target.value)}
-                className="appearance-none bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 pr-8 text-xs font-mono-tech text-white outline-none focus:border-cyan-600 cursor-pointer min-w-[240px]"
+                className="appearance-none bg-surface-2 border border-border rounded-lg px-3 py-2 pr-8 text-sm text-text outline-none focus:border-gold cursor-pointer min-w-[220px] font-semibold"
               >
                 <option value="">Select interface...</option>
-                {interfaces.map(iface => {
-                  const Icon = IFACE_ICONS[iface.type] || Globe;
-                  return (
-                    <option key={iface.name} value={iface.name}>
-                      {iface.name} ({iface.type}) - {iface.ip} {iface.is_up ? "●" : "○"}
-                    </option>
-                  );
-                })}
+                {interfaces.map(iface => (
+                  <option key={iface.name} value={iface.name}>
+                    {iface.name} ({iface.type}) - {iface.ip} {iface.is_up ? "●" : "○"}
+                  </option>
+                ))}
               </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             </div>
-            {selectedIfaceInfo && (
-              <div className="flex items-center gap-2 text-[9px] font-mono-tech bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800">
-                <span className="text-cyan-400 font-bold">{selectedIfaceInfo.type}</span>
-                <span className="text-slate-600">|</span>
-                <span className="text-slate-300">{selectedIfaceInfo.ip}</span>
-                <span className="text-slate-600">|</span>
-                <span className="text-slate-500">{selectedIfaceInfo.mac}</span>
-                <span className="text-slate-600">|</span>
-                <span className={selectedIfaceInfo.is_up ? "text-emerald-400" : "text-slate-600"}>
-                  {selectedIfaceInfo.is_up ? "ACTIVE" : "INACTIVE"}
-                </span>
-              </div>
-            )}
+
+            {/* DOWNLOAD PCAP Button to the right of dropdown */}
+            <button
+              onClick={() => window.open(`${CAPTURE_API}/api/capture/download?format=pcap`, "_blank")}
+              title="Download raw packets captured during the telemetry session as a .pcap file"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue hover:bg-blue-hi border border-border/80 text-white text-xs font-extrabold uppercase tracking-wider transition-all duration-200 shadow-md hover:scale-[1.03] hover:shadow-lg cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Download className="h-4 w-4" />
+              <span>Download PCAP</span>
+            </button>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-mono-tech border ${
-              connected
-                ? "bg-emerald-950/30 border-emerald-900/50 text-emerald-400"
-                : "bg-rose-950/30 border-rose-900/50 text-rose-400"
+          {/* Right Side: Capture Server Online Indicator + Clear/Reset + Start Capture */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Capture Server Status with Green Flashy Glow Dot */}
+            <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs border transition-all ${
+              connected 
+                ? "bg-surface-2 border-border text-gold font-bold" 
+                : "bg-surface-2 border-border text-text-muted font-medium"
             }`}>
-              <div className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400 pulse-cyan" : "bg-rose-500"}`}></div>
-              <span>{connected ? "CAPTURE SERVER ONLINE" : "DISCONNECTED"}</span>
+              <div className={`h-2.5 w-2.5 rounded-full transition-all ${
+                !connected
+                  ? "bg-border"
+                  : isCapturing
+                  ? "bg-emerald-400 animate-pulse shadow-[0_0_12px_rgba(16,185,129,0.9)] ring-2 ring-emerald-500/50"
+                  : "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]"
+              }`} />
+              <span className="font-bold tracking-wide whitespace-nowrap">
+                {connected ? (isCapturing ? "LIVE CAPTURING ACTIVE" : "CAPTURE SERVER ONLINE") : "DISCONNECTED"}
+              </span>
             </div>
+
             <button
               onClick={resetDashboardState}
               title="Reset dashboard metrics and start fresh"
-              className="flex items-center gap-1 px-2.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-[10px] font-mono-tech transition-all"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-2 hover:bg-border border border-border text-text text-xs transition-all font-semibold cursor-pointer whitespace-nowrap"
             >
-              <RefreshCw className="h-3 w-3 text-cyan-400" />
+              <RefreshCw className="h-3.5 w-3.5 text-gold" />
               <span>Clear / Reset</span>
             </button>
+
             {!isCapturing ? (
               <button
                 onClick={startCapture}
                 disabled={!selectedIface || !connected}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-mono-tech font-bold uppercase transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-emerald-950/40"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gold hover:bg-gold-hi text-bg text-[11px] font-bold uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm whitespace-nowrap"
               >
-                <Play className="h-3.5 w-3.5" />
+                <Play className="h-3.5 w-3.5 fill-current" />
                 <span>Start Capture</span>
               </button>
             ) : (
               <button
                 onClick={stopCapture}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-mono-tech font-bold uppercase transition-all shadow-lg shadow-rose-950/40 animate-pulse"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gold hover:bg-gold-hi text-bg text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm whitespace-nowrap"
               >
-                <Square className="h-3.5 w-3.5" />
+                <Square className="h-3.5 w-3.5 fill-current" />
                 <span>Stop Capture</span>
               </button>
             )}
           </div>
-
-          {/* Export PCAP Button pushed to the extreme right */}
-          <button
-            onClick={handleExportPcap}
-            disabled={!connected || isExportingPcap}
-            title="Export raw packets captured during the current telemetry session as a .pcap file"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-800/60 hover:border-cyan-500 text-cyan-400 hover:text-cyan-300 text-[10px] font-mono-tech font-bold uppercase transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-cyan-950/30 ml-auto"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span>{isExportingPcap ? "Exporting..." : "Export PCAP"}</span>
-          </button>
         </div>
-        {selectedIface && (
-          <div className="mt-3 pt-3 border-t border-slate-800/40 flex items-center justify-between text-[10px] font-mono-tech flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500">Live Capturing Target:</span>
-              <span className="text-cyan-400 font-bold bg-cyan-950/40 border border-cyan-900/50 px-2 py-0.5 rounded">
-                {selectedIface}
-              </span>
-              {isCapturing ? (
-                <span className="text-emerald-400 flex items-center gap-1 animate-pulse">
-                  ● SNIFFING {selectedIfaceInfo?.type?.toUpperCase() || "INTERFACE"}
-                </span>
-              ) : (
-                <span className="text-slate-500">○ IDLE (Click Start Capture)</span>
-              )}
-            </div>
-            <div className="text-slate-500 text-[9px]">
-              Switching interface automatically isolates packets & refreshes the dashboard view.
-            </div>
-          </div>
-        )}
       </section>
 
-      {/* Stats Row */}
-      <section className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      {/* Stats Row — 3 Equal Cards Full Width */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
         {[
-          { label: "Total Packets", value: totalPkts.toLocaleString(), icon: Activity, color: "text-cyan-400" },
-          { label: "Total Data", value: formatBytes(totalBytes), icon: Globe, color: "text-indigo-400" },
-          { label: "Unique Flows", value: Object.keys(flows).length, icon: Zap, color: "text-amber-400" },
-          { label: "Attack Flows", value: attackFlows.length, icon: ShieldAlert, color: "text-rose-400" },
-          { label: "Nodes Seen", value: topoNodeList.length, icon: Network, color: "text-purple-400" },
+          { label: "TOTAL PACKETS", value: totalPkts.toLocaleString() },
+          { label: "TOTAL DATA", value: formatBytes(totalBytes) },
+          { label: "UNIQUE FLOWS", value: Object.keys(flows).length.toLocaleString() },
         ].map((s, i) => (
-          <div key={i} className="glass-card rounded-lg border border-slate-800/50 p-3 flex items-center gap-3">
-            <s.icon className={`h-5 w-5 ${s.color} opacity-50`} />
-            <div>
-              <p className="text-[9px] uppercase tracking-wider text-slate-500 font-mono-tech">{s.label}</p>
-              <p className={`text-lg font-black font-mono-tech ${s.color}`}>{s.value}</p>
+          <div
+            key={i}
+            className="bg-surface rounded-xl border border-border px-5 py-3 flex items-center justify-between shadow-sm hover:border-border/80 transition-all w-full"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-0.5 truncate">
+                {s.label}
+              </p>
+              <p className="text-xl md:text-2xl font-black text-white leading-none tracking-tight truncate">
+                {s.value}
+              </p>
             </div>
           </div>
         ))}
       </section>
 
       {/* Charts Row: BPS + Protocol */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 glass-card rounded-xl border border-slate-800/50 p-4">
+      <section id="live-network-traffic" className="grid grid-cols-1 lg:grid-cols-3 gap-5 scroll-mt-6">
+        <div className="lg:col-span-2 bg-surface rounded-xl border border-border p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Activity className="h-4 w-4 text-cyan-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Live Network Traffic</h3>
-            {isCapturing && <span className="text-[9px] text-cyan-400 font-mono-tech animate-pulse ml-auto">LIVE</span>}
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white">Live Network Traffic</h3>
+            {isCapturing && <span className="text-xs text-gold font-bold ml-auto">LIVE</span>}
           </div>
-          <div className="h-[180px]">
+          <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={bpsHistory} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="gradBps" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00f0ff" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#00f0ff" stopOpacity={0} />
+                  <linearGradient id="liveTrafficGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3E63C7" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#3E63C7" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" />
-                <XAxis dataKey="time" tick={{ fontSize: 8, fill: "#64748b" }} interval={4} />
-                <YAxis tick={{ fontSize: 9, fill: "#64748b" }} tickFormatter={formatBps} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#262E3A" />
+                <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#9BA6B4" }} interval={4} />
+                <YAxis tick={{ fontSize: 10, fill: "#9BA6B4" }} tickFormatter={formatBps} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "#0b0f19", border: "1px solid #1f293d", borderRadius: 8, fontSize: 10 }}
+                  contentStyle={{ backgroundColor: "#1B2430", border: "1px solid #262E3A", borderRadius: 8, fontSize: 12, color: "#F3F1EA" }}
                   formatter={(val) => [formatBps(val), "Bandwidth"]}
                 />
                 <Area
                   type="monotone"
                   dataKey="bps"
-                  stroke="#00f0ff"
-                  strokeWidth={2}
+                  stroke="#3E63C7"
+                  strokeWidth={2.5}
                   fillOpacity={1}
-                  fill="url(#gradBps)"
+                  fill="url(#liveTrafficGrad)"
                   isAnimationActive={true}
                   animationDuration={850}
                   animationEasing="linear"
@@ -1309,28 +1108,24 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
             </ResponsiveContainer>
           </div>
         </div>
-        <div className="glass-card rounded-xl border border-slate-800/50 p-4">
+
+        <div className="bg-surface rounded-xl border border-border p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Globe className="h-4 w-4 text-indigo-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Protocol Split</h3>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white">Protocol Split</h3>
           </div>
-          <div className="h-[180px]">
+          <div className="h-[260px]">
             {protoDist.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={protoDist} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94a3b8" }} />
-                  <YAxis tick={{ fontSize: 9, fill: "#64748b" }} />
-                  <Tooltip contentStyle={{ backgroundColor: "#0b0f19", border: "1px solid #1f293d", borderRadius: 8, fontSize: 10 }} />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]} name="Packets" isAnimationActive={true} animationDuration={300}>
-                    {protoDist.map((entry) => (
-                      <Cell key={`cell-${entry.name}`} fill={PROTO_COLORS[entry.name] || "#00f0ff"} />
-                    ))}
-                  </Bar>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#262E3A" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#9BA6B4" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#9BA6B4" }} />
+                  <Tooltip contentStyle={{ backgroundColor: "#1B2430", border: "1px solid #262E3A", borderRadius: 8, fontSize: 12, color: "#F3F1EA" }} />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]} fill="#3E63C7" name="Packets" isAnimationActive={true} animationDuration={300} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-full text-slate-600 text-[10px] font-mono-tech">
+              <div className="flex items-center justify-center h-full text-text-muted text-xs">
                 Start capture to see protocol distribution
               </div>
             )}
@@ -1338,47 +1133,22 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         </div>
       </section>
 
-      {/* Topology + Alerts side-by-side */}
-      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Minimized Force-Directed Topology (3/5 width) */}
-        <div className="lg:col-span-3 glass-card rounded-xl border border-slate-800/50 p-4">
+      {/* Topology + Alerts side-by-side — Symmetrical 2x2 Grid with Top Row */}
+      <section id="live-network-topology" className="grid grid-cols-1 lg:grid-cols-3 gap-5 scroll-mt-6">
+        {/* Live Network Topology (2/3 width — matches Live Network Traffic) */}
+        <div className="lg:col-span-2 bg-surface rounded-xl border border-border p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Network className="h-4 w-4 text-purple-400" />
-              <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Live Network Topology</h3>
-              <span className="text-[9px] font-mono-tech text-slate-500 bg-slate-900 px-2 py-0.5 rounded">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white">Live Network Topology</h3>
+              <span className="text-xs text-text-muted bg-surface-2 px-2 py-0.5 rounded border border-border font-medium">
                 {topoNodeList.length} nodes · {topoLinks.length} links
               </span>
             </div>
-            {onNavigateToTopology && (
-              <button
-                onClick={onNavigateToTopology}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-purple-950/40 hover:bg-purple-900/50 border border-purple-800/60 hover:border-purple-500 text-purple-300 hover:text-purple-200 text-[9px] font-mono-tech font-bold uppercase transition-all"
-                title="Scroll to sidebar 3D topology"
-              >
-                <Network className="h-3 w-3" />
-                <span>View Topology</span>
-              </button>
-            )}
-            <div className="flex items-center gap-2 text-[8px] font-mono-tech">
-              {[
-                { label: "Critical", color: SEV_COLORS.critical },
-                { label: "High", color: SEV_COLORS.high },
-                { label: "Medium", color: SEV_COLORS.medium },
-                { label: "Low", color: SEV_COLORS.low },
-              ].map(l => (
-                <div key={l.label} className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }}></div>
-                  <span className="text-slate-500">{l.label}</span>
-                </div>
-              ))}
-            </div>
           </div>
-          <div className="relative bg-[#060a12] rounded-lg overflow-hidden scan-overlay" style={{ height: 280 }}>
+          <div className="relative bg-surface rounded-lg overflow-hidden border border-border h-[260px]">
             {topoNodeList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-600 gap-2">
-                <Network className="h-8 w-8 opacity-20" />
-                <span className="text-[10px] font-mono-tech">Start a capture to see topology</span>
+              <div className="flex flex-col items-center justify-center h-full text-text-muted gap-2">
+                <span className="text-xs">Start a capture to see topology</span>
               </div>
             ) : (
               <ForceDirectedTopology
@@ -1393,82 +1163,63 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
           </div>
         </div>
 
-        {/* Attack Alerts Card (2/5 width) — only shows when attacks detected */}
-        <div className="lg:col-span-2 glass-card rounded-xl border border-rose-900/30 p-4 flex flex-col">
+        {/* Attack Alerts Card (1/3 width — matches Protocol Split) */}
+        <div className="lg:col-span-1 bg-surface rounded-xl border border-border p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <ShieldAlert className="h-4 w-4 text-rose-400 animate-pulse" />
-              <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech text-rose-400">Attack Alerts</h3>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-white">Attack Alerts</h3>
             </div>
             {consolidatedAlerts.length > 0 && (
-              <span className="text-[8px] font-mono-tech text-rose-400 bg-rose-950/30 px-1.5 py-0.5 rounded border border-rose-900/50">
+              <span className="text-xs text-bg bg-gold px-2 py-0.5 rounded font-bold">
                 {consolidatedAlerts.length} {consolidatedAlerts.length === 1 ? "threat" : "threats"}
               </span>
             )}
           </div>
           {consolidatedAlerts.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-2 py-6">
-              <CheckCircle2 className="h-6 w-6 opacity-20 text-emerald-400" />
-              <span className="text-[10px] font-mono-tech">No attacks detected — all clear</span>
+            <div className="flex-1 flex flex-col items-center justify-center text-text-muted gap-2 h-[260px]">
+              <CheckCircle2 className="h-6 w-6 text-gold opacity-80" />
+              <span className="text-xs">No attacks detected — all clear</span>
             </div>
           ) : (
-            <div className="space-y-1.5 flex-1 overflow-y-auto max-h-[320px] pr-1">
+            <div className="space-y-2 h-[260px] max-h-[260px] overflow-y-auto pr-1">
               {consolidatedAlerts.map((alert) => {
                 const aKey = alert.key;
-                const isExpanded = expandedAlertKey === aKey;
                 const flow = alert.latestFlow;
-                const ifaceD = localDefenseState[selectedIface] || {};
                 return (
-                    <div
-                      key={aKey}
-                      onClick={() => onFlowClick && onFlowClick(flow)}
-                      className={`w-full text-left p-3 rounded-lg border transition-all cursor-pointer hover:border-cyan-500/50 hover:bg-slate-900/80 ${
-                        alert.severity === "critical"
-                          ? "border-rose-800/40 bg-rose-950/15"
-                          : alert.severity === "high"
-                          ? "border-amber-800/40 bg-amber-950/15"
-                          : "border-slate-800/40 bg-slate-950/20"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase shrink-0 ${
-                            alert.severity === "critical" ? "bg-rose-950/50 text-rose-400 border border-rose-900/50 pulse-red" :
-                            alert.severity === "high" ? "bg-amber-950/50 text-amber-400 border border-amber-900/50" :
-                            alert.severity === "medium" ? "bg-yellow-950/50 text-yellow-400 border border-yellow-900/50" :
-                            "bg-cyan-950/50 text-cyan-400 border border-cyan-900/50"
-                          }`}>
-                            {alert.severity?.toUpperCase()?.slice(0, 4)}
-                          </span>
-                          <div className="font-mono-tech text-[10px] min-w-0">
-                            <span className="text-cyan-400 font-bold">{alert.src_ip}</span>
-                            <span className="text-slate-600 mx-1">→</span>
-                            <span className="text-white font-bold">{alert.dst_ip}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0 ml-2">
-                          <span className="text-[9px] text-amber-400 font-mono-tech font-bold">{alert.displayType}</span>
-                          {alert.ml_confidence && alert.ml_label && alert.ml_label !== 'benign' && (
-                            <span className="text-[8px] text-slate-500 font-mono-tech">{Math.round(alert.ml_confidence * 100)}%</span>
-                          )}
-                          <span className="px-2 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/50 text-cyan-400 text-[8px] font-mono-tech font-bold flex items-center gap-1 hover:bg-cyan-900/60 transition-all">
-                            <span>View Forecast</span>
-                            <ChevronRight className="h-3 w-3" />
-                          </span>
+                  <div
+                    key={aKey}
+                    onClick={() => onFlowClick && onFlowClick(flow)}
+                    className="w-full text-left p-3 rounded-lg border border-gold/30 bg-surface-2 text-text transition-all cursor-pointer hover:border-gold"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="px-1.5 py-0.5 rounded text-xs font-bold uppercase bg-gold text-bg shrink-0">
+                          {alert.severity?.toUpperCase()?.slice(0, 4)}
+                        </span>
+                        <div className="text-xs min-w-0">
+                          <span className="text-white font-bold">{alert.src_ip}</span>
+                          <span className="text-text-muted mx-1">→</span>
+                          <span className="text-white font-bold">{alert.dst_ip}</span>
                         </div>
                       </div>
-
-                      {/* Consolidated Count & Status Sub-line */}
-                      <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-800/40 text-[8px] font-mono-tech text-slate-400">
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
-                          <span>Ongoing · <strong className="text-slate-200">{alert.count}</strong> {alert.count === 1 ? "event" : "events"}</span>
-                        </div>
-                        {alert.last_seen && (
-                          <span className="text-[8px] text-slate-500">{new Date(alert.last_seen).toLocaleTimeString()}</span>
-                        )}
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <span className="text-xs text-gold font-semibold">{alert.displayType}</span>
+                        <span className="px-2 py-0.5 rounded bg-gold/20 text-gold text-xs font-semibold flex items-center gap-1 border border-gold/30">
+                          <span>Forecast</span>
+                        </span>
                       </div>
                     </div>
+
+                    <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border text-xs text-text-muted">
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-gold"></span>
+                        <span>Ongoing · <strong className="text-white">{alert.count}</strong> {alert.count === 1 ? "event" : "events"}</span>
+                      </div>
+                      {alert.last_seen && (
+                        <span className="text-xs text-text-muted opacity-80">{new Date(alert.last_seen).toLocaleTimeString()}</span>
+                      )}
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -1478,135 +1229,121 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
 
       {/* Filter + Attack toggle + Export CSV */}
       <section className="flex items-center gap-3">
-        <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 flex-1 max-w-md">
-          <Search className="h-4 w-4 text-slate-500" />
+        <div className="flex items-center gap-2 bg-surface border border-border rounded-lg px-3 py-2 flex-1 max-w-md">
+          <Search className="h-4 w-4 text-gold" />
           <input
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter by IP, protocol, attack type..."
-            className="bg-transparent text-xs text-white placeholder:text-slate-600 outline-none flex-1 font-mono-tech"
+            className="bg-transparent text-sm text-text placeholder:text-text-muted outline-none flex-1 font-medium"
           />
         </div>
         <button
           onClick={() => setShowAttackOnly(!showAttackOnly)}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-[10px] font-mono-tech uppercase transition-all ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
             showAttackOnly
-              ? "bg-rose-950/30 border-rose-800/50 text-rose-400"
-              : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-300"
+              ? "bg-gold text-bg border-gold"
+              : "bg-surface-2 border-border text-text hover:bg-surface"
           }`}
         >
-          <ShieldAlert className="h-3.5 w-3.5" />
           <span>Attacks Only</span>
         </button>
+
+        {/* Download CSV Button */}
         <button
-          onClick={handleExportCsv}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[10px] font-mono-tech uppercase transition-all shadow-sm"
-          title="Export current captured flow dataset as CSV"
+          onClick={() => window.open(`${CAPTURE_API}/api/capture/download?format=csv${knownClean ? "&known_clean=1" : ""}`, "_blank")}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue hover:bg-blue-hi border border-border/80 text-white text-xs font-extrabold uppercase tracking-wider transition-all duration-200 shadow-md hover:scale-[1.03] hover:shadow-lg cursor-pointer whitespace-nowrap shrink-0"
+          title="Download flow feature dataset captured during the telemetry session as a .csv file"
         >
-          <Download className="h-3.5 w-3.5 text-cyan-400" />
-          <span>Export CSV</span>
+          <Download className="h-4 w-4 text-white" />
+          <span>Download CSV</span>
         </button>
       </section>
 
       {/* Flow Table */}
-      <section className="glass-card rounded-xl border border-slate-800/50 overflow-hidden">
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+      <section id="captured-flows" className="bg-surface rounded-xl border border-border overflow-hidden scroll-mt-6">
+        <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-indigo-400" />
-            <h3 className="text-xs font-bold uppercase tracking-wider font-mono-tech">Captured Flows</h3>
-            <span className="text-[9px] font-mono-tech text-slate-500 bg-slate-900 px-2 py-0.5 rounded">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-white">Captured Flows</h3>
+            <span className="text-xs text-text-muted bg-surface-2 px-2 py-0.5 rounded border border-border font-medium">
               {flowList.length} flows
             </span>
           </div>
           {isCapturing && (
-            <span className="text-[9px] text-cyan-400 font-mono-tech animate-pulse flex items-center gap-1">
-              <RefreshCw className="h-3 w-3" /> Streaming
+            <span className="text-xs text-gold font-bold flex items-center gap-1">
+              Streaming
             </span>
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left font-mono-tech text-[10px]">
+          <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
-                <th className="px-4 py-2.5">Source IP</th>
-                <th>Src Port</th>
-                <th>Destination IP</th>
-                <th>Dst Port</th>
-                <th>Proto</th>
-                <th>Packets</th>
-                <th>Bytes</th>
-                <th>Attack</th>
-                <th>Severity</th>
+              <tr className="border-b border-border text-text-muted uppercase tracking-wider bg-surface-2">
+                <th className="px-4 py-2.5 font-bold">Source IP</th>
+                <th className="font-bold">Src Port</th>
+                <th className="font-bold">Destination IP</th>
+                <th className="font-bold">Dst Port</th>
+                <th className="font-bold">Proto</th>
+                <th className="font-bold">Packets</th>
+                <th className="font-bold">Bytes</th>
+                <th className="font-bold">Attack</th>
+                <th className="font-bold">Severity</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-900/50">
+            <tbody className="divide-y divide-border">
               {!isCapturing && flowList.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="py-16 text-center text-slate-600">
-                    <Radio className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                    <p className="font-mono-tech text-xs">Select an interface and click Start Capture to begin</p>
+                  <td colSpan="9" className="py-16 text-center text-text-muted">
+                    <Radio className="h-8 w-8 mx-auto mb-2 text-gold opacity-80" />
+                    <p className="text-sm font-bold text-text">Select an interface and click Start Capture to begin</p>
                   </td>
                 </tr>
               ) : flowList.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="py-16 text-center text-slate-600">
-                    <Activity className="h-8 w-8 mx-auto mb-2 opacity-20 animate-spin" />
-                    <p className="font-mono-tech text-xs">Capturing... waiting for packets</p>
+                  <td colSpan="9" className="py-16 text-center text-text-muted">
+                    <p className="text-sm font-bold text-text">Capturing... waiting for packets</p>
                   </td>
                 </tr>
               ) : (
                 flowList.map((flow, idx) => {
                   const fKey = `${flow.src_ip}:${flow.src_port}-${flow.dst_ip}:${flow.dst_port}-${flow.protocol}`;
                   const isAttack = flow.severity && flow.severity !== "none";
-                  const isExpanded = expandedFlowKey === fKey;
-                  const ifaceD = localDefenseState[selectedIface] || {};
                   return (
-                    <React.Fragment key={idx}>
-                      <tr
-                        onClick={() => isAttack && setExpandedFlowKey(isExpanded ? null : fKey)}
-                        className={`transition-colors ${
-                          isAttack
-                            ? `bg-rose-950/5 hover:bg-rose-950/15 cursor-pointer ${isExpanded ? "bg-slate-900/30" : ""}`
-                            : "hover:bg-slate-900/20"
-                        }`}
-                      >
-                        <td className="px-4 py-2 text-cyan-400 font-bold">{flow.src_ip}</td>
-                        <td className="text-slate-400">{flow.src_port}</td>
-                        <td className="text-white font-bold">{flow.dst_ip}</td>
-                        <td className="text-slate-400">{flow.dst_port}</td>
-                        <td>
-                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
-                            flow.protocol === "TCP" ? "bg-cyan-950/50 text-cyan-400" :
-                            flow.protocol === "UDP" ? "bg-indigo-950/50 text-indigo-400" :
-                            flow.protocol === "ICMP" ? "bg-amber-950/50 text-amber-400" :
-                            "bg-slate-800 text-slate-400"
-                          }`}>{flow.protocol}</span>
-                        </td>
-                        <td className="text-slate-300">{flow.packet_count}</td>
-                        <td className="text-slate-300">{formatBytes(flow.byte_count)}</td>
-                        <td className={isAttack ? "text-amber-400 font-bold" : "text-slate-600"}>
-                          <span>{flow.attack_type && flow.attack_type !== 'Benign' ? flow.attack_type : (flow.ml_label && flow.ml_label !== 'benign' ? flow.ml_label.replace(/_/g, ' ') : '—')}</span>
-                          {flow.ml_confidence && flow.ml_label && flow.ml_label !== 'benign' && (
-                            <span className="ml-1 text-[7px] text-slate-500">{Math.round(flow.ml_confidence * 100)}%</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
-                            flow.severity === "critical" ? "bg-rose-950/50 text-rose-400 border border-rose-900/50 pulse-red" :
-                            flow.severity === "high" ? "bg-amber-950/50 text-amber-400 border border-amber-900/50" :
-                            flow.severity === "medium" ? "bg-yellow-950/50 text-yellow-400 border border-yellow-900/50" :
-                            flow.severity === "low" ? "bg-cyan-950/50 text-cyan-400 border border-cyan-900/50" :
-                            "text-slate-600"
-                          }`}>
-                            {flow.severity === "none" ? "—" : flow.severity?.toUpperCase()}
-                          </span>
-                        </td>
-                      </tr>
-                    </React.Fragment>
+                    <tr
+                      key={idx}
+                      onClick={() => isAttack && onFlowClick && onFlowClick(flow)}
+                      className={`transition-colors ${
+                        isAttack
+                          ? "bg-surface-2 border-l-2 border-l-gold text-gold font-bold hover:bg-blue/30 cursor-pointer"
+                          : "hover:bg-surface-2 text-text"
+                      }`}
+                    >
+                      <td className={`px-4 py-2 font-bold ${isAttack ? "text-gold" : "text-text"}`}>{flow.src_ip}</td>
+                      <td className={isAttack ? "text-gold" : "text-text-muted"}>{flow.src_port}</td>
+                      <td className={`font-bold ${isAttack ? "text-gold" : "text-white"}`}>{flow.dst_ip}</td>
+                      <td className={isAttack ? "text-gold" : "text-text-muted"}>{flow.dst_port}</td>
+                      <td>
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
+                          isAttack ? "bg-gold text-bg" : "bg-surface-2 text-text-muted border border-border"
+                        }`}>{flow.protocol}</span>
+                      </td>
+                      <td className={isAttack ? "text-gold font-bold" : "text-text-muted"}>{flow.packet_count}</td>
+                      <td className={isAttack ? "text-gold font-bold" : "text-text-muted"}>{formatBytes(flow.byte_count)}</td>
+                      <td className={isAttack ? "text-gold font-bold uppercase" : "text-text-muted"}>
+                        <span>{flow.attack_type && flow.attack_type !== 'Benign' ? flow.attack_type : (flow.ml_label && flow.ml_label !== 'benign' ? flow.ml_label.replace(/_/g, ' ') : '—')}</span>
+                      </td>
+                      <td>
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-bold uppercase ${
+                          isAttack ? "bg-gold text-bg" : "text-text-muted"
+                        }`}>
+                          {flow.severity === "none" ? "—" : flow.severity?.toUpperCase()}
+                        </span>
+                      </td>
+                    </tr>
                   );
-                }))
-              }
+                })
+              )}
             </tbody>
           </table>
         </div>

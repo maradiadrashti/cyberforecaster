@@ -1,10 +1,12 @@
-# Node.js dependencies
+# ── Node.js dependencies & build ──────────────────────────────
 **/node_modules/
 /client/dist/
 /client/dist-ssr/
 /client/*.local
+**/.vite/
+**/build/
 
-# Python virtual environments & cache
+# ── Python virtual environments & cache ───────────────────────
 /.venv/
 /.agents/
 /**/__pycache__/
@@ -16,27 +18,47 @@ env/
 venv/
 ENV/
 
-# Large Datasets & Archives
+# ── Large datasets & archives (kept locally, not pushed) ──────
 *.csv
+!sample_test_flows.csv
+!samples/*.csv
 *.zip
 *.tar.gz
 *.rar
+*.pcap
+*.pcapng
+!samples/*.pcap
+*.dump
+*.dump.gz
 
-# Debug Symbol Files & Binary Executables
+# ── Old / backup model + code artifacts (dead weight) ─────────
+scratch/
+*.bak
+*.bak_*
+*_OLD.pth
+*_OLD*.pth
+*_OLD.json
+*_OLD*.json
+*_backup.json
+*_PERCONV_backup.json
+
+# ── Debug symbols & binaries ──────────────────────────────────
 *.pdb
 *.mdmp
 
-# Runtime log files
+# ── Runtime logs & generated state ────────────────────────────
 /logs/
+/.pytest_cache/
 *.log
 *.err
 
-# Environment variables & secrets
+# ── Environment variables & secrets ───────────────────────────
 .env
 .env.*
 .env.local
+!.env.example
 
-# Operating System specific
+# ── OS files ──────────────────────────────────────────────────
 .DS_Store
 .DS_Store?
 ._*

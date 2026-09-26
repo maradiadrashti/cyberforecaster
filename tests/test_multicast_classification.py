@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'capture-servic
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from capture_server import _heuristic_classify, flow_cache, _is_multicast_or_broadcast, _ip_flows, _ip_ports, _ip_dst
-from models.stage_forecaster_infer import forecast_host
+from models.stage_forecaster_lstm_infer import forecast_host
 
 
 class TestMulticastAndForecast(unittest.TestCase):

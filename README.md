@@ -1,103 +1,350 @@
-# CyberForecaster 🛡️⚡
-### AI-Powered Real-Time Network Attack Forecasting & MITRE Kill Chain Prediction System
+<div align="center">
 
-CyberForecaster is a real-time network defense and attack forecasting system. It combines microsecond packet capture (via Scapy/Npcap), flow-level machine learning classification (Random Forest/LightGBM), temporal multi-step stage forecasting (PyTorch GRU World Model), and an interactive SOC Dashboard (React + Vite + Spline 3D).
+# 🛡️ CyberForecaster
 
----
+### AI-Based Network Attack Forecasting from Network Traffic Data
 
-## 🌟 Key Capabilities
+**Smart India Hackathon 2026 · Problem Statement SIH26153 · NTRO**
 
-1. **Live Network Traffic Capture & Inspection**:
-   - Real-time packet capture on physical, virtual, Wi-Fi, and VPN network interfaces via Scapy and Npcap.
-   - Microsecond bidirectional flow aggregation (forward/backward packet inter-arrival times, payload byte counts, TCP flag dynamics).
-   - High-throughput WebSocket streaming with live packet & flow analytics.
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-LSTM%20World%20Model-EE4C2C?logo=pytorch&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React%2019-Vite-61DAFB?logo=react&logoColor=black)
+![SHAP](https://img.shields.io/badge/Explainability-SHAP-8A2BE2)
+![MITRE ATT&CK](https://img.shields.io/badge/MITRE-ATT%26CK-C41E3A)
 
-2. **Multi-Stage Machine Learning Pipeline**:
-   - **Flow Classification**: Instantaneous classification of network flows into granular attack classes (PortScan, DDoS, Brute Force, Web Attacks, Infiltration, Benign).
-   - **Temporal Stage Forecaster (PyTorch GRU)**: Analyzes historical sequences of multi-dimensional traffic windows to forecast future attack progression along the **MITRE ATT&CK Kill Chain** (*Reconnaissance → Initial Access → Lateral Movement → Command & Control → Exfiltration*).
-   - **Explainable Metrics**: Real-time confidence scores, Shannon port entropy, SYN/ACK ratios, and inter-arrival time variances.
-
-3. **Attack Forecasting & Counterfactual Simulations**:
-   - **Live Attack Forecast View**: Tracks active attacker-victim pairs, temporal progression windows, and early warning indicators.
-   - **Counterfactual Rollout Engine**: Evaluates mitigation scenarios (*Do Nothing*, *Rate Limit*, *Block Ports*, *Isolate Host*) against projected threat trajectories.
+</div>
 
 ---
 
-## 🏗️ Architecture & Component Overview
+## 📌 Overview
 
+Most intrusion-detection systems answer *"is this traffic malicious right now?"*.
+**CyberForecaster answers *"where is this attack going next?"*** — it learns how network
+state evolves over time and forecasts the next **MITRE ATT&CK** stages of an intrusion, with an
+infiltration probability for each future step and a **SHAP** explanation of *why*.
+
+It ingests **live packet capture, PCAP files, and flow CSVs**, and all detection, forecasting and
+explanation run **locally on a normal laptop CPU** — no cloud service or GPU needed.
+
+| | What it does |
+| :--- | :--- |
+| 🧠 **World model** | A 2-layer **LSTM** learns network-state dynamics from sequences of 5 flows per conversation and predicts the current stage + attack risk. |
+| 🔮 **K-step forecast** | A kill-chain **stage-transition matrix** learned from **DAPT-2020** rolls the state forward *t+1 … t+5*, giving the next MITRE stage and an infiltration probability per step. |
+| 🗺️ **MITRE ATT&CK** | 6 stages: Normal → Reconnaissance → Initial Access → Lateral Movement → Command & Control → Exfiltration. |
+| 🔍 **Explainable** | **SHAP** (`GradientExplainer`) attributions on the model's risk head show which traffic features drove each prediction. |
+| 📥 **Three input paths** | Live capture (Scapy/Npcap) · PCAP upload (dpkt) · CSV upload — including raw **CICFlowMeter** CSVs, auto-converted to the model's schema. |
+| 📊 **Benchmarked** | Compared against a logistic-regression baseline on a dataset neither model was trained on ([results](#-results)). |
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    A[Live capture<br/>Scapy / Npcap] --> D
+    B[PCAP upload<br/>dpkt] --> D
+    C[CSV upload<br/>schema adapter] --> D
+    D[Packet → bidirectional flow<br/>15 flow features] --> E[Sliding windows<br/>5 flows per conversation]
+    E --> F[LSTM world model<br/>2 layers · hidden 64]
+    F --> G[Stage head<br/>6 MITRE stages]
+    F --> H[Risk head<br/>attack probability]
+    G --> I[K-step forward simulation<br/>DAPT-2020 transition matrix]
+    H --> I
+    F --> J[SHAP explainer]
+    I --> K[FastAPI + WebSocket<br/>:8080]
+    J --> K
+    K --> L[React dashboard<br/>:5173]
 ```
-[ Network Interface (Scapy / Npcap) ]
-                 │
-                 ▼
-[ Capture & AI Inference Service (FastAPI / WebSockets - :8080) ]
-       ├── Embedded Flow Classifier (Random Forest)
-       └── Embedded Temporal Stage Forecaster (PyTorch GRU)
-                 │
-                 ▼ (WebSocket Stream)
- [ SOC React Dashboard & Landing Page (Vite - :5173) ]
-```
 
-- **Frontend (`client/`)**: High-performance React 19 + Vite dashboard featuring Cyber-Tech UI styling, interactive Spline 3D Hero, Recharts telemetry, and real-time WebSocket state management.
-- **Capture & AI Service (`capture-service/`)**: Fast packet sniffer, sliding-window feature extractor, and real-time PyTorch GRU & RF inference engine built on Scapy and FastAPI.
-- **Trained AI Models (`models/`)**: Production PyTorch GRU kill-chain stage forecasting model and Scikit-Learn flow classifiers.
+**15 flow features** — `duration, packet_count, byte_count, syn_count, ack_count, fin_count, rst_count,
+ttl_mean, ttl_var, win_mean, win_var, frag_ratio, payload_mean, payload_std, retransmit_count`.
+The extractor additionally computes **inter-arrival-time statistics** (`iat_mean`, `iat_std`) and the
+**bidirectional flow ratio** (`bwd_fwd_ratio`) for every flow.
 
 ---
 
-## 🚀 Quick Start
+## 🧰 Tech stack
+
+| Layer | Technology |
+| :--- | :--- |
+| Models | PyTorch (LSTM), scikit-learn (baseline), XGBoost (live per-flow classifier), SHAP |
+| Backend | Python, FastAPI, Uvicorn, WebSockets, Scapy, dpkt, pandas, NumPy |
+| Frontend | React 19, Vite, Tailwind CSS, Recharts, lucide-react |
+| Data | CSE-CIC-IDS-2018, CTU-13, DAPT-2020 (training) · CIC-IDS-2017 (evaluation) |
+
+---
+
+## 🚀 Setup & run
 
 ### Prerequisites
 
-- **Node.js**: v18.0.0 or higher
-- **Python**: v3.10 or higher
-- **Npcap**: Installed on Windows (ensure "Install Npcap in WinPcap API-compatible Mode" is checked)
+| Requirement | Version | Notes |
+| :--- | :--- | :--- |
+| **Python** | 3.10 or newer | `python --version` |
+| **Node.js** | 18 or newer (with npm) | `node --version` |
+| **Git** | any | to clone the repo |
+| **Npcap** *(Windows, live capture only)* | latest | [npcap.com](https://npcap.com/#download) — tick **"WinPcap API-compatible Mode"** during install |
 
-### Installation
+> Live capture needs **Administrator** (Windows) or **root** (Linux/macOS). PCAP and CSV upload work without it.
+
+### 1. Clone
 
 ```bash
-# Clone the repository
-git clone <repository-url>
+git clone https://github.com/maradiadrashti/cyberforecaster.git
 cd cyberforecaster
-
-# Install all client and python dependencies
-.\setup.ps1      # (Windows PowerShell)
-# or
-./setup.sh       # (Linux / macOS)
 ```
 
-### Launching All Services
+### 2. Install (one time)
+
+**Windows (PowerShell)**
 
 ```powershell
-# Windows (PowerShell will auto-elevate to Administrator for Scapy capture)
-.\start.ps1
+Set-ExecutionPolicy -Scope Process Bypass   # allow the local script to run
+.\setup.ps1
 ```
+
+**Linux / macOS**
 
 ```bash
-# Linux / macOS
-sudo ./start.sh
+chmod +x setup.sh start.sh
+./setup.sh
 ```
 
-The startup script will automatically launch all services and open the dashboard in your browser:
-- **SOC Dashboard**: `http://127.0.0.1:5173`
-- **Capture Service & AI Engine API**: `http://127.0.0.1:8080`
+The setup script creates a Python virtual environment in `.venv/`, installs the Python packages from
+`requirements.txt`, and installs the dashboard's Node packages in `client/`.
+
+<details>
+<summary><b>Manual install (if you prefer not to use the scripts)</b></summary>
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate      Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+cd client && npm install && cd ..
+```
+
+</details>
+
+### 3. Start
+
+**Windows** — `.\start.ps1` (it asks for Administrator rights so live capture can work, then opens the dashboard)
+
+**Linux / macOS** — `sudo ./start.sh`
+
+<details>
+<summary><b>Start the two services manually</b></summary>
+
+```bash
+# Terminal 1 — backend / AI engine
+cd capture-service
+python -m uvicorn capture_server:app --host 127.0.0.1 --port 8080
+
+# Terminal 2 — dashboard
+cd client
+npm run dev
+```
+
+</details>
+
+| Service | URL |
+| :--- | :--- |
+| Dashboard | http://127.0.0.1:5173 |
+| Backend API | http://127.0.0.1:8080 · interactive docs at http://127.0.0.1:8080/docs |
+
+> The first forecast after start-up takes a few extra seconds while the model and SHAP explainer load.
+
+### 4. Try it in 60 seconds
+
+1. Open the dashboard → **File Upload**.
+2. Upload **`samples/real_sample_v4.csv`** (108 labeled flows, 11 conversations).
+3. Open **Attack Forecast** and pick a conversation from the drop-down (sorted by risk).
+4. You will see the current security state, the *t+1 … t+5* infiltration-probability forecast,
+   the MITRE ATT&CK progression, the SHAP explanation and the flows used as evidence.
+
+More inputs to try are listed in [`samples/`](samples/README.md) — including a raw CICFlowMeter CSV
+(auto-converted on upload) and a small PCAP.
 
 ---
 
-## 📊 MITRE ATT&CK Stages Supported
+## 🖥️ Using the dashboard
 
-| Kill Chain Stage | Description | Key Indicators |
+| Page | What you get |
+| :--- | :--- |
+| **Live Telemetry** | Pick a network interface and start capture. Shows live traffic rate, protocol split, per-flow classification, and lets you download the captured traffic as **PCAP** or **CSV**. |
+| **File Upload** | Upload a `.pcap` / `.pcapng` / `.csv`. Flows are grouped into conversations (src → dst) and every conversation with ≥ 5 flows is scored by the world model. |
+| **Attack Forecast** | Per conversation: current security state · risk forecast *t+1 … t+5* · MITRE ATT&CK progression (NOW → forecast) · SHAP feature attributions · observed network evidence. |
+
+---
+
+## 📊 Results
+
+Full method, raw numbers and limitations: **[VALIDATION.md](VALIDATION.md)**.
+
+### LSTM world model vs. logistic-regression baseline — unseen dataset
+
+Both models were evaluated on **CIC-IDS-2017 (Thursday, Web Attacks)** — a different year and a
+different network from the training data. Neither model saw it during training. Both received the
+**same 15 input features**; the LSTM sees the last 5 flows of a conversation, the baseline sees only
+the latest flow. **170,170 windows, 2,176 of them attacks (1.3%).**
+
+| Model | Accuracy | Precision | Recall | F1 | False-positive rate |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **LSTM world model** (risk head) | **99.22%** | **67.3%** | 76.3% | **0.715** | **0.48%** |
+| LSTM world model (stage head) | 98.34% | 42.0% | 78.2% | 0.546 | 1.40% |
+| Logistic regression baseline | 5.47% | 1.3% | 100% | 0.026 | 95.75% |
+
+- On unseen traffic the per-flow baseline **collapses** — it flags almost every flow as an attack —
+  while the LSTM keeps benign traffic quiet (**0.48% false alarms**) and still catches ~3 of 4 attacks.
+- The LSTM assigns the **correct MITRE stage (Initial Access)** to **1,702 / 2,176 = 78.2%** of attack windows.
+- On its *own* training distribution the baseline is strong (95.7% accuracy, F1 0.959 — see
+  `models/logreg_baseline_meta.json`); the gap above is about **generalizing to a new network**.
+
+Reproduce: `python evaluation/eval_cross_dataset.py <labeled_flows.csv>` → saved run in
+[`evaluation/results/cic2017_webattacks.json`](evaluation/results/cic2017_webattacks.json).
+
+### Learned kill-chain transitions (DAPT-2020)
+
+| From | Most likely next stage | P(next \| current) |
+| :--- | :--- | :---: |
+| Reconnaissance | Initial Access | 0.77 |
+| Initial Access | Lateral Movement | 0.83 |
+| Lateral Movement | Exfiltration | 0.50 |
+
+These drive the *t+1 … t+5* forecast. They are learned from **11 real stage transitions across 7
+attacker hosts** — directionally correct, but a small sample (see limitations).
+
+---
+
+## ⚠️ Honest limitations
+
+- **Sparse multi-stage data.** Public datasets with genuine per-attacker stage progression are rare;
+  DAPT-2020 gives only 11 clean transitions. CIC-IDS-2018 and CTU-13 contain attacks but **no
+  multi-stage transitions**. The forecast is directionally right but statistically under-powered.
+- **TTL dependency.** The model uses `ttl_mean`. Flow CSVs without TTL (e.g. CICFlowMeter) get a
+  default TTL of 64 and the backend logs a warning; with TTL = 0 accuracy drops sharply. PCAP and
+  live capture carry real TTL and are unaffected.
+- **Very old traffic.** Datasets far outside the 2017–2020 distribution (e.g. DARPA 2000) are not
+  reliably detected.
+- **Web brute-force** looks like ordinary HTTP at the flow level; that is most of the 22% of
+  attack windows the LSTM misses on CIC-IDS-2017.
+- **Connectivity.** Analysis is fully local. Only the landing page's 3D scene and the web font are
+  loaded from the internet; without internet they simply don't render.
+
+---
+
+## 📂 Repository structure
+
+```
+cyberforecaster/
+├── capture-service/            FastAPI backend: capture, flow extraction, inference, SHAP
+│   ├── capture_server.py         API + WebSocket server (port 8080)
+│   ├── extractor/                PCAP → 15-feature flow extractor (+ IAT, bwd/fwd ratio)
+│   └── wsl_sniffer.py            optional capture helper for WSL
+├── client/                     React + Vite dashboard (port 5173)
+│   └── src/pages/                LiveTraffic · UploadAnalysis · AttackForecast · LandingPage
+├── models/                     trained artifacts + inference code
+│   ├── stage_forecaster_lstm_v1.pth / _meta.json   LSTM world model (≈230 KB)
+│   ├── stage_forecaster_lstm_infer.py              loads the model, runs forecasts
+│   ├── stage_transition_matrix.json                DAPT-2020 kill-chain matrix
+│   ├── logreg_baseline_*.joblib / _meta.json       benchmark model
+│   └── flow_classifier_*                           XGBoost live per-flow classifier
+├── data_prep/                  dataset mapping, labeling, transition-matrix estimation
+├── training/                   training scripts (LSTM, baseline, flow classifier)
+├── evaluation/                 cross-dataset benchmark, evaluation & explanation scripts
+├── samples/                    small ready-to-upload CSV / PCAP files
+├── tests/                      API, upload-pipeline and classification tests
+├── predict_csv.py              command-line forecast for a flow CSV
+├── setup.ps1 / setup.sh        one-time install
+├── start.ps1 / start.sh        launch backend + dashboard
+├── requirements.txt            Python dependencies
+└── VALIDATION.md               evaluation method, results, limitations
+```
+
+---
+
+## 🧠 Model details
+
+| | |
+| :--- | :--- |
+| Architecture | `StageForecasterLSTM` — 2-layer LSTM (hidden 64, dropout 0.3) → stage head (64→32→6, softmax) + risk head (64→16→1, sigmoid) |
+| Parameters | ≈ 57 K (model file ≈ 230 KB) |
+| Input | 5 consecutive flows × 15 features, log-transformed (skewed counts) + min-max normalized |
+| Target | the MITRE stage **3 flows ahead** of the window (forecasting, not just classification) |
+| Training | Adam, class-weighted cross-entropy (stage) + BCE (risk), gradient clipping (max-norm 5), early stopping |
+| Forecast | Markov roll-out over the DAPT-2020 kill-chain transition matrix, K = 5 steps |
+| Explainability | SHAP `GradientExplainer` on the risk head, averaged over the 5 time-steps |
+
+### Datasets
+
+| Dataset | Used for | Source |
 | :--- | :--- | :--- |
-| **Normal** | Clean background network traffic | Balanced SYN/ACK ratio, standard port distributions |
-| **Reconnaissance** | Port scanning & network discovery | High port entropy, single-SYN bursts, RST floods |
-| **Initial Access** | Exploitation & brute-forcing | Burst payloads, repeated failed handshakes |
-| **Lateral Movement** | Internal pivot & credential transfer | SMB/RPC connection spikes, east-west anomalous flows |
-| **Command & Control** | External beaconing | Periodic IAT intervals, encrypted egress tunnels |
-| **Data Exfiltration** | Outbound data staging & theft | High outbound-to-inbound byte ratios |
+| CSE-CIC-IDS-2018 | training (attack vs normal, stages) | [UNB CIC](https://www.unb.ca/cic/datasets/ids-2018.html) |
+| CTU-13 | training (real botnet traffic) | [Stratosphere Lab](https://www.stratosphereips.org/datasets-ctu13) |
+| DAPT-2020 | training + kill-chain transition matrix | [gitlab.com/asu22/dapt2020](https://gitlab.com/asu22/dapt2020) |
+| CIC-IDS-2017 | **held-out evaluation** of the LSTM and the baseline | [UNB CIC](https://www.unb.ca/cic/datasets/ids-2017.html) |
+
+The datasets are large and are **not** stored in this repo. The trained models are included, so the
+dashboard works straight after cloning. To retrain from scratch, see [`training/README.md`](training/README.md)
+and [`data_prep/README.md`](data_prep/README.md).
+
+> The XGBoost per-flow classifier used for live traffic labels was trained on CIC-IDS-2017; the
+> cross-dataset benchmark above evaluates the **LSTM world model** and the baseline, not this classifier.
 
 ---
 
-## 🔒 Automated Mitigation & Active Defense
+## 🔌 Main API endpoints
 
-- **Active Defense Actions**:
-  - `Isolate Host`: Blocks all inbound/outbound communication to the compromised IP.
-  - `Block Attacking Ports`: Instantly drops exploit ports on target firewalls.
-  - `Rate Limit Host`: Throttles high-frequency anomalous traffic.
+| Method | Endpoint | Purpose |
+| :--- | :--- | :--- |
+| `POST` | `/api/upload` | Upload a PCAP/CSV; runs the world model on every conversation |
+| `GET` | `/api/forecast/latest` | Latest per-conversation forecasts (stage, risk, *t+1 … t+5* timeline) |
+| `GET` | `/api/explain?src_ip=…&dst_ip=…` | SHAP feature attributions for one conversation |
+| `GET` | `/api/interfaces` | Network interfaces available for capture |
+| `POST` | `/api/capture/start/{iface}` · `/api/capture/stop/{iface}` | Start / stop live capture |
+| `GET` | `/api/capture/export-pcap` · `/api/capture/download` | Download captured traffic |
+| `WS` | `/ws/live` | Live flow + forecast stream |
+
+Full, interactive list: http://127.0.0.1:8080/docs once the backend is running.
+
+---
+
+## 🧪 Tests & command-line use
+
+```bash
+# forecast a CSV from the command line (no dashboard needed)
+python predict_csv.py sample_test_flows.csv
+
+# test suite (run from the repo root with the virtual environment active)
+python -m unittest tests.test_upload_pipeline tests.test_file_upload_api -v
+```
+
+---
+
+## 🛠️ Troubleshooting
+
+| Problem | Fix |
+| :--- | :--- |
+| No interfaces / capture won't start (Windows) | Install **Npcap** with *WinPcap API-compatible Mode*, and run `start.ps1` as Administrator. |
+| `start.ps1` is blocked | Run `Set-ExecutionPolicy -Scope Process Bypass` in the same PowerShell window first. |
+| Port 8080 or 5173 already in use | `start.ps1` frees them automatically; otherwise stop the other program or change `VITE_CAPTURE_PORT` in `client/.env` (copy `client/.env.example`). |
+| Dashboard loads but shows no forecast | Upload a file on **File Upload** first — a conversation needs **≥ 5 flows** to be scored. |
+| CSV upload predicts "normal" for everything | Check whether the CSV has a TTL column; see the TTL limitation above. |
+
+---
+
+## 📚 References
+
+1. I. Sharafaldin, A. H. Lashkari, A. A. Ghorbani, *"Toward Generating a New Intrusion Detection Dataset and Intrusion Traffic Characterization"*, ICISSP 2018 (CIC-IDS-2017 / CSE-CIC-IDS-2018).
+2. S. García, M. Grill, J. Stiborek, A. Zunino, *"An empirical comparison of botnet detection methods"*, Computers & Security 45, 2014 (CTU-13).
+3. S. Myneni, A. Chowdhary, A. Sabur, S. Sengupta, G. Agrawal, D. Huang, M. Kang, *"DAPT 2020 — Constructing a Benchmark Dataset for Advanced Persistent Threats"*, MLHat / Deployable ML for Security Defense, Springer 2020.
+4. S. M. Lundberg, S.-I. Lee, *"A Unified Approach to Interpreting Model Predictions"*, NeurIPS 2017 (SHAP).
+5. MITRE ATT&CK® — https://attack.mitre.org
+
+---
+
+<div align="center">
+
+Built for **Smart India Hackathon 2026** · PS **SIH26153** (NTRO)
+
+</div>

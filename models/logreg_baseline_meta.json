@@ -1,0 +1,40 @@
+{
+  "feature_columns": [
+    "duration",
+    "packet_count",
+    "byte_count",
+    "syn_count",
+    "ack_count",
+    "fin_count",
+    "rst_count",
+    "ttl_mean",
+    "ttl_var",
+    "win_mean",
+    "win_var",
+    "frag_ratio",
+    "payload_mean",
+    "payload_std",
+    "retransmit_count"
+  ],
+  "log_transform_columns": [
+    "duration",
+    "packet_count",
+    "byte_count",
+    "syn_count",
+    "ack_count",
+    "fin_count",
+    "rst_count",
+    "ttl_var",
+    "win_var",
+    "payload_mean",
+    "payload_std",
+    "retransmit_count"
+  ],
+  "test_metrics": {
+    "accuracy": 0.9574969619771306,
+    "precision": 0.934856729337434,
+    "recall": 0.9835287916721571,
+    "f1": 0.958575322136446,
+    "false_positive_rate": 0.06853486771789578
+  }
+}
