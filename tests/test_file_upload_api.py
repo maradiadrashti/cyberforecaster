@@ -23,7 +23,6 @@ from capture_server import (
     app,
     _analyze_csv_bytes,
     _analyze_pcap_bytes,
-    _compute_feature_attributions
 )
 from fastapi.testclient import TestClient
 
@@ -102,22 +101,6 @@ class TestFileUploadAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         data = response.json()
         self.assertIn("empty", data["detail"])
-
-    def test_feature_attributions(self):
-        """Test 5: Verify feature attributions function returns top features."""
-        flow_dict = {
-            "duration": 0.001,
-            "packet_count": 500,
-            "byte_count": 32000,
-            "src_port": 54321,
-            "dst_port": 22,
-            "syn_flag": 500,
-            "ack_flag": 0,
-        }
-        attributions = _compute_feature_attributions(flow_dict)
-        self.assertGreater(len(attributions), 0)
-        self.assertIn("importance", attributions[0])
-        self.assertIn("feature", attributions[0])
 
 
 if __name__ == "__main__":

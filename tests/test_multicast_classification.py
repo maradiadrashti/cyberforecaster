@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'capture-servic
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from capture_server import _heuristic_classify, flow_cache, _is_multicast_or_broadcast, _ip_flows, _ip_ports, _ip_dst
-from models.stage_forecaster_lstm_infer import forecast_host
 
 
 class TestMulticastAndForecast(unittest.TestCase):
@@ -117,32 +116,6 @@ class TestMulticastAndForecast(unittest.TestCase):
 
         self.assertEqual(flow_cache[flow_key]["severity"], "critical")
         self.assertEqual(flow_cache[flow_key]["attack_type"], "DDoS")
-
-    def test_forecast_trend_upward(self):
-        test_flows = [{"src_port": 54321, "dst_port": 80, "protocol": "TCP",
-                       "packet_count": 5, "byte_count": 300, "duration": 0.1,
-                       "syn_flag": 1, "ack_flag": 0, "rst_flag": 0, "fin_flag": 0,
-                       "severity": "medium", "attack_type": "Port Scan"}] * 10
-        res = forecast_host("192.168.1.50", test_flows, risk_history=[0.001, 0.003, 0.005])
-        curve = res["projected_risk_curve"]
-        self.assertGreater(curve[-1], curve[0])
-
-    def test_forecast_trend_downward(self):
-        test_flows = [{"src_port": 54321, "dst_port": 80, "protocol": "TCP",
-                       "packet_count": 1, "byte_count": 64, "duration": 0.1,
-                       "syn_flag": 0, "ack_flag": 1, "rst_flag": 0, "fin_flag": 0,
-                       "severity": "medium", "attack_type": "Port Scan"}] * 10
-        res = forecast_host("192.168.1.50", test_flows, risk_history=[0.9, 0.7, 0.5])
-        curve = res["projected_risk_curve"]
-        self.assertLess(curve[-1], curve[0])
-
-    def test_forecast_insufficient_history(self):
-        test_flows = [{"src_port": 54321, "dst_port": 80, "protocol": "TCP",
-                       "packet_count": 1, "byte_count": 64, "duration": 0.1,
-                       "syn_flag": 0, "ack_flag": 1, "rst_flag": 0, "fin_flag": 0}] * 10
-        res = forecast_host("192.168.1.50", test_flows, risk_history=[0.2])
-        curve = res["projected_risk_curve"]
-        self.assertEqual(curve[0], curve[-1])
 
 
 if __name__ == "__main__":

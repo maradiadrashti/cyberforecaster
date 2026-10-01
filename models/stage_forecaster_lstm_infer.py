@@ -123,19 +123,10 @@ def _flows_to_matrix(recent_flows: list, feature_cols: list, log_cols: list,
     return np.clip(arr_norm, 0.0, 1.0)
 
 
-STAGE_RATE = {
-    "normal":           0.00,
-    "reconnaissance":   0.03,
-    "initial_access":   0.04,
-    "lateral_movement": 0.05,
-    "command_control":  0.03,
-    "exfiltration":     0.01,
-}
-
-
 def forecast_host(host_ip: str, recent_flows: list, forecast_steps: int = 6,
                    risk_history: list = None, src_ip: str = "") -> dict:
     """Same interface as the old GRU forecast_host() -- drop-in replacement."""
+    # kept for API compatibility; not used
     try:
         _load_model()
     except Exception as e:
@@ -188,24 +179,6 @@ def forecast_host(host_ip: str, recent_flows: list, forecast_steps: int = 6,
         flush=True,
     )
 
-    slope = 0.0
-    if risk_history and len(risk_history) >= 3:
-        y = np.array(list(risk_history) + [risk_score], dtype=np.float32)
-        x_idx = np.arange(len(y), dtype=np.float32)
-        try:
-            slope = float(np.polyfit(x_idx, y, 1)[0])
-        except Exception:
-            slope = 0.0
-
-    advancement_rate = STAGE_RATE.get(predicted_stage, 0.03)
-    projected_risk = []
-    current = risk_score
-    for step in range(forecast_steps):
-        projected_risk.append(round(current, 4))
-        projected_slope = slope + (advancement_rate if slope >= 0 else 0.0)
-        decay = 1.0 / (1.0 + (step + 1) * 0.1)
-        current = min(1.0, max(0.0, current + projected_slope * decay))
-
     return {
         "host": host_ip,
         "model_status": "TRAINED",
@@ -214,7 +187,6 @@ def forecast_host(host_ip: str, recent_flows: list, forecast_steps: int = 6,
         "predicted_stage": predicted_stage,
         "confidence": round(confidence, 4),
         "risk_score": round(risk_score, 4),
-        "projected_risk_curve": projected_risk,
         "windows_collected": len(recent_flows),
         "min_windows_required": seq_len,
         "forecast_horizon": horizon,
