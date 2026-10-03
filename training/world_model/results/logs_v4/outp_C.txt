@@ -1,0 +1,28 @@
+
+=== api/C_ctu13_botnet_c2_forecast: 38 conversations, 25 charted hosts, 301 page renders
+  OK   page renders without error: 301/301
+  OK   tile: threat level: 301/301
+  OK   tile: attack probability: 301/301
+  OK   tile: 5 / 10 minute values: 301/301
+  OK   tile: model confidence: 301/301
+  OK   chart: alert threshold label: 301/301
+  OK   chart: model line (12 observed + 6 forecast points): 301/301
+  OK   chart: baseline line: 301/301
+  OK   chart: range upper edge: 301/301
+  OK   chart: range lower edge: 301/301
+  OK   chart: labelled-malicious shading: 301/301
+  OK   chart: selected window time shown: 301/301
+  OK   tree: stage name and probability: 273/273
+  OK   MITRE card: stage, tactic id, probability, basis: 273/273
+  OK   attribution: feature, contribution, share: 2107/2107
+  OK   attribution: main feature panel (description, observed value): 301/301
+  OK   actions: shown exactly when the latest window is HIGH RISK / ELEVATED: 301/301
+  OK   page shows the forecast of the conversation SOURCE host: 301/301
+  OK   actions: block rule names the source host: 273/273
+  OK   actions: target host = destination of the conversation: 273/273
+  OK   actions: stage named in action 2 (next stage of the tree, else current stage): 273/273
+  OK   flow table: source, destination, packets: 1338/1338
+  OK   flow table: rows belong to the selected conversation: 301/301
+  OK   tree: "no progression" message when no attack stage: 28/28
+  OK   dropdown: label per conversation: 38/38
+  OK   dropdown: every entry has its own source-host forecast: 38/38

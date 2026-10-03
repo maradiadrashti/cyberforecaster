@@ -18,4 +18,4 @@ The backend address defaults to `127.0.0.1:8080`. To point the dashboard at anot
 | `src/pages/LandingPage.jsx` | landing screen |
 | `src/pages/LiveTraffic.jsx` | Live Telemetry — interface selection, live charts, PCAP/CSV export |
 | `src/pages/UploadAnalysis.jsx` | File Upload — PCAP/CSV upload and processing status |
-| `src/pages/AttackForecast.jsx` | Attack Forecast — security state, risk forecast, MITRE progression, SHAP, evidence |
+| `src/pages/AttackForecast.jsx` | Attack Forecast — security state, risk forecast, MITRE progression, feature attribution, evidence |

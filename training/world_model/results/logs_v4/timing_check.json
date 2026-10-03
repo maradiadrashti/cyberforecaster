@@ -1,0 +1,197 @@
+{
+ "60": {
+  "model": "xgboost",
+  "test_rows": 73358,
+  "test_positives": 261,
+  "pooled_auroc_new": 0.8321144365092581,
+  "within_host_new": {
+   "hosts": 17,
+   "median": 0.6672413793103448,
+   "weighted_mean": 0.7803403390010901
+  },
+  "pooled_auroc_world_model": 0.8327677960272911,
+  "within_host_world_model": {
+   "hosts": 17,
+   "median": 0.7868852459016393,
+   "weighted_mean": 0.7665451204450237
+  },
+  "by_dataset": {
+   "cic2017": {
+    "rows": 8184,
+    "positives": 12,
+    "pooled_new": 0.45131750693424705,
+    "within_host_new": [
+     2,
+     0.6240821906720837,
+     0.47475177579499483
+    ]
+   },
+   "cic2018": {
+    "rows": 17001,
+    "positives": 4,
+    "pooled_new": 0.7168765076189916,
+    "within_host_new": [
+     1,
+     0.3819786535303777,
+     0.3819786535303777
+    ]
+   },
+   "ctu13": {
+    "rows": 3224,
+    "positives": 16,
+    "pooled_new": 0.596029457605985,
+    "within_host_new": [
+     8,
+     0.7600912778904665,
+     0.5644132253791877
+    ]
+   },
+   "dapt2020": {
+    "rows": 2704,
+    "positives": 31,
+    "pooled_new": 0.5822803905241182,
+    "within_host_new": [
+     3,
+     0.5226484612050282,
+     0.5251549130119496
+    ]
+   },
+   "unraveled": {
+    "rows": 42245,
+    "positives": 198,
+    "pooled_new": 0.8807593979128214,
+    "within_host_new": [
+     3,
+     0.8644151889409116,
+     0.8643104982130587
+    ]
+   }
+  }
+ },
+ "300": {
+  "model": "xgboost",
+  "test_rows": 73358,
+  "test_positives": 1110,
+  "pooled_auroc_new": 0.8850748884473001,
+  "within_host_new": {
+   "hosts": 26,
+   "median": 0.5623061485130451,
+   "weighted_mean": 0.8332588032421671
+  },
+  "by_dataset": {
+   "cic2017": {
+    "rows": 8184,
+    "positives": 53,
+    "pooled_new": 0.6562932916882279,
+    "within_host_new": [
+     2,
+     0.8251249781626742,
+     0.6726238358997851
+    ]
+   },
+   "cic2018": {
+    "rows": 17001,
+    "positives": 16,
+    "pooled_new": 0.7812739181630851,
+    "within_host_new": [
+     1,
+     0.461107621440536,
+     0.461107621440536
+    ]
+   },
+   "ctu13": {
+    "rows": 3224,
+    "positives": 68,
+    "pooled_new": 0.5828300902109893,
+    "within_host_new": [
+     16,
+     0.5298987411056377,
+     0.5000956805683654
+    ]
+   },
+   "dapt2020": {
+    "rows": 2704,
+    "positives": 126,
+    "pooled_new": 0.4949834989594493,
+    "within_host_new": [
+     4,
+     0.4048445644569909,
+     0.42134695634530245
+    ]
+   },
+   "unraveled": {
+    "rows": 42245,
+    "positives": 847,
+    "pooled_new": 0.9445460409000589,
+    "within_host_new": [
+     3,
+     0.9356895221712878,
+     0.937970602659076
+    ]
+   }
+  }
+ },
+ "600": {
+  "model": "xgboost",
+  "test_rows": 73358,
+  "test_positives": 1590,
+  "pooled_auroc_new": 0.883346162933113,
+  "within_host_new": {
+   "hosts": 32,
+   "median": 0.5707941705732887,
+   "weighted_mean": 0.8106017440486097
+  },
+  "by_dataset": {
+   "cic2017": {
+    "rows": 8184,
+    "positives": 76,
+    "pooled_new": 0.47925213564251035,
+    "within_host_new": [
+     2,
+     0.3996892968995973,
+     0.49413178869921587
+    ]
+   },
+   "cic2018": {
+    "rows": 17001,
+    "positives": 30,
+    "pooled_new": 0.7866762909276609,
+    "within_host_new": [
+     1,
+     0.4655231560891938,
+     0.4655231560891938
+    ]
+   },
+   "ctu13": {
+    "rows": 3224,
+    "positives": 160,
+    "pooled_new": 0.6330868554177546,
+    "within_host_new": [
+     22,
+     0.5882855399633923,
+     0.507179845271826
+    ]
+   },
+   "dapt2020": {
+    "rows": 2704,
+    "positives": 193,
+    "pooled_new": 0.5816531613233379,
+    "within_host_new": [
+     4,
+     0.5085386357452666,
+     0.4940227246202134
+    ]
+   },
+   "unraveled": {
+    "rows": 42245,
+    "positives": 1131,
+    "pooled_new": 0.9425534238392682,
+    "within_host_new": [
+     3,
+     0.9317372501885369,
+     0.9376998049686146
+    ]
+   }
+  }
+ }
+}

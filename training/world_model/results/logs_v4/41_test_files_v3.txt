@@ -1,0 +1,32 @@
+# 2026-10-03 17:02:00  python run_test_files.py C:\Users\htc\OneDrive\Desktop\cyberforecaster\models\world_model_v3_backup D:\ml-data\processed\v3_out
+
+===== A_cic2017_friday_ddos_onset.csv   2.0 s   windows 1155  hosts 511  threshold 0.8154
+check: {"windows_truly_attack": 20, "windows_truly_normal": 1135, "attack_windows_alerted": 1.0, "normal_windows_alerted_false_alarms": 0.0115}
+network: {"hosts_flagged": 7, "alert_windows": 33, "peak_risk_60s": 0.9870295524597168, "share_of_windows_alerted": 0.0286}
+top hosts: [('172.16.0.1', 0.987, 20, 20, 'command_control'), ('23.60.139.27', 0.975, 2, 3, 'command_control'), ('192.168.10.8', 0.925, 2, 21, 'command_control'), ('192.168.10.25', 0.885, 1, 18, 'lateral_movement'), ('72.21.91.29', 0.881, 4, 19, 'command_control'), ('195.142.107.70', 0.855, 2, 2, 'reconnaissance')]
+start outlook: None None threshold 300 s: None
+  5-minute outlook on calm windows of charted hosts: {'pre': 0, 'pre_w': 0, 'far': 0, 'far_w': 0}
+
+===== B_cic2018_ftp_bruteforce_onset.csv   4.6 s   windows 13939  hosts 1968  threshold 0.8154
+check: {"windows_truly_attack": 68, "windows_truly_normal": 13871, "attack_windows_alerted": 0.5, "normal_windows_alerted_false_alarms": 0.0, "stage_named_correctly_on_attack_windows": 0.0, "averaged_stage_named_correctly_on_attack_windows": 0.4706, "averaged_stage_named_correctly_on_alerted_attack_windows": [0.7353, 34], "stage_recall_by_true_stage": {"initial_access": [0.0, 68]}}
+network: {"hosts_flagged": 1, "alert_windows": 34, "peak_risk_60s": 0.9553546905517578, "share_of_windows_alerted": 0.0024}
+top hosts: [('18.221.219.4', 0.955, 34, 34, 'initial_access'), ('52.165.231.192', 0.758, 0, 5, ''), ('172.31.69.25', 0.696, 0, 53, ''), ('172.31.66.105', 0.685, 0, 60, ''), ('172.31.69.4', 0.674, 0, 77, ''), ('172.31.64.113', 0.672, 0, 42, '')]
+start outlook: None None threshold 300 s: None
+  5-minute outlook on calm windows of charted hosts: {'pre': 0, 'pre_w': 0, 'far': 0, 'far_w': 0}
+
+===== C_ctu13_botnet_c2_forecast.csv   3.7 s   windows 6955  hosts 4806  threshold 0.8154
+check: {"windows_truly_attack": 325, "windows_truly_normal": 6629, "attack_windows_alerted": 0.3846, "normal_windows_alerted_false_alarms": 0.1249, "stage_named_correctly_on_attack_windows": 0.3169, "averaged_stage_named_correctly_on_attack_windows": 0.9969, "averaged_stage_named_correctly_on_alerted_attack_windows": [1.0, 125], "stage_recall_by_true_stage": {"command_control": [0.317, 325]}}
+network: {"hosts_flagged": 246, "alert_windows": 953, "peak_risk_60s": 0.9980682134628296, "share_of_windows_alerted": 0.137}
+top hosts: [('147.32.84.165', 0.998, 77, 78, 'command_control'), ('174.133.57.141', 0.979, 5, 5, 'command_control'), ('147.32.86.190', 0.979, 3, 19, 'command_control'), ('62.44.121.138', 0.978, 3, 3, 'command_control'), ('94.197.105.8', 0.977, 2, 2, 'command_control'), ('129.241.201.239', 0.974, 1, 1, 'command_control')]
+start outlook: None None threshold 300 s: None
+  host 195.113.232.88: not among the 25 charted hosts
+  5-minute outlook on calm windows of charted hosts: {'pre': 0, 'pre_w': 0, 'far': 0, 'far_w': 0}
+
+===== D_unraveled_exfiltration_forecast.csv   2.5 s   windows 1606  hosts 62  threshold 0.8154
+check: {"windows_truly_attack": 65, "windows_truly_normal": 1529, "attack_windows_alerted": 0.8923, "normal_windows_alerted_false_alarms": 0.1256, "stage_named_correctly_on_attack_windows": 0.8, "averaged_stage_named_correctly_on_attack_windows": 0.8308, "averaged_stage_named_correctly_on_alerted_attack_windows": [0.8103, 58], "stage_recall_by_true_stage": {"command_control": [0.78, 59], "exfiltration": [1.0, 6]}}
+network: {"hosts_flagged": 22, "alert_windows": 259, "peak_risk_60s": 0.9964758157730103, "share_of_windows_alerted": 0.1613}
+top hosts: [('10.1.3.8', 0.997, 128, 136, 'command_control'), ('10.1.1.16', 0.984, 12, 25, 'exfiltration'), ('192.168.0.9', 0.982, 5, 40, 'exfiltration'), ('10.1.2.8', 0.978, 5, 13, 'lateral_movement'), ('10.1.4.17', 0.977, 3, 3, 'exfiltration'), ('173.194.192.155', 0.976, 1, 1, 'exfiltration')]
+start outlook: None None threshold 300 s: None
+  5-minute outlook on calm windows of charted hosts: {'pre': 0, 'pre_w': 0, 'far': 0, 'far_w': 0}
+
+ALL FILES DONE

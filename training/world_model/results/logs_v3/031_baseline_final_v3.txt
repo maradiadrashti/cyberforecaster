@@ -1,0 +1,27 @@
+# 2026-10-03 00:03:41  python step4_train.py --epochs 15 --seeds 3 --v3 --unseen none --baseline-only
+00:04:12 windows: 2,233,308   features: 73   unseen dataset: none
+00:05:39 sequences: {'train': '1,052,571', 'val': '281,337', 'test': '319,924', 'unseen': '0'}
+00:05:41 current-stage windows at sequence ends, per split:
+                   train     val    test  unseen
+command_control    27409   15007    5244       0
+exfiltration        3388    1024    1073       0
+initial_access      7028    1821    2630       0
+lateral_movement    9301    3052    3290       0
+normal            994258  257788  303713       0
+other/ambiguous     7970    2168    2762       0
+reconnaissance      3217     477    1212       0
+00:05:56 train sequences: positives 84,396  negatives 791,020
+00:05:56 train onset events (history normal -> attack within 6): 1,046
+00:05:57 training LogReg last window
+00:06:27 training LogReg 10 windows
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:599: ConvergenceWarning: lbfgs failed to converge after 150 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=150).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+00:07:45 saved D:\ml-data\processed\model_v3_unseen-none\baseline_lr.json
+00:07:45 --baseline-only: done

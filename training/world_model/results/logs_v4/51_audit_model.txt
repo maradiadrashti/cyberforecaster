@@ -1,0 +1,31 @@
+# 2026-10-03 18:50:45  python audit_model.py
+A_cic2017_friday_ddos_onset.csv: done (25 hosts)
+   features vs training: B 18.221.219.4: 32 common windows, 0 differing cells of 2336
+   features vs training: B 172.31.69.25: 51 common windows, 0 differing cells of 3723
+B_cic2018_ftp_bruteforce_onset.csv: done (25 hosts)
+   features vs training: C 147.32.84.165: 76 common windows, 0 differing cells of 5548
+C_ctu13_botnet_c2_forecast.csv: done (25 hosts)
+   features vs training: D 10.1.3.17: 116 common windows, 41 differing cells of 8468
+   features vs training: D 10.1.3.8: 134 common windows, 42 differing cells of 9782
+D_unraveled_exfiltration_forecast.csv: done (25 hosts)
+
+=== MODEL AUDIT (independent recomputation)
+  OK   alert threshold: 4/4
+  OK   risk within 60 s: 2210/2210
+  OK   forecast curve (10..60 s): 2210/2210
+  OK   range across copies: lower / upper: 2210/2210
+  OK   line inside its range: 2210/2210
+  OK   alert flag: 2208/2208
+  OK   stage per step: 2210/2210
+  OK   stage probability per step (model confidence when not alerting): 2210/2210
+  OK   averaged stage (shown when alerting): 1890/1890
+  OK   averaged stage probability (model confidence when alerting): 2210/2210
+  OK   5 / 10 minute start values: 2210/2210
+  OK   attribution: risk of the window: 100/100
+  OK   attribution: contribution of each listed feature: 1000/1000
+  OK   attribution: share of each listed feature: 1000/1000
+  OK   attribution: same top features in the same order: 100/100
+  OK   attribution: per-group totals: 500/500
+  FAIL upload features = training features (same host and window): 3/5
+   !! upload features = training features (same host and window) | D 10.1.3.17: 116 windows, mismatching cells 41; e.g. ['n_flows', 'top_dst_port_share', 'dst_ip_entropy', 'dst_port_entropy', 'pkt_sum', 'byte_sum']
+   !! upload features = training features (same host and window) | D 10.1.3.8: 134 windows, mismatching cells 42; e.g. ['n_flows', 'flows_per_dst_max', 'top_dst_port_share', 'dst_ip_entropy', 'dst_port_entropy', 'pkt_sum']

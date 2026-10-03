@@ -1,0 +1,30 @@
+
+=== api/A_cic2017_friday_ddos_onset: 108 conversations, 25 charted hosts, 537 page renders
+  OK   page renders without error: 537/537
+  OK   tile: threat level: 537/537
+  OK   tile: attack probability: 537/537
+  OK   tile: 5 / 10 minute values: 537/537
+  OK   tile: model confidence: 537/537
+  OK   chart: alert threshold label: 537/537
+  OK   chart: model line (12 observed + 6 forecast points): 537/537
+  OK   chart: baseline line: 537/537
+  OK   chart: range upper edge: 537/537
+  OK   chart: range lower edge: 537/537
+  OK   chart: labelled-malicious shading: 537/537
+  OK   chart: selected window time shown: 537/537
+  OK   tree: stage name and probability: 313/313
+  OK   tree: "seen X of Y times" and delay: 117/117
+  OK   MITRE card: stage, tactic id, probability, basis: 184/184
+  OK   attribution: feature, contribution, share: 1365/1365
+  OK   attribution: main feature panel (description, observed value): 195/195
+  OK   actions: shown exactly when the latest window is HIGH RISK / ELEVATED: 537/537
+  OK   page shows the forecast of the conversation SOURCE host: 537/537
+  OK   actions: block rule names the source host: 80/80
+  OK   actions: target host = destination of the conversation: 80/80
+  OK   actions: stage named in action 2 (next stage of the tree, else current stage): 80/80
+  OK   flow table: source, destination, packets: 2441/2441
+  OK   flow table: rows belong to the selected conversation: 537/537
+  OK   tree: "no progression" message when no attack stage: 362/362
+  OK   attribution: message when not available or risk near zero: 342/342
+  OK   dropdown: label per conversation: 108/108
+  OK   dropdown: every entry has its own source-host forecast: 108/108

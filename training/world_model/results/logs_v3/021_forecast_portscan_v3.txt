@@ -1,0 +1,43 @@
+# 2026-10-02 23:07:09  python forecast_v2.py D:\ml-data\cic2017\GeneratedLabelledFlows\TrafficLabelling\Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv --model D:\ml-data\processed\model_v3_unseen-none --out C:\Users\htc\OneDrive\Desktop\cyberforecaster\forecast_v3_out
+
+file: Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv   format detected: cicflowmeter
+flows: 286,467   windows: 17,680   hosts: 3,667   time span: 9000 s
+NETWORK: 17 host(s) flagged   alert windows: 416 (2.4%)   peak risk: 0.992   (alert when risk_60s >= 0.8154)
+
+top hosts by peak risk:
+host                 peak  alerts  first alert         likely stage        MITRE   
+172.16.0.1          0.992      47  2017-07-07 01:05:20 reconnaissance      TA0043  
+192.168.10.8        0.973     112  2017-07-07 01:01:00 command_control     TA0011  
+192.168.10.14       0.972      76  2017-07-07 01:03:00 command_control     TA0011  
+192.168.10.15       0.965      63  2017-07-07 01:03:20 command_control     TA0011  
+192.168.10.9        0.962      54  2017-07-07 01:04:00 command_control     TA0011  
+192.168.10.5        0.945      51  2017-07-07 01:07:10 command_control     TA0011  
+13.78.188.147       0.914       2  2017-07-07 02:39:50 command_control     TA0011  
+65.55.44.108        0.913       1  2017-07-07 01:39:40 command_control     TA0011  
+192.168.10.16       0.872       2  2017-07-07 01:26:30 command_control     TA0011  
+104.97.98.225       0.859       1  2017-07-07 02:01:00 command_control     TA0011  
+
+check against the labels in this file: {
+ "windows_truly_attack": 106,
+ "windows_truly_normal": 17574,
+ "attack_windows_alerted": 0.4434,
+ "normal_windows_alerted_false_alarms": 0.021,
+ "stage_named_correctly_on_attack_windows": 0.7547,
+ "stage_recall_by_true_stage": {
+  "reconnaissance": [
+   0.755,
+   106
+  ]
+ }
+}
+
+notices:
+ - timestamps have MINUTE resolution: flows were spread evenly inside each minute, so timing inside a minute is not real and early-warning timing is blurred to about 60 s
+ - CICFlowMeter gives no TTL / fragment / retransmission values: those packet features are empty
+ - 65% of windows have fewer than 10 windows of history for their host (the model was trained with 10); they are scored by repeating the earliest window and are marked short_history
+ - alert threshold comes from the training networks. On a network the model has never seen, early warning is NOT proven (see results), so read risk as a ranking of hosts, not a calibrated probability
+
+saved:
+  C:\Users\htc\OneDrive\Desktop\cyberforecaster\forecast_v3_out\Friday-WorkingHours-Afternoon-PortScan_windows.csv
+  C:\Users\htc\OneDrive\Desktop\cyberforecaster\forecast_v3_out\Friday-WorkingHours-Afternoon-PortScan_hosts.csv
+  C:\Users\htc\OneDrive\Desktop\cyberforecaster\forecast_v3_out\Friday-WorkingHours-Afternoon-PortScan_summary.json

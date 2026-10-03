@@ -1,0 +1,211 @@
+# 2026-10-03 17:01:30  python run_test_files.py D:\ml-data\processed\model_v4_unseen-none D:\ml-data\processed\v4_out
+
+===== A_cic2017_friday_ddos_onset.csv   2.3 s   windows 1155  hosts 511  threshold 0.7108
+check: {"windows_truly_attack": 20, "windows_truly_normal": 1135, "attack_windows_alerted": 1.0, "normal_windows_alerted_false_alarms": 0.0194}
+network: {"hosts_flagged": 7, "alert_windows": 42, "peak_risk_60s": 0.9930019378662109, "share_of_windows_alerted": 0.0364}
+top hosts: [('172.16.0.1', 0.993, 20, 20, 'command_control'), ('192.168.10.25', 0.94, 2, 18, 'lateral_movement'), ('72.21.91.29', 0.906, 12, 19, 'command_control'), ('192.168.10.8', 0.853, 3, 21, 'command_control'), ('192.168.10.17', 0.798, 2, 21, 'lateral_movement'), ('23.60.139.27', 0.762, 2, 3, 'command_control')]
+start outlook: world model (LSTM), start-soon output [300, 600] threshold 300 s: 0.9603
+  host 172.16.0.1: rank 0  windows 20  alerts 20  stage shown at last alert: command_control  | calm windows with a start within 5 min: 0, warned 0  | calm windows with no start: 0, warned 0
+  5-minute outlook on calm windows of charted hosts: {'pre': 0, 'pre_w': 0, 'far': 199, 'far_w': 0}
+
+===== B_cic2018_ftp_bruteforce_onset.csv   5.5 s   windows 13939  hosts 1968  threshold 0.7108
+check: {"windows_truly_attack": 68, "windows_truly_normal": 13871, "attack_windows_alerted": 0.8088, "normal_windows_alerted_false_alarms": 0.0019, "stage_named_correctly_on_attack_windows": 0.9265, "averaged_stage_named_correctly_on_attack_windows": 0.9412, "averaged_stage_named_correctly_on_alerted_attack_windows": [1.0, 55], "stage_recall_by_true_stage": {"initial_access": [0.926, 68]}}
+network: {"hosts_flagged": 5, "alert_windows": 81, "peak_risk_60s": 0.9878599643707275, "share_of_windows_alerted": 0.0058}
+top hosts: [('18.221.219.4', 0.988, 34, 34, 'initial_access'), ('172.31.64.113', 0.854, 3, 42, 'command_control'), ('172.31.69.25', 0.852, 22, 53, 'initial_access'), ('74.242.236.227', 0.846, 19, 19, 'reconnaissance'), ('172.31.66.105', 0.744, 3, 60, 'command_control'), ('164.52.7.172', 0.671, 0, 1, '')]
+start outlook: world model (LSTM), start-soon output [300, 600] threshold 300 s: 0.9603
+  host 18.221.219.4: rank 0  windows 34  alerts 34  stage shown at last alert: initial_access  | calm windows with a start within 5 min: 0, warned 0  | calm windows with no start: 0, warned 0
+  host 172.31.69.25: rank 2  windows 53  alerts 22  stage shown at last alert: initial_access  | calm windows with a start within 5 min: 10, warned 0  | calm windows with no start: 9, warned 0
+   time      risk60  start5m  true
+   14:23:10  0.477   0.083   normal
+   14:24:20  0.408   0.059   normal
+   14:24:50  0.390   0.054   normal
+   14:25:00  0.387   0.053   normal
+   14:25:20  0.334   0.040   normal
+   14:25:30  0.319   0.040   normal
+   14:25:40  0.297   0.038   normal
+   14:26:10  0.312   0.069   normal
+   14:27:10  0.420   0.180   normal
+   14:28:20  0.502   0.304   normal
+   14:29:20  0.734   0.447   normal
+   14:29:30  0.241   0.037   normal
+   14:31:10  0.178   0.036   normal
+   14:31:30  0.136   0.030   normal
+   14:31:40  0.023   0.002   normal
+   14:32:20  0.006   0.001   normal
+   14:32:30  0.004   0.001   normal
+   14:32:40  0.002   0.001   normal
+   14:33:10  0.002   0.001   normal
+   14:33:20  0.006   0.003   initial_access
+   14:33:30  0.012   0.008   initial_access
+   14:33:40  0.154   0.064   initial_access
+   14:33:50  0.343   0.135   initial_access
+   14:34:00  0.436   0.149   initial_access
+   14:34:10  0.488   0.181   initial_access
+   14:34:20  0.596   0.216   initial_access
+   14:34:30  0.596   0.232   initial_access
+   14:34:40  0.764   0.306   initial_access
+   14:34:50  0.765   0.318   initial_access
+   14:35:00  0.807   0.317   initial_access
+   14:35:10  0.763   0.303   initial_access
+   14:35:20  0.716   0.297   initial_access
+   14:35:30  0.780   0.315   initial_access
+   14:35:40  0.833   0.332   initial_access
+   14:35:50  0.835   0.333   initial_access
+   14:36:00  0.794   0.315   initial_access
+   14:36:10  0.842   0.332   initial_access
+   14:36:20  0.842   0.333   initial_access
+   14:36:30  0.817   0.327   initial_access
+   14:36:40  0.849   0.341   initial_access
+   14:36:50  0.852   0.336   initial_access
+   14:37:00  0.838   0.327   initial_access
+   14:37:10  0.809   0.317   initial_access
+   14:37:20  0.753   0.307   initial_access
+   14:37:30  0.667   0.294   initial_access
+   14:37:40  0.706   0.305   initial_access
+   14:37:50  0.710   0.306   initial_access
+   14:38:00  0.716   0.306   initial_access
+   14:38:10  0.711   0.302   initial_access
+   14:38:20  0.648   0.282   initial_access
+   14:38:30  0.712   0.299   initial_access
+   14:38:40  0.774   0.312   initial_access
+   14:38:50  0.824   0.329   initial_access
+  5-minute outlook on calm windows of charted hosts: {'pre': 10, 'pre_w': 0, 'far': 510, 'far_w': 0}
+
+===== C_ctu13_botnet_c2_forecast.csv   3.8 s   windows 6955  hosts 4806  threshold 0.7108
+check: {"windows_truly_attack": 325, "windows_truly_normal": 6629, "attack_windows_alerted": 0.3908, "normal_windows_alerted_false_alarms": 0.1118, "stage_named_correctly_on_attack_windows": 0.3538, "averaged_stage_named_correctly_on_attack_windows": 0.9631, "averaged_stage_named_correctly_on_alerted_attack_windows": [1.0, 127], "stage_recall_by_true_stage": {"command_control": [0.354, 325]}}
+network: {"hosts_flagged": 236, "alert_windows": 868, "peak_risk_60s": 0.9989174008369446, "share_of_windows_alerted": 0.1248}
+top hosts: [('147.32.84.165', 0.999, 76, 78, 'command_control'), ('94.197.105.8', 0.995, 2, 2, 'command_control'), ('174.133.57.141', 0.986, 5, 5, 'command_control'), ('147.32.96.45', 0.985, 18, 18, 'command_control'), ('50.64.15.39', 0.984, 2, 2, 'command_control'), ('91.196.248.2', 0.983, 1, 1, 'command_control')]
+start outlook: world model (LSTM), start-soon output [300, 600] threshold 300 s: 0.9603
+  host 147.32.84.165: rank 0  windows 78  alerts 76  stage shown at last alert: command_control  | calm windows with a start within 5 min: 0, warned 0  | calm windows with no start: 0, warned 0
+  host 195.113.232.88: not among the 25 charted hosts
+  5-minute outlook on calm windows of charted hosts: {'pre': 0, 'pre_w': 0, 'far': 122, 'far_w': 0}
+
+===== D_unraveled_exfiltration_forecast.csv   2.6 s   windows 1606  hosts 62  threshold 0.7108
+check: {"windows_truly_attack": 65, "windows_truly_normal": 1529, "attack_windows_alerted": 0.9077, "normal_windows_alerted_false_alarms": 0.1472, "stage_named_correctly_on_attack_windows": 0.8308, "averaged_stage_named_correctly_on_attack_windows": 0.8308, "averaged_stage_named_correctly_on_alerted_attack_windows": [0.8136, 59], "stage_recall_by_true_stage": {"command_control": [0.814, 59], "exfiltration": [1.0, 6]}}
+network: {"hosts_flagged": 30, "alert_windows": 293, "peak_risk_60s": 0.998258113861084, "share_of_windows_alerted": 0.1824}
+top hosts: [('10.1.3.8', 0.998, 130, 136, 'command_control'), ('192.168.0.9', 0.988, 7, 40, 'exfiltration'), ('10.1.1.16', 0.983, 19, 25, 'exfiltration'), ('10.1.1.6', 0.976, 11, 102, 'lateral_movement'), ('10.1.2.10', 0.965, 9, 52, 'command_control'), ('10.1.2.8', 0.957, 4, 13, 'lateral_movement')]
+start outlook: world model (LSTM), start-soon output [300, 600] threshold 300 s: 0.9603
+  host 10.1.3.8: rank 0  windows 136  alerts 130  stage shown at last alert: command_control  | calm windows with a start within 5 min: 53, warned 0  | calm windows with no start: 0, warned 0
+  host 10.1.3.17: rank 6  windows 118  alerts 23  stage shown at last alert: exfiltration  | calm windows with a start within 5 min: 52, warned 1  | calm windows with no start: 48, warned 7
+   time      risk60  start5m  true
+   23:00:10  0.044   0.002   normal
+   23:00:20  0.051   0.002   normal
+   23:00:30  0.051   0.003   normal
+   23:00:40  0.031   0.002   normal
+   23:00:50  0.017   0.003   normal
+   23:01:00  0.017   0.005   normal
+   23:01:10  0.025   0.047   exfiltration
+   23:01:20  0.102   0.266   normal
+   23:01:30  0.375   0.659   normal
+   23:02:00  0.623   0.824   normal
+   23:02:10  0.417   0.680   normal
+   23:02:20  0.394   0.572   normal
+   23:03:40  0.071   0.453   exfiltration
+   23:04:20  0.276   0.771   normal
+   23:05:00  0.481   0.899   normal
+   23:05:30  0.523   0.913   normal
+   23:05:40  0.586   0.921   normal
+   23:06:00  0.723   0.947   normal
+   23:06:10  0.774   0.960   normal
+   23:06:20  0.598   0.898   normal
+   23:06:30  0.271   0.544   normal
+   23:06:40  0.147   0.250   normal
+   23:06:50  0.231   0.292   normal
+   23:07:00  0.262   0.288   normal
+   23:07:10  0.295   0.342   normal
+   23:07:20  0.266   0.392   normal
+   23:07:40  0.542   0.789   normal
+   23:07:50  0.604   0.810   normal
+   23:08:20  0.768   0.901   normal
+   23:08:30  0.789   0.867   normal
+   23:08:40  0.784   0.858   normal
+   23:08:50  0.569   0.692   normal
+   23:09:00  0.709   0.694   normal
+   23:09:10  0.725   0.587   normal
+   23:09:30  0.735   0.601   normal
+   23:09:40  0.461   0.551   normal
+   23:10:00  0.282   0.306   normal
+   23:10:20  0.374   0.464   normal
+   23:10:40  0.379   0.454   normal
+   23:10:50  0.260   0.265   normal
+   23:11:00  0.248   0.218   normal
+   23:11:20  0.507   0.479   normal
+   23:11:30  0.471   0.415   normal
+   23:12:20  0.387   0.303   normal
+   23:12:40  0.344   0.260   normal
+   23:12:50  0.331   0.295   normal
+   23:13:00  0.264   0.254   normal
+   23:13:20  0.183   0.149   normal
+   23:13:30  0.284   0.255   normal
+   23:13:40  0.409   0.564   exfiltration
+   23:13:50  0.483   0.813   exfiltration
+   23:14:10  0.771   0.951   normal
+   23:14:20  0.880   0.982   normal
+   23:14:30  0.880   0.977   normal
+   23:14:40  0.766   0.955   normal
+   23:15:00  0.560   0.850   normal
+   23:15:10  0.554   0.858   normal
+   23:15:20  0.449   0.865   normal
+   23:15:50  0.319   0.597   normal
+   23:16:10  0.273   0.533   normal
+   23:16:20  0.230   0.519   normal
+   23:16:30  0.272   0.549   normal
+   23:16:40  0.449   0.669   normal
+   23:17:00  0.440   0.595   normal
+   23:17:10  0.278   0.483   normal
+   23:17:20  0.205   0.304   normal
+   23:17:30  0.213   0.294   normal
+   23:17:40  0.166   0.257   normal
+   23:18:00  0.117   0.130   normal
+   23:18:10  0.066   0.068   normal
+   23:18:20  0.098   0.128   normal
+   23:18:30  0.065   0.109   normal
+   23:18:40  0.060   0.101   normal
+   23:19:30  0.092   0.179   normal
+   23:20:20  0.182   0.302   normal
+   23:20:30  0.228   0.414   normal
+   23:21:50  0.252   0.412   normal
+   23:22:20  0.400   0.603   normal
+   23:23:20  0.813   0.866   normal
+   23:23:40  0.298   0.755   exfiltration
+   23:24:20  0.455   0.923   normal
+   23:26:00  0.562   0.959   normal
+   23:26:10  0.596   0.945   normal
+   23:26:20  0.841   0.982   normal
+   23:26:30  0.819   0.973   normal
+   23:26:50  0.936   0.988   normal
+   23:27:00  0.939   0.986   normal
+   23:27:10  0.888   0.969   normal
+   23:27:30  0.667   0.854   normal
+   23:28:00  0.410   0.611   normal
+   23:28:10  0.344   0.536   normal
+   23:28:20  0.612   0.696   normal
+   23:28:40  0.486   0.701   ambiguous
+   23:29:00  0.508   0.749   normal
+   23:29:10  0.521   0.765   normal
+   23:29:20  0.404   0.638   normal
+   23:29:30  0.307   0.554   normal
+   23:29:40  0.262   0.443   normal
+   23:30:20  0.277   0.416   normal
+   23:30:30  0.266   0.391   normal
+   23:30:50  0.248   0.460   normal
+   23:31:00  0.199   0.421   normal
+   23:31:10  0.173   0.369   normal
+   23:31:40  0.199   0.360   normal
+   23:31:50  0.290   0.254   normal
+   23:32:00  0.459   0.460   normal
+   23:32:20  0.633   0.745   normal
+   23:32:30  0.805   0.936   normal
+   23:32:40  0.810   0.877   normal
+   23:32:50  0.851   0.938   normal
+   23:33:10  0.946   0.962   normal
+   23:33:20  0.935   0.957   normal
+   23:33:30  0.869   0.933   normal
+   23:33:40  0.371   0.830   exfiltration
+   23:34:00  0.576   0.915   normal
+   23:34:10  0.580   0.918   normal
+   23:34:20  0.638   0.913   normal
+   23:34:30  0.557   0.831   normal
+  5-minute outlook on calm windows of charted hosts: {'pre': 105, 'pre_w': 1, 'far': 973, 'far_w': 12}
+
+ALL FILES DONE

@@ -6,7 +6,8 @@ import {
 // Lazy-load Spline to prevent blocking initial page render
 const Spline = lazy(() => import("@splinetool/react-spline"));
 
-const SPLINE_ROBOT_SCENE = "https://prod.spline.design/kZDDjO5HuC9GJUM2/scene.splinecode";
+// The 3D scene is stored in client/public so the home page works offline.
+const SPLINE_ROBOT_SCENE = "/robot.splinecode";
 
 export default function LandingPage({ onGetStarted }) {
   const [isSceneLoaded, setIsSceneLoaded] = useState(false);

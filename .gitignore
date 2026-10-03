@@ -22,6 +22,7 @@ ENV/
 *.csv
 !sample_test_flows.csv
 !samples/*.csv
+!samples/test_files/*.csv
 *.zip
 *.tar.gz
 *.rar
@@ -66,3 +67,9 @@ scratch/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# -- Generated output and local-only folders --------------------------------------
+/forecast_out/
+/legacy/outputs/
+/legacy/_duplicates_not_in_git/
+/training/world_model/checks/audit/

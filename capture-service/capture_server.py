@@ -1,5 +1,5 @@
 """
-AETHERIS Capture Server
+CyberForecaster Capture Server
 Real-time network packet capture via Scapy + Npcap, streamed to React frontend over WebSocket.
 """
 
@@ -184,98 +184,18 @@ def _check_admin():
         else:
             print("[+] Running as Administrator - Scapy capture enabled.")
 
-app = FastAPI(title="AETHERIS Capture Server")
-
-_TRANSITION_MATRIX_DATA = None
-
-def _load_transition_matrix():
-    global _TRANSITION_MATRIX_DATA
-    if _TRANSITION_MATRIX_DATA is not None:
-        return _TRANSITION_MATRIX_DATA
-
-    matrix_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'models', 'stage_transition_matrix.json'))
-    if not os.path.exists(matrix_path):
-        print(f"[WARNING] Stage transition matrix not found at {matrix_path}. K-step forecast timeline will be unavailable.")
-        return None
-    try:
-        with open(matrix_path, "r", encoding="utf-8") as f:
-            _TRANSITION_MATRIX_DATA = json.load(f)
-        print(f"[ML] Stage transition matrix loaded successfully from {matrix_path}.")
-        return _TRANSITION_MATRIX_DATA
-    except Exception as e:
-        print(f"[WARNING] Could not load stage transition matrix: {e}")
-        return None
-
-def kstep_forward(current_stage_probs, K: int = 5) -> list:
-    """
-    Computes K-step forward simulation of attack progression using the learned Markov transition matrix:
-      p_{t+k} = p_t @ T^k
-    Returns list of K dicts with step, infiltration_probability (1 - P(normal)), predicted_stage, stage_distribution.
-    """
-    matrix_data = _load_transition_matrix()
-    if not matrix_data or "matrix" not in matrix_data or "stages" not in matrix_data:
-        return []
-
-    import numpy as np
-    stages = matrix_data["stages"]
-    T = np.array(matrix_data["matrix"], dtype=np.float64)
-
-    if isinstance(current_stage_probs, dict):
-        p = np.array([float(current_stage_probs.get(st, 0.0)) for st in stages], dtype=np.float64)
-    elif isinstance(current_stage_probs, (list, tuple, np.ndarray)):
-        p = np.array(current_stage_probs, dtype=np.float64)
-    else:
-        return []
-
-    total_p = p.sum()
-    if total_p > 0:
-        p = p / total_p
-    else:
-        p = np.zeros(len(stages), dtype=np.float64)
-        p[0] = 1.0
-
-    normal_idx = stages.index("normal") if "normal" in stages else 0
-
-    timeline = []
-    p_curr = p.copy()
-
-    for step in range(1, K + 1):
-        p_curr = p_curr @ T
-        s = p_curr.sum()
-        if s > 0:
-            p_curr = p_curr / s
-
-        infil_prob = float(1.0 - p_curr[normal_idx])
-        pred_idx = int(np.argmax(p_curr))
-        pred_stage = stages[pred_idx]
-        dist = {st: float(p_curr[i]) for i, st in enumerate(stages)}
-
-        timeline.append({
-            "step": step,
-            "infiltration_probability": round(infil_prob, 6),
-            "predicted_stage": pred_stage,
-            "stage_distribution": dist
-        })
-
-    return timeline
+app = FastAPI(title="CyberForecaster Capture Server")
 
 @app.on_event("startup")
 async def _on_startup():
-    """Build Scapy device map, capture running event loop, start ML forecast loop, sync live firewall rules, pre-initialize SHAP."""
+    """Build Scapy device map, capture running event loop, start the live forecast loop, sync live firewall rules."""
     global _main_loop
     _main_loop = asyncio.get_event_loop()
     _build_scapy_map()
     _init_live_flow_writer()
     _sync_live_block_state()
-    _load_transition_matrix()
     print(f"[Startup] Scapy device map built: {len(iface_to_scapy)} Npcap devices found. Live firewall block state synchronized.")
     _ensure_stage_forecast_loop()
-    # NOTE: The SHAP explainer is built LAZILY on the first /api/explain request
-    # (see _get_shap_explainer).
-    # Pre-initializing it here could block/slow server STARTUP (building a
-    # GradientExplainer over the LSTM is heavy), which made ALL uploads appear to
-    # "not load". Do NOT pre-initialize SHAP at startup.
-
 
 
 @app.on_event("shutdown")
@@ -2088,7 +2008,7 @@ async def websocket_live(ws: WebSocket):
     connected_clients.append(ws)
     try:
         # Send initial stats
-        await ws.send_text(json.dumps({"type": "connected", "msg": "AETHERIS capture stream active"}))
+        await ws.send_text(json.dumps({"type": "connected", "msg": "CyberForecaster capture stream active"}))
         while True:
             # Keep connection alive; also handle commands from client
             data = await ws.receive_text()
@@ -2766,7 +2686,7 @@ async def get_block_list():
 
 
 # ---------------------------------------------------------------------------
-# File Upload & Offline Analysis Endpoint (/api/analyze_file)
+# File Upload & Offline Analysis Endpoint (/api/upload)
 # ---------------------------------------------------------------------------
 
 
@@ -2793,7 +2713,7 @@ def _get_extractor_module():
         raise ImportError(f"Could not import extract_packet_features_v2 module: {e}")
 
 
-def _run_extractor_on_pcap(pcap_path: str, known_clean: bool = False) -> pd.DataFrame:
+def _run_extractor_on_pcap(pcap_path: str, known_clean: bool = False, keep_csv: str = None) -> pd.DataFrame:
     """Run extract_packet_features_v2 on a PCAP file and return DataFrame with exact 24 columns."""
     import tempfile
     import csv
@@ -2805,6 +2725,9 @@ def _run_extractor_on_pcap(pcap_path: str, known_clean: bool = False) -> pd.Data
 
     try:
         ext_mod.extract(pcap_path, tmp_csv_path)
+        if keep_csv:
+            import shutil
+            shutil.copyfile(tmp_csv_path, keep_csv)
 
         rows = []
         with open(tmp_csv_path, "r", newline="") as f:
@@ -2833,7 +2756,7 @@ def _run_extractor_on_pcap(pcap_path: str, known_clean: bool = False) -> pd.Data
                 pass
 
 
-def _pcap_bytes_to_flow_df(content: bytes) -> pd.DataFrame:
+def _pcap_bytes_to_flow_df(content: bytes, keep_csv: str = None) -> pd.DataFrame:
     """Extract flows using extract_packet_features_v2 so PCAP and CSV uploads produce identical data."""
     import tempfile
 
@@ -2842,7 +2765,7 @@ def _pcap_bytes_to_flow_df(content: bytes) -> pd.DataFrame:
         tmp_pcap_path = tmp_pcap.name
 
     try:
-        df = _run_extractor_on_pcap(tmp_pcap_path, known_clean=False)
+        df = _run_extractor_on_pcap(tmp_pcap_path, known_clean=False, keep_csv=keep_csv)
         REQUIRED_COLUMNS = [
             "src_ip", "dst_ip", "src_port", "dst_port", "protocol", "flow_start", "flow_end",
             "duration", "packet_count", "byte_count", "syn_count", "ack_count", "fin_count",
@@ -2879,16 +2802,6 @@ def _save_latest_forecast(data: dict):
 
 def _get_latest_forecast() -> dict:
     global _latest_forecast_result
-    if os.path.exists(_LATEST_FORECAST_FILE):
-        try:
-            with open(_LATEST_FORECAST_FILE, 'r') as f:
-                data = json.load(f)
-                _latest_forecast_result = data
-                return data
-        except Exception as e:
-            print(f"[Latest Forecast Load Error]: {e}", flush=True)
-    else:
-        _latest_forecast_result = {"status": "no_upload"}
     return _latest_forecast_result
 
 
@@ -3114,6 +3027,64 @@ async def upload_file(file: UploadFile = File(...)):
     content = await file.read()
     if not content or len(content) == 0:
         raise HTTPException(status_code=400, detail=f"Uploaded file '{filename}' is empty.")
+    # All heavy work runs in a worker thread, so the server keeps answering other requests meanwhile.
+    return await asyncio.to_thread(_process_upload, content, filename, ext, start_time)
+
+
+# Limits for the conversation list of an upload. The forecast itself comes from the v2 world model (per host,
+# every window of the file); the list below only feeds the conversation picker and its flow table.
+UPLOAD_MAX_CONVERSATIONS = 300        # conversations listed
+UPLOAD_MAX_PER_SOURCE = 12            # conversations listed per source host
+UPLOAD_FLOWS_PER_CONVERSATION = 60    # latest flows kept per conversation (the page shows up to 50)
+UPLOAD_V2_WAIT_S = 900                # how long the upload waits for the world model before answering
+
+
+def _process_upload(content: bytes, filename: str, ext: str, start_time: float) -> dict:
+    """Upload = v2 world model (the forecast) + a conversation list for the picker. If the conversation list cannot
+    be built for this file (a format only the v2 loader understands) the upload still succeeds when v2 does."""
+    import uuid
+    box = {}
+    try:
+        return _process_upload_body(content, filename, ext, start_time, box)
+    except HTTPException as e:
+        th = box.get("v2_thread")
+        if th is None:
+            raise
+        th.join(timeout=UPLOAD_V2_WAIT_S)
+        with _forecast_v2_lock:
+            mine = _latest_forecast_v2.get("file") == filename
+            v2_status = _latest_forecast_v2.get("status") if mine else "running"
+            v2_reason = _latest_forecast_v2.get("reason") if mine else None
+            v2_flows = _latest_forecast_v2.get("flows", 0) if mine else 0
+        if v2_status != "success":
+            if v2_status == "unusable_file" and v2_reason:
+                raise HTTPException(status_code=400, detail=v2_reason)
+            raise
+        response_data = {
+            "status": "no_conversations_qualified",
+            "upload_id": str(uuid.uuid4()),
+            "filename": filename,
+            "total_flows": int(v2_flows or 0),
+            "total_conversations": 0,
+            "conversations_skipped_too_short": 0,
+            "conversations_eligible": 0,
+            "conversations_listed": 0,
+            "world_model_status": v2_status,
+            "note": f"No conversation list for this file ({e.detail}). The per-host forecast is complete.",
+            "results": [],
+            "all_flows": [],
+            "processing_seconds": round(time.time() - start_time, 1),
+        }
+        _save_latest_forecast(response_data)
+        print(f"[UPLOAD] File: {filename} | no conversation list ({e.detail}) | World model: success | "
+              f"Time: {response_data['processing_seconds']}s", flush=True)
+        return response_data
+
+
+def _process_upload_body(content: bytes, filename: str, ext: str, start_time: float, box: dict) -> dict:
+    import tempfile
+    v2_thread = None
+    pcap_csv = None
 
     REQUIRED_COLUMNS = [
         "src_ip", "dst_ip", "src_port", "dst_port", "protocol", "flow_start", "flow_end",
@@ -3127,8 +3098,9 @@ async def upload_file(file: UploadFile = File(...)):
     import uuid
 
     if ext == ".csv":
+        v2_thread = box["v2_thread"] = _start_forecast_v2(content, filename)   # v2 world model (73 features, per host)
         try:
-            df = pd.read_csv(io.BytesIO(content))
+            df = pd.read_csv(io.BytesIO(content), low_memory=False)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Could not parse CSV file ({filename}): {str(e)}")
 
@@ -3154,13 +3126,18 @@ async def upload_file(file: UploadFile = File(...)):
         df = df.rename(columns={col_map[col]: col for col in REQUIRED_COLUMNS if col in col_map})
 
     else:
+        # The capture is turned into flows ONCE; the same flow table then feeds the v2 world model.
+        with tempfile.NamedTemporaryFile(suffix=".flows.csv", delete=False) as _t:
+            pcap_csv = _t.name
         try:
-            df = _pcap_bytes_to_flow_df(content)
+            df = _pcap_bytes_to_flow_df(content, keep_csv=pcap_csv)
         except Exception as e:
+            box["v2_thread"] = _start_forecast_v2(content, filename, cleanup=pcap_csv)   # v2 reports its own reason
             raise HTTPException(
                 status_code=400,
                 detail=f"Error parsing PCAP file ({filename}): {str(e)}"
             )
+        v2_thread = box["v2_thread"] = _start_forecast_v2(content, filename, pcap_flows_csv=pcap_csv, cleanup=pcap_csv)
 
     numeric_cols = [c for c in REQUIRED_COLUMNS if c not in ("src_ip", "dst_ip", "protocol")]
     for col in numeric_cols:
@@ -3180,60 +3157,83 @@ async def upload_file(file: UploadFile = File(...)):
     df["dst_ip"] = df["dst_ip"].astype(str)
     df["protocol"] = df["protocol"].astype(str)
 
-    from models.stage_forecaster_lstm_infer import forecast_host, _load_model
-    import models.stage_forecaster_lstm_infer as lstm_infer
-    _load_model()
-    _meta = lstm_infer._meta
-    seq_len = _meta.get("sequence_length", 5)
+    seq_len = 5            # a conversation is listed when it has at least 5 flows
 
     total_flows = len(df)
-    conversation_groups = df.groupby(["src_ip", "dst_ip"])
-    total_conversations = len(conversation_groups)
+    conversation_groups = df.groupby(["src_ip", "dst_ip"], sort=False)
+    sizes = conversation_groups.size()
+    total_conversations = int(len(sizes))
+    skipped_too_short = int((sizes < seq_len).sum())
+    eligible = sizes[sizes >= seq_len].sort_values(ascending=False, kind="stable")
+
+    # Wait for the v2 world model, then list first the conversations of the hosts it ranked highest.
+    v2_status, v2_hosts, v2_chart_hosts = "not_started", [], {}
+    if v2_thread is not None:
+        v2_thread.join(timeout=UPLOAD_V2_WAIT_S)
+        with _forecast_v2_lock:
+            if _latest_forecast_v2.get("file") == filename:
+                v2_status = _latest_forecast_v2.get("status", "running")
+                if v2_status == "success":
+                    v2_hosts = list((_latest_forecast_v2.get("chart") or {}).get("host_order") or [])
+                    v2_chart_hosts = (_latest_forecast_v2.get("chart") or {}).get("hosts") or {}
+    rank = {h: i for i, h in enumerate(v2_hosts)}
+    if v2_chart_hosts:
+        # The forecast is made per SOURCE host, and the result holds the hosts with the highest risk. Only the
+        # conversations of those hosts are listed, so every entry of the picker shows its own host's forecast
+        # (never another host's numbers). Every such host is listed, also with fewer than 5 flows.
+        with_forecast = sizes[[k[0] in v2_chart_hosts for k in sizes.index]].sort_values(ascending=False, kind="stable")
+        keys = sorted(with_forecast.index, key=lambda k: rank.get(k[0], len(rank)))   # stable: busiest first per host
+    else:
+        keys = sorted(eligible.index, key=lambda k: rank.get(k[0], len(rank)))     # stable: busiest first within a rank
+    selected, per_src = [], {}
+    for k in keys:
+        if per_src.get(k[0], 0) >= UPLOAD_MAX_PER_SOURCE:
+            continue
+        per_src[k[0]] = per_src.get(k[0], 0) + 1
+        selected.append(k)
+        if len(selected) >= UPLOAD_MAX_CONVERSATIONS:
+            break
 
     results = []
-    skipped_too_short = 0
+    group_rows = conversation_groups.indices
+    for (src_ip, dst_ip) in selected:
+        group_sorted = df.iloc[group_rows[(src_ip, dst_ip)]].sort_values("flow_start", kind="stable")
+        n_flows = len(group_sorted)
+        flows = group_sorted.tail(max(UPLOAD_FLOWS_PER_CONVERSATION, seq_len)).to_dict(orient="records")
 
-    for (src_ip, dst_ip), group in conversation_groups:
-        group_sorted = group.sort_values("flow_start")
-        flows = group_sorted.to_dict(orient="records")
-
-        if len(flows) < seq_len:
-            skipped_too_short += 1
-            continue
-
-        # Run sliding window inference for every sequence_length window
-        window_timeline = []
-        for i in range(0, len(flows) - seq_len + 1):
-            window_slice = flows[i : i + seq_len]
-            fc_win = forecast_host(dst_ip, window_slice, src_ip=src_ip)
-            window_timeline.append({
-                "window_idx": i,
-                "flow_index": i + seq_len,
-                "forecast_target_flow": i + seq_len + _meta.get("forecast_horizon", 3),
-                "risk_score": fc_win["risk_score"],
-                "predicted_stage": fc_win["predicted_stage"],
-                "stage_probabilities": fc_win["stage_probs"],
-            })
-
-        latest_fc = window_timeline[-1] if window_timeline else forecast_host(dst_ip, flows, src_ip=src_ip)
-        latest_probs = latest_fc["stage_probabilities"] if "stage_probabilities" in latest_fc else latest_fc.get("stage_probs", {})
-        forecast_tl = kstep_forward(latest_probs, K=5)
+        # Every value below comes from the trained world model (73 features, per source host).
+        # The old 15-feature model is no longer used for uploads.
+        H = v2_chart_hosts.get(src_ip) or {}
+        risk_series = H.get("risk_60s") or []
+        risk = stage = None
+        forecast_tl = []
+        if risk_series:
+            risk = float(risk_series[-1])
+            alerting = bool((H.get("alert") or [False])[-1])
+            stage = ((H.get("likely_attack_stage") or [None])[-1] if alerting
+                     else (H.get("stage_now") or [None])[-1])
+            curve = (H.get("forecast_curve") or [[]])[-1] or []
+            steps = (H.get("stage_forecast") or [[]])[-1] or []
+            forecast_tl = [{"step": k + 1, "seconds_ahead": 10 * (k + 1), "risk": curve[k],
+                            "stage": steps[k + 1] if k + 1 < len(steps) else None} for k in range(len(curve))]
 
         results.append({
             "src_ip": src_ip,
             "dst_ip": dst_ip,
-            "infiltration_probability": latest_fc["risk_score"],
-            "predicted_stage": latest_fc["predicted_stage"],
-            "stage_probabilities": latest_probs,
+            "model": "world model (forecast for the source host)" if risk_series else None,
+            "infiltration_probability": risk,
+            "predicted_stage": stage,
+            "stage_probabilities": {},
             "forecast_timeline": forecast_tl,
-            "flows_used": len(flows),
-            "windows_analyzed": len(window_timeline),
-            "window_timeline": window_timeline,
+            "flows_used": n_flows,
+            "windows_analyzed": len(risk_series),
+            "window_timeline": [],
             "flows": flows,
         })
 
-    # Sort conversations by infiltration_probability descending (most suspicious first)
-    results.sort(key=lambda c: c["infiltration_probability"], reverse=True)
+    # Keep the world model's host order (most at-risk host first), busiest conversation first within a host.
+    order = {k: i for i, k in enumerate(selected)}
+    results.sort(key=lambda c: (rank.get(c["src_ip"], len(rank)), order[(c["src_ip"], c["dst_ip"])]))
 
     response_data = {
         "status": "success" if results else "no_conversations_qualified",
@@ -3242,17 +3242,22 @@ async def upload_file(file: UploadFile = File(...)):
         "total_flows": total_flows,
         "total_conversations": total_conversations,
         "conversations_skipped_too_short": skipped_too_short,
+        "conversations_eligible": int(len(eligible)),
+        "conversations_of_hosts_with_forecast": bool(v2_chart_hosts),
+        "conversations_listed": len(results),
+        "world_model_status": v2_status,
         "sequence_length": seq_len,
-        "forecast_horizon": _meta.get("forecast_horizon"),
+        "forecast_horizon": 6,
         "results": results,
         "all_flows": df[["src_ip", "dst_ip", "packet_count", "byte_count", "protocol"]].head(2500).to_dict(orient="records") if "src_ip" in df.columns and "dst_ip" in df.columns else [],
     }
 
     _save_latest_forecast(response_data)
     elapsed = time.time() - start_time
-    print(f"[UPLOAD] File: {filename} | Rows: {total_flows} | Conversations: {total_conversations} | Forecasted: {len(results)} | Time: {elapsed:.3f}s", flush=True)
+    response_data["processing_seconds"] = round(elapsed, 1)
+    print(f"[UPLOAD] File: {filename} | Rows: {total_flows} | Conversations: {total_conversations} | Listed: {len(results)} | World model: {v2_status} | Time: {elapsed:.3f}s", flush=True)
 
-    if not results:
+    if not results and v2_status != "success":
         raise HTTPException(
             status_code=400,
             detail=f"File processed: {total_flows} flows, {total_conversations} conversations, 0 had enough flows (need >= 5 per src/dst pair)"
@@ -3261,161 +3266,126 @@ async def upload_file(file: UploadFile = File(...)):
     return response_data
 
 
+# ── v2 world model: 73 window features per host, universal loader (world_model.py) ──────────────────
+_latest_forecast_v2 = {"status": "no_upload"}
+_forecast_v2_lock = threading.Lock()
+_LATEST_FORECAST_V2_FILE = os.path.join(_LIVE_DATA_DIR, 'latest_forecast_v2.json')
+
+
+def _save_latest_forecast_v2(data: dict):
+    """Keep the last finished v2 result on disk so it survives a server restart (like the v1 result)."""
+    try:
+        if data.get("status") in ("success", "unusable_file", "error"):
+            os.makedirs(_LIVE_DATA_DIR, exist_ok=True)
+            with open(_LATEST_FORECAST_V2_FILE, 'w') as f:
+                json.dump(data, f)
+    except Exception as e:
+        print(f"[Latest Forecast v2 Save Error]: {e}", flush=True)
+
+
+def _run_forecast_v2(content: bytes, filename: str, pcap_flows_csv: str = None) -> dict:
+    """Run the v2 pipeline on uploaded bytes. Never raises: problems are returned as a status + reason."""
+    import tempfile
+    tmp_path = None
+    t_start = time.time()
+    try:
+        import world_model
+        suffix = os.path.splitext(filename or "upload")[1] or ".bin"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            res = world_model.analyze(tmp_path, pcap_flows_csv=pcap_flows_csv)
+        except world_model.UnusableFile as e:
+            return {"status": "unusable_file", "file": filename, "reason": str(e)}
+        res["status"], res["file"] = "success", filename
+        res["processing_seconds"] = round(time.time() - t_start, 1)
+        return res
+    except Exception as e:
+        return {"status": "error", "file": filename, "reason": repr(e)}
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+def _start_forecast_v2(content: bytes, filename: str, pcap_flows_csv: str = None, cleanup: str = None):
+    """Start the v2 world model in the background and return its thread. `pcap_flows_csv` is the flow table the
+    upload already extracted from a capture; `cleanup` is a temporary file to delete when the run ends."""
+    global _latest_forecast_v2
+    with _forecast_v2_lock:
+        _latest_forecast_v2 = {"status": "running", "file": filename}
+
+    def work():
+        global _latest_forecast_v2
+        try:
+            res = _run_forecast_v2(content, filename, pcap_flows_csv=pcap_flows_csv)
+        finally:
+            if cleanup and os.path.exists(cleanup):
+                try:
+                    os.remove(cleanup)
+                except Exception:
+                    pass
+        with _forecast_v2_lock:
+            if _latest_forecast_v2.get("file") == filename:      # ignore results of an older upload
+                _latest_forecast_v2 = res
+                _save_latest_forecast_v2(res)
+        print(f"[UPLOAD v2] {filename}: {res.get('status')} {res.get('reason', '')} "
+              f"({res.get('processing_seconds', '?')} s)", flush=True)
+
+    th = threading.Thread(target=work, daemon=True)
+    th.start()
+    return th
+
+
+@app.post("/api/v2/upload")
+async def upload_file_v2(file: UploadFile = File(...)):
+    """Any PCAP / PCAPNG / flow CSV (also .gz .bz2 .zip) -> per-host forecast from the v2 world model."""
+    global _latest_forecast_v2
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided in request.")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail=f"Uploaded file '{file.filename}' is empty.")
+    res = await asyncio.to_thread(_run_forecast_v2, content, file.filename)
+    with _forecast_v2_lock:
+        _latest_forecast_v2 = res
+        _save_latest_forecast_v2(res)
+    if res["status"] != "success":
+        raise HTTPException(status_code=400 if res["status"] == "unusable_file" else 500, detail=res.get("reason", "v2 forecast failed"))
+    return res
+
+
+@app.get("/api/v2/forecast/latest")
+def get_latest_forecast_v2():
+    """Latest v2 result: {"status": "no_upload" | "running" | "success" | "unusable_file" | "error", ...}."""
+    global _latest_forecast_v2
+    with _forecast_v2_lock:
+        return _latest_forecast_v2
+
+
 @app.get("/api/forecast/latest")
 def get_latest_forecast():
     """Returns the result of the most recent upload, or {"status": "no_upload"} if nothing was uploaded."""
     return _get_latest_forecast()
 
 
-_shap_explainer = None
-_shap_lock = threading.Lock()
-
-
-def _get_shap_explainer():
-    """Builds and caches a shap.GradientExplainer whose background is 100 real benign 5-flow windows (models/shap_background_benign.json)."""
-    global _shap_explainer
-    if _shap_explainer is not None:
-        return _shap_explainer
-    with _shap_lock:
-        if _shap_explainer is not None:
-            return _shap_explainer
-
-        try:
-            import torch
-            import numpy as np
-            import shap
-            import models.stage_forecaster_lstm_infer as lstm_infer
-
-            lstm_infer._load_model()
-            _meta = lstm_infer._meta
-            _model = lstm_infer._model
-
-            feature_cols = _meta["feature_columns"]
-            log_cols = _meta.get("log_transform_columns", [])
-            feat_min = np.array(_meta["normalizer"]["feature_min"], dtype=np.float32)
-            feat_max = np.array(_meta["normalizer"]["feature_max"], dtype=np.float32)
-            seq_len = _meta.get("sequence_length", 5)
-
-            # SHAP reference distribution: REAL benign 5-flow windows sampled from the
-            # labeled training corpus (built by data_prep/build_shap_background.py).
-            # Attributions therefore explain "why this window looks riskier / safer
-            # than ordinary benign traffic". No synthetic or upload-dependent data.
-            bg_path = os.path.join(os.path.dirname(lstm_infer.__file__), "shap_background_benign.json")
-            with open(bg_path, "r") as f:
-                bg_json = json.load(f)
-            if bg_json.get("feature_columns") != feature_cols:
-                raise ValueError("shap_background_benign.json feature columns do not match the model")
-            bg_windows = [np.array(w, dtype=np.float32) for w in bg_json["windows"]]
-            if not bg_windows or bg_windows[0].shape != (seq_len, len(feature_cols)):
-                raise ValueError("shap_background_benign.json has an unexpected window shape")
-
-            bg_tensor = torch.tensor(np.array(bg_windows), dtype=torch.float32)
-
-            class RiskModelWrapper(torch.nn.Module):
-                def __init__(self, m):
-                    super().__init__()
-                    self.m = m
-
-                def forward(self, x):
-                    _, risk_pred = self.m(x)
-                    return risk_pred
-
-            wrapper = RiskModelWrapper(_model)
-            wrapper.eval()
-
-            _shap_explainer = shap.GradientExplainer(wrapper, bg_tensor)
-            print(f"[SHAP] GradientExplainer initialized with background dataset of shape {bg_tensor.shape}", flush=True)
-            return _shap_explainer
-        except Exception as e:
-            print(f"[SHAP Init Error] Failed to initialize GradientExplainer: {e}", flush=True)
-            raise e
-
-
-@app.get("/api/explain")
-def get_feature_explainability(src_ip: str = "", dst_ip: str = ""):
-    """Computes SHAP feature attributions (SHAP GradientExplainer) for a given conversation's latest window."""
-    latest = _get_latest_forecast()
-    if not latest or latest.get("status") not in ("success", "ok") or not latest.get("results"):
-        raise HTTPException(status_code=404, detail="No forecast data available")
-
-    results = latest["results"]
-    target_conv = None
-    if src_ip and dst_ip:
-        for c in results:
-            if c.get("src_ip") == src_ip and c.get("dst_ip") == dst_ip:
-                target_conv = c
-                break
-    if not target_conv:
-        raise HTTPException(status_code=404, detail=f"Conversation {src_ip} -> {dst_ip} not found in latest upload")
-
-    flows = target_conv.get("flows", [])
-    if not flows:
-        raise HTTPException(status_code=404, detail="No flows found for conversation")
-
-    import torch
-    import numpy as np
-    import models.stage_forecaster_lstm_infer as lstm_infer
-    lstm_infer._load_model()
-    _meta = lstm_infer._meta
-    _model = lstm_infer._model
-
-    feature_cols = _meta["feature_columns"]
-    log_cols = _meta.get("log_transform_columns", [])
-    feat_min = np.array(_meta["normalizer"]["feature_min"], dtype=np.float32)
-    feat_max = np.array(_meta["normalizer"]["feature_max"], dtype=np.float32)
-    seq_len = _meta.get("sequence_length", 5)
-
-    recent_flows = flows[-seq_len:]
-    window_norm = lstm_infer._flows_to_matrix(recent_flows, feature_cols, log_cols, feat_min, feat_max, seq_len)
-    x = torch.tensor(window_norm, dtype=torch.float32).unsqueeze(0)
-
-    features = []
-    used_method = "SHAP (GradientExplainer)"
-
-    try:
-        explainer = _get_shap_explainer()
-        shap_vals = explainer.shap_values(x)
-
-        shap_matrix = shap_vals[0] if isinstance(shap_vals, list) else shap_vals
-        if shap_matrix.ndim == 4:
-            shap_matrix = shap_matrix[0, :, :, 0]
-        elif shap_matrix.ndim == 3:
-            shap_matrix = shap_matrix[0]
-
-        abs_shap = np.mean(np.abs(shap_matrix), axis=0)
-        signed_shap = np.mean(shap_matrix, axis=0)
-
-        for idx, col in enumerate(feature_cols):
-            val = float(signed_shap[idx])
-            imp = float(abs_shap[idx])
-            features.append({
-                "feature": col,
-                "importance": round(imp, 6),
-                "val": round(val, 6),
-                "direction": "+" if val >= 0 else "-"
-            })
-
-    except Exception as shap_err:
-        # SHAP-only explainability: no Integrated-Gradients fallback. If SHAP fails,
-        # return an empty explanation gracefully so the dashboard shows its
-        # "explanation not available" state instead of crashing or hanging.
-        print(f"[SHAP] GradientExplainer execution failed: {shap_err}", flush=True)
-        features = []
-
-    features.sort(key=lambda item: item["importance"], reverse=True)
-    total_imp = sum(f["importance"] for f in features) or 1.0
-    for f in features:
-        f["percent"] = round((f["importance"] / total_imp) * 100, 1)
-
-    return {
-        "status": "success",
-        "src_ip": target_conv.get("src_ip"),
-        "dst_ip": target_conv.get("dst_ip"),
-        "method": used_method,
-        "features": features[:7]
-    }
-
-
+@app.post("/api/forecast/reset")
+def reset_forecast():
+    """Resets the forecast state to no_upload and clears saved forecast files."""
+    global _latest_forecast_result, _latest_forecast_v2
+    with _forecast_v2_lock:
+        _latest_forecast_result = {"status": "no_upload"}
+        _latest_forecast_v2 = {"status": "no_upload"}
+        for fpath in (_LATEST_FORECAST_FILE, _LATEST_FORECAST_V2_FILE):
+            if os.path.exists(fpath):
+                try:
+                    os.remove(fpath)
+                except Exception:
+                    pass
+    return {"status": "reset", "message": "Forecast state reset to no_upload"}
 
 
 @app.get("/api/capture/summary")
@@ -3575,23 +3545,6 @@ def download_capture(format: str = "pcap", known_clean: int = 0):
                 pass
 
 
-def _analyze_pcap_bytes(content: bytes, filename: str) -> dict:
-    """Legacy endpoint helper for /api/analyze_file."""
-    return upload_file(UploadFile(filename=filename, file=io.BytesIO(content)))
-
-
-def _analyze_csv_bytes(content: bytes, filename: str) -> dict:
-    """Legacy endpoint helper for /api/analyze_file."""
-    return upload_file(UploadFile(filename=filename, file=io.BytesIO(content)))
-
-
-@app.post("/api/analyze_file")
-async def analyze_file(file: UploadFile = File(...)):
-    """Legacy alias endpoint redirecting to POST /api/upload."""
-    return await upload_file(file)
-
-
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -3601,7 +3554,7 @@ if __name__ == "__main__":
     _port = int(os.environ.get("CAPTURE_PORT", 8080))
     _host = os.environ.get("CAPTURE_HOST", "0.0.0.0")
     print("=" * 60)
-    print("  AETHERIS Capture Server")
+    print("  CyberForecaster Capture Server")
     print("  Real-time packet capture via Scapy + Npcap")
     print(f"  Listening on {_host}:{_port}")
     print(f"  (Override with CAPTURE_HOST / CAPTURE_PORT env vars)")
