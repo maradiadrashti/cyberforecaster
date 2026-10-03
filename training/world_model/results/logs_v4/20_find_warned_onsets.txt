@@ -1,0 +1,48 @@
+# 2026-10-03 15:18:26  python find_warned_onsets.py
+held-back windows: 522,216   alert threshold: 0.8154
+cic2017: windows 30,859  starts found so far 3
+cic2018: windows 283,194  starts found so far 4
+ctu13: windows 61,291  starts found so far 9
+dapt2020: windows 3,856  starts found so far 23
+unraveled: windows 117,246  starts found so far 49
+unsw: windows 25,770  starts found so far 49
+
+starts and warnings per dataset and stage:
+                            starts  warned
+sub       stage                           
+cic2017   lateral_movement       3       0
+cic2018   initial_access         1       0
+ctu13     command_control        5       4
+dapt2020  exfiltration           1       0
+          initial_access         1       0
+          lateral_movement      12       0
+unraveled exfiltration          21      18
+          lateral_movement       5       1
+
+TOTAL starts 49   warned 23
+
+warned starts (best first):
+      sub           host               start            stage  normal_windows_before  risk_before_max  warned  lead_seconds  baseline_before_max  attack_windows_next_5min
+unraveled   192.168.0.11 2021-06-26 06:00:40 lateral_movement                      3           0.8624    True            40               0.1308                         5
+    ctu13 195.113.232.88 2011-08-10 11:51:40  command_control                     10           0.9451    True            50               0.3374                         4
+unraveled      10.1.3.17 2021-07-02 23:13:40     exfiltration                     10           0.8251    True            50               0.7652                         2
+unraveled      10.1.3.17 2021-07-02 23:53:40     exfiltration                     10           0.8991    True            40               0.3212                         2
+    ctu13 74.125.232.207 2011-08-10 11:53:30  command_control                      6           0.9548    True            60               0.5951                         1
+    ctu13 74.125.232.218 2011-08-10 11:27:50  command_control                      3           0.9515    True            60               0.2830                         1
+unraveled      10.1.3.17 2021-07-02 23:33:40     exfiltration                     10           0.9469    True            60               0.9106                         1
+unraveled      10.1.3.17 2021-07-04 15:23:40     exfiltration                     10           0.9872    True            60               0.8319                         1
+unraveled      10.1.3.17 2021-07-05 03:13:40     exfiltration                     10           0.9794    True            60               0.0644                         1
+    ctu13 195.113.232.97 2011-08-10 11:53:30  command_control                     10           0.9560    True            50               0.2954                         1
+unraveled      10.1.3.17 2021-07-04 01:23:40     exfiltration                     10           0.9858    True            50               0.9712                         1
+unraveled      10.1.3.17 2021-07-04 12:53:40     exfiltration                     10           0.9858    True            50               0.9229                         1
+unraveled      10.1.3.17 2021-07-05 03:53:40     exfiltration                     10           0.9845    True            50               0.9770                         1
+unraveled      10.1.3.17 2021-07-05 17:53:40     exfiltration                     10           0.9868    True            50               0.1347                         1
+unraveled      10.1.3.17 2021-07-06 04:53:40     exfiltration                     10           0.9887    True            50               0.0685                         1
+unraveled      10.1.3.17 2021-07-04 15:53:40     exfiltration                     10           0.9880    True            40               0.6645                         1
+unraveled      10.1.3.17 2021-07-05 17:23:40     exfiltration                     10           0.9888    True            40               0.0321                         1
+unraveled      10.1.3.17 2021-07-03 11:53:40     exfiltration                     10           0.9827    True            30               0.8711                         1
+unraveled      10.1.3.17 2021-07-06 05:53:40     exfiltration                     10           0.9810    True            30               0.0775                         1
+unraveled      10.1.3.17 2021-07-02 23:23:40     exfiltration                     10           0.9663    True            20               0.1406                         1
+unraveled      10.1.3.17 2021-07-03 22:53:40     exfiltration                     10           0.9867    True            20               0.0774                         1
+unraveled      10.1.3.17 2021-07-05 17:03:40     exfiltration                      3           0.9904    True            20               0.1644                         1
+unraveled      10.1.3.17 2021-06-30 19:51:40     exfiltration                     10           0.8220    True            10               0.8783                         1

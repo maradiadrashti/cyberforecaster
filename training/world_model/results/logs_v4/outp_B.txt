@@ -1,0 +1,30 @@
+
+=== api/B_cic2018_ftp_bruteforce_onset: 144 conversations, 25 charted hosts, 1024 page renders
+  OK   page renders without error: 1024/1024
+  OK   tile: threat level: 1024/1024
+  OK   tile: attack probability: 1024/1024
+  OK   tile: 5 / 10 minute values: 1024/1024
+  OK   tile: model confidence: 1024/1024
+  OK   chart: alert threshold label: 1024/1024
+  OK   chart: model line (12 observed + 6 forecast points): 1024/1024
+  OK   chart: baseline line: 1024/1024
+  OK   chart: range upper edge: 1024/1024
+  OK   chart: range lower edge: 1024/1024
+  OK   chart: labelled-malicious shading: 1024/1024
+  OK   chart: selected window time shown: 1024/1024
+  OK   tree: stage name and probability: 1619/1619
+  OK   tree: "seen X of Y times" and delay: 1285/1285
+  OK   MITRE card: stage, tactic id, probability, basis: 495/495
+  OK   attribution: feature, contribution, share: 1260/1260
+  OK   attribution: main feature panel (description, observed value): 180/180
+  OK   actions: shown exactly when the latest window is HIGH RISK / ELEVATED: 1024/1024
+  OK   page shows the forecast of the conversation SOURCE host: 1024/1024
+  OK   actions: block rule names the source host: 157/157
+  OK   actions: target host = destination of the conversation: 157/157
+  OK   actions: stage named in action 2 (next stage of the tree, else current stage): 157/157
+  OK   flow table: source, destination, packets: 4180/4180
+  OK   flow table: rows belong to the selected conversation: 1024/1024
+  OK   tree: "no progression" message when no attack stage: 855/855
+  OK   attribution: message when not available or risk near zero: 844/844
+  OK   dropdown: label per conversation: 144/144
+  OK   dropdown: every entry has its own source-host forecast: 144/144

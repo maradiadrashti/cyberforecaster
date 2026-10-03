@@ -3,7 +3,7 @@ import {
   Activity, Search, ShieldAlert, Wifi, Globe, Clock, Filter,
   AlertTriangle, Server, Zap, ArrowUpDown, RefreshCw, Radio,
   Play, Square, Network, ChevronDown, Signal, Usb, MonitorSmartphone,
-  Link2, WifiOff, Target, Crosshair, CheckCircle2, Gauge, Ban, Lock, ChevronRight, Download
+  Link2, WifiOff, Target, Crosshair, CheckCircle2, Gauge, Ban, Lock, ChevronRight, Download, Menu
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -249,8 +249,8 @@ function ForceDirectedTopology({ nodes, links, localIp, onNodeClick }) {
   }, [hoverNode, nodes, localHostIp, pos]);
 
   return (
-    <div className="relative w-full h-full bg-surface select-none">
-      <svg ref={svgRef} viewBox="0 0 800 260" className="w-full h-full bg-surface">
+    <div className="relative w-full h-full bg-transparent select-none">
+      <svg ref={svgRef} viewBox="0 0 800 260" className="w-full h-full bg-transparent">
         <defs>
           <pattern id="topoGrid" width="24" height="24" patternUnits="userSpaceOnUse">
             <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#262E3A" strokeWidth="0.5" opacity="0.6" />
@@ -424,7 +424,7 @@ function ForceDirectedTopology({ nodes, links, localIp, onNodeClick }) {
 
 // ── Main Component ──────────────────────────────────────────────────────────
 
-export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowClick }) {
+export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowClick, onToggleSidebar }) {
   // --- State ---
   const [interfaces, setInterfaces] = useState([]);
   const [selectedIface, setSelectedIface] = useState("");
@@ -919,6 +919,14 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
     });
   }, [attackFlows]);
 
+  const uniqueSrcIps = useMemo(() => {
+    return new Set(Object.values(flows).map(f => f.src_ip).filter(Boolean)).size;
+  }, [flows]);
+
+  const uniqueDstIps = useMemo(() => {
+    return new Set(Object.values(flows).map(f => f.dst_ip).filter(Boolean)).size;
+  }, [flows]);
+
   const topoNodeList = useMemo(() => Object.values(topoNodes), [topoNodes]);
   const topoLinks = useMemo(() => {
     const links = [];
@@ -948,10 +956,10 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
   };
 
   return (
-    <div className="space-y-5 animate-fade-in bg-bg text-text">
+    <div className="space-y-6 animate-fade-in text-text pb-8 -m-6 p-6 min-h-full cyber-grid-blue">
       {/* Error banner */}
       {error && (
-        <div className="bg-surface border border-gold/40 rounded-xl p-4 flex items-center gap-3 text-gold">
+        <div className="border border-gold/40 p-4 flex items-center gap-3 text-gold">
           <AlertTriangle className="h-5 w-5 shrink-0" />
           <div>
             <p className="text-sm font-bold text-gold">Capture Server Offline</p>
@@ -961,23 +969,32 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
       )}
 
       {/* Interface Selector + Controls */}
-      <section className="bg-surface rounded-xl border border-border p-4">
+      <section className="pb-5 border-b-2 border-white/30">
         <div className="flex items-center gap-4 flex-wrap justify-between w-full">
           {/* Left Side: Interface label + Dropdown + Download PCAP */}
           <div className="flex items-center gap-3 flex-wrap">
+            {onToggleSidebar && (
+              <button
+                onClick={onToggleSidebar}
+                className="p-2 rounded-lg bg-surface-2 hover:bg-surface border border-white/25 text-gold hover:text-white transition-colors cursor-pointer"
+                title="Toggle Sidebar Nav"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            )}
             <div className="flex items-center gap-2">
               <Radio className="h-4 w-4 text-gold" />
-              <span className="text-sm font-bold uppercase tracking-wider text-white whitespace-nowrap">Network Interface</span>
+              <span className="text-sm font-extrabold uppercase tracking-wider text-white whitespace-nowrap">Network Interface</span>
             </div>
             <div className="relative">
               <select
                 value={selectedIface}
                 onChange={(e) => handleInterfaceChange(e.target.value)}
-                className="appearance-none bg-surface-2 border border-border rounded-lg px-3 py-2 pr-8 text-sm text-text outline-none focus:border-gold cursor-pointer min-w-[220px] font-semibold"
+                className="appearance-none bg-surface-2 border border-white/25 rounded-lg px-3 py-2 pr-8 text-sm text-white outline-none focus:border-gold cursor-pointer min-w-[220px] font-semibold"
               >
-                <option value="">Select interface...</option>
+                <option value="" className="text-text-muted">Select interface...</option>
                 {interfaces.map(iface => (
-                  <option key={iface.name} value={iface.name}>
+                  <option key={iface.name} value={iface.name} className="bg-surface-2 text-white">
                     {iface.name} ({iface.type}) - {iface.ip} {iface.is_up ? "●" : "○"}
                   </option>
                 ))}
@@ -985,24 +1002,24 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             </div>
 
-            {/* DOWNLOAD PCAP Button to the right of dropdown */}
+            {/* DOWNLOAD PCAP Button */}
             <button
               onClick={() => window.open(`${CAPTURE_API}/api/capture/download?format=pcap`, "_blank")}
               title="Download raw packets captured during the telemetry session as a .pcap file"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue hover:bg-blue-hi border border-border/80 text-white text-xs font-extrabold uppercase tracking-wider transition-all duration-200 shadow-md hover:scale-[1.03] hover:shadow-lg cursor-pointer whitespace-nowrap shrink-0"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue hover:bg-blue-hi border border-white/25 text-white text-xs font-extrabold uppercase tracking-wider transition-all duration-200 shadow-md hover:scale-[1.02] cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Download className="h-4 w-4" />
+              <Download className="h-4 w-4 text-white" />
               <span>Download PCAP</span>
             </button>
           </div>
 
           {/* Right Side: Capture Server Online Indicator + Clear/Reset + Start Capture */}
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Capture Server Status with Green Flashy Glow Dot */}
+            {/* Capture Server Status */}
             <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs border transition-all ${
               connected 
-                ? "bg-surface-2 border-border text-gold font-bold" 
-                : "bg-surface-2 border-border text-text-muted font-medium"
+                ? "bg-surface-2 border-white/25 text-gold font-bold shadow-sm" 
+                : "bg-surface-2 border-white/25 text-text-muted font-medium"
             }`}>
               <div className={`h-2.5 w-2.5 rounded-full transition-all ${
                 !connected
@@ -1019,7 +1036,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
             <button
               onClick={resetDashboardState}
               title="Reset dashboard metrics and start fresh"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-2 hover:bg-border border border-border text-text text-xs transition-all font-semibold cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-2 hover:bg-surface border border-white/25 text-white text-xs transition-all font-bold cursor-pointer whitespace-nowrap"
             >
               <RefreshCw className="h-3.5 w-3.5 text-gold" />
               <span>Clear / Reset</span>
@@ -1029,7 +1046,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
               <button
                 onClick={startCapture}
                 disabled={!selectedIface || !connected}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gold hover:bg-gold-hi text-bg text-[11px] font-bold uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm whitespace-nowrap"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gold hover:bg-gold-hi text-bg text-[11px] font-black uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm whitespace-nowrap"
               >
                 <Play className="h-3.5 w-3.5 fill-current" />
                 <span>Start Capture</span>
@@ -1037,7 +1054,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
             ) : (
               <button
                 onClick={stopCapture}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gold hover:bg-gold-hi text-bg text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm whitespace-nowrap"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gold hover:bg-gold-hi text-bg text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm whitespace-nowrap"
               >
                 <Square className="h-3.5 w-3.5 fill-current" />
                 <span>Stop Capture</span>
@@ -1047,57 +1064,59 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         </div>
       </section>
 
-      {/* Stats Row — 3 Equal Cards Full Width */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+      {/* Stats Row */}
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6 w-full pb-5 border-b-2 border-white/30">
         {[
           { label: "TOTAL PACKETS", value: totalPkts.toLocaleString() },
           { label: "TOTAL DATA", value: formatBytes(totalBytes) },
           { label: "UNIQUE FLOWS", value: Object.keys(flows).length.toLocaleString() },
-        ].map((s, i) => (
+          { label: "UNIQUE SRC IPS", value: uniqueSrcIps.toLocaleString() },
+          { label: "UNIQUE DST IPS", value: uniqueDstIps.toLocaleString() },
+        ].map((s, i, arr) => (
           <div
             key={i}
-            className="bg-surface rounded-xl border border-border px-5 py-3 flex items-center justify-between shadow-sm hover:border-border/80 transition-all w-full"
+            className={`flex-1 min-w-0 ${
+              i !== arr.length - 1 ? "border-r-2 border-white/30 pr-4 lg:pr-6" : ""
+            }`}
           >
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-0.5 truncate">
-                {s.label}
-              </p>
-              <p className="text-xl md:text-2xl font-black text-white leading-none tracking-tight truncate">
-                {s.value}
-              </p>
-            </div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted mb-1 truncate">
+              {s.label}
+            </p>
+            <p className="text-2xl md:text-3xl font-black text-white leading-none tracking-tight truncate">
+              {s.value}
+            </p>
           </div>
         ))}
       </section>
 
       {/* Charts Row: BPS + Protocol */}
-      <section id="live-network-traffic" className="grid grid-cols-1 lg:grid-cols-3 gap-5 scroll-mt-6">
-        <div className="lg:col-span-2 bg-surface rounded-xl border border-border p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-white">Live Network Traffic</h3>
-            {isCapturing && <span className="text-xs text-gold font-bold ml-auto">LIVE</span>}
+      <section id="live-network-traffic" className="grid grid-cols-1 lg:grid-cols-3 gap-8 scroll-mt-6 pb-6 border-b-2 border-white/30">
+        <div className="lg:col-span-2 space-y-3 lg:border-r-2 lg:border-white/30 lg:pr-8">
+          <div className="flex items-center justify-between border-b border-white/30 pb-2.5">
+            <h3 className="text-sm font-extrabold uppercase tracking-wider text-white">Live Network Traffic</h3>
+            {isCapturing && <span className="text-xs text-gold font-bold">LIVE</span>}
           </div>
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={bpsHistory} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="liveTrafficGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3E63C7" stopOpacity={0.3} />
+                    <stop offset="5%" stopColor="#3E63C7" stopOpacity={0.45} />
                     <stop offset="95%" stopColor="#3E63C7" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#262E3A" />
-                <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#9BA6B4" }} interval={4} />
-                <YAxis tick={{ fontSize: 10, fill: "#9BA6B4" }} tickFormatter={formatBps} />
+                <CartesianGrid strokeDasharray="6 6" stroke="#FFFFFF" strokeWidth={2.5} strokeOpacity={0.95} />
+                <XAxis dataKey="time" tick={{ fontSize: 11, fill: "#FFFFFF", fontWeight: 800 }} axisLine={{ stroke: "#FFFFFF", strokeWidth: 2 }} tickLine={{ stroke: "#FFFFFF", strokeWidth: 2 }} interval={4} />
+                <YAxis tick={{ fontSize: 11, fill: "#FFFFFF", fontWeight: 800 }} axisLine={{ stroke: "#FFFFFF", strokeWidth: 2 }} tickLine={{ stroke: "#FFFFFF", strokeWidth: 2 }} tickFormatter={formatBps} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "#1B2430", border: "1px solid #262E3A", borderRadius: 8, fontSize: 12, color: "#F3F1EA" }}
+                  contentStyle={{ backgroundColor: "#1B2430", border: "2px solid #FFFFFF", borderRadius: 8, fontSize: 12, color: "#F3F1EA" }}
                   formatter={(val) => [formatBps(val), "Bandwidth"]}
                 />
                 <Area
                   type="monotone"
                   dataKey="bps"
-                  stroke="#3E63C7"
-                  strokeWidth={2.5}
+                  stroke="#60A5FA"
+                  strokeWidth={3.5}
                   fillOpacity={1}
                   fill="url(#liveTrafficGrad)"
                   isAnimationActive={true}
@@ -1109,23 +1128,23 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
           </div>
         </div>
 
-        <div className="bg-surface rounded-xl border border-border p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-white">Protocol Split</h3>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between border-b border-white/30 pb-2.5">
+            <h3 className="text-sm font-extrabold uppercase tracking-wider text-white">Protocol Split</h3>
           </div>
           <div className="h-[260px]">
             {protoDist.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={protoDist} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#262E3A" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#9BA6B4" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#9BA6B4" }} />
-                  <Tooltip contentStyle={{ backgroundColor: "#1B2430", border: "1px solid #262E3A", borderRadius: 8, fontSize: 12, color: "#F3F1EA" }} />
+                  <CartesianGrid strokeDasharray="6 6" stroke="#FFFFFF" strokeWidth={2.5} strokeOpacity={0.95} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#FFFFFF", fontWeight: 800 }} axisLine={{ stroke: "#FFFFFF", strokeWidth: 2 }} tickLine={{ stroke: "#FFFFFF", strokeWidth: 2 }} />
+                  <YAxis tick={{ fontSize: 11, fill: "#FFFFFF", fontWeight: 800 }} axisLine={{ stroke: "#FFFFFF", strokeWidth: 2 }} tickLine={{ stroke: "#FFFFFF", strokeWidth: 2 }} />
+                  <Tooltip contentStyle={{ backgroundColor: "#1B2430", border: "2px solid #FFFFFF", borderRadius: 8, fontSize: 12, color: "#F3F1EA" }} />
                   <Bar dataKey="count" radius={[4, 4, 0, 0]} fill="#3E63C7" name="Packets" isAnimationActive={true} animationDuration={300} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-full text-text-muted text-xs">
+              <div className="flex items-center justify-center h-full text-text-muted text-xs font-medium">
                 Start capture to see protocol distribution
               </div>
             )}
@@ -1133,22 +1152,22 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         </div>
       </section>
 
-      {/* Topology + Alerts side-by-side — Symmetrical 2x2 Grid with Top Row */}
-      <section id="live-network-topology" className="grid grid-cols-1 lg:grid-cols-3 gap-5 scroll-mt-6">
-        {/* Live Network Topology (2/3 width — matches Live Network Traffic) */}
-        <div className="lg:col-span-2 bg-surface rounded-xl border border-border p-4">
-          <div className="flex items-center justify-between mb-3">
+      {/* Topology + Alerts */}
+      <section id="live-network-topology" className="grid grid-cols-1 lg:grid-cols-3 gap-8 scroll-mt-6 pb-6 border-b-2 border-white/30">
+        {/* Live Network Topology */}
+        <div className="lg:col-span-2 space-y-3 lg:border-r-2 lg:border-white/30 lg:pr-8">
+          <div className="flex items-center justify-between border-b border-white/30 pb-2.5">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-white">Live Network Topology</h3>
-              <span className="text-xs text-text-muted bg-surface-2 px-2 py-0.5 rounded border border-border font-medium">
+              <h3 className="text-sm font-extrabold uppercase tracking-wider text-white">Live Network Topology</h3>
+              <span className="text-xs text-text-muted px-2 py-0.5 font-semibold">
                 {topoNodeList.length} nodes · {topoLinks.length} links
               </span>
             </div>
           </div>
-          <div className="relative bg-surface rounded-lg overflow-hidden border border-border h-[260px]">
+          <div className="relative overflow-hidden h-[260px]">
             {topoNodeList.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-text-muted gap-2">
-                <span className="text-xs">Start a capture to see topology</span>
+                <span className="text-xs font-medium">Start a capture to see topology</span>
               </div>
             ) : (
               <ForceDirectedTopology
@@ -1163,22 +1182,22 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
           </div>
         </div>
 
-        {/* Attack Alerts Card (1/3 width — matches Protocol Split) */}
-        <div className="lg:col-span-1 bg-surface rounded-xl border border-border p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
+        {/* Attack Alerts */}
+        <div className="space-y-3 flex flex-col justify-between">
+          <div className="flex items-center justify-between border-b border-white/30 pb-2.5">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-white">Attack Alerts</h3>
+              <h3 className="text-sm font-extrabold uppercase tracking-wider text-white">Attack Alerts</h3>
             </div>
             {consolidatedAlerts.length > 0 && (
-              <span className="text-xs text-bg bg-gold px-2 py-0.5 rounded font-bold">
+              <span className="text-xs text-bg bg-gold px-2.5 py-0.5 rounded font-black">
                 {consolidatedAlerts.length} {consolidatedAlerts.length === 1 ? "threat" : "threats"}
               </span>
             )}
           </div>
           {consolidatedAlerts.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-text-muted gap-2 h-[260px]">
-              <CheckCircle2 className="h-6 w-6 text-gold opacity-80" />
-              <span className="text-xs">No attacks detected — all clear</span>
+              <CheckCircle2 className="h-6 w-6 text-gold opacity-90" />
+              <span className="text-xs font-semibold text-text-muted">No attacks detected — all clear</span>
             </div>
           ) : (
             <div className="space-y-2 h-[260px] max-h-[260px] overflow-y-auto pr-1">
@@ -1189,7 +1208,7 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                   <div
                     key={aKey}
                     onClick={() => onFlowClick && onFlowClick(flow)}
-                    className="w-full text-left p-3 rounded-lg border border-gold/30 bg-surface-2 text-text transition-all cursor-pointer hover:border-gold"
+                    className="w-full text-left p-3 border-b border-white/20 hover:bg-surface-2/60 transition-all cursor-pointer"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
@@ -1203,14 +1222,14 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <span className="text-xs text-gold font-semibold">{alert.displayType}</span>
-                        <span className="px-2 py-0.5 rounded bg-gold/20 text-gold text-xs font-semibold flex items-center gap-1 border border-gold/30">
+                        <span className="text-xs text-gold font-bold">{alert.displayType}</span>
+                        <span className="px-2 py-0.5 rounded bg-gold/20 text-gold text-xs font-bold flex items-center gap-1 border border-gold/30">
                           <span>Forecast</span>
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border text-xs text-text-muted">
+                    <div className="flex items-center justify-between mt-2 pt-1 text-xs text-text-muted">
                       <div className="flex items-center gap-1.5">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-gold"></span>
                         <span>Ongoing · <strong className="text-white">{alert.count}</strong> {alert.count === 1 ? "event" : "events"}</span>
@@ -1227,82 +1246,85 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
         </div>
       </section>
 
-      {/* Filter + Attack toggle + Export CSV */}
-      <section className="flex items-center gap-3">
-        <div className="flex items-center gap-2 bg-surface border border-border rounded-lg px-3 py-2 flex-1 max-w-md">
-          <Search className="h-4 w-4 text-gold" />
-          <input
-            type="text"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter by IP, protocol, attack type..."
-            className="bg-transparent text-sm text-text placeholder:text-text-muted outline-none flex-1 font-medium"
-          />
-        </div>
-        <button
-          onClick={() => setShowAttackOnly(!showAttackOnly)}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
-            showAttackOnly
-              ? "bg-gold text-bg border-gold"
-              : "bg-surface-2 border-border text-text hover:bg-surface"
-          }`}
-        >
-          <span>Attacks Only</span>
-        </button>
-
-        {/* Download CSV Button */}
-        <button
-          onClick={() => window.open(`${CAPTURE_API}/api/capture/download?format=csv${knownClean ? "&known_clean=1" : ""}`, "_blank")}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue hover:bg-blue-hi border border-border/80 text-white text-xs font-extrabold uppercase tracking-wider transition-all duration-200 shadow-md hover:scale-[1.03] hover:shadow-lg cursor-pointer whitespace-nowrap shrink-0"
-          title="Download flow feature dataset captured during the telemetry session as a .csv file"
-        >
-          <Download className="h-4 w-4 text-white" />
-          <span>Download CSV</span>
-        </button>
-      </section>
-
-      {/* Flow Table */}
-      <section id="captured-flows" className="bg-surface rounded-xl border border-border overflow-hidden scroll-mt-6">
-        <div className="p-4 border-b border-border flex items-center justify-between">
+      {/* Captured Flows Header + Toolbar */}
+      <section id="captured-flows" className="space-y-4 scroll-mt-6">
+        <div className="flex items-center justify-between flex-wrap gap-4 border-b-2 border-white/30 pb-2.5">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-white">Captured Flows</h3>
-            <span className="text-xs text-text-muted bg-surface-2 px-2 py-0.5 rounded border border-border font-medium">
+            <h3 className="text-sm font-extrabold uppercase tracking-wider text-white">Captured Flows</h3>
+            <span className="text-xs text-text-muted px-2 py-0.5 font-semibold">
               {flowList.length} flows
             </span>
           </div>
-          {isCapturing && (
-            <span className="text-xs text-gold font-bold flex items-center gap-1">
-              Streaming
-            </span>
-          )}
+
+          {/* Filter + Attack toggle + Download CSV */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 bg-surface-2 border border-white/25 rounded-lg px-3 py-1.5 min-w-[220px]">
+              <Search className="h-4 w-4 text-gold" />
+              <input
+                type="text"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filter by IP, protocol, attack..."
+                className="bg-transparent text-xs text-text placeholder:text-text-muted outline-none flex-1 font-medium"
+              />
+            </div>
+            <button
+              onClick={() => setShowAttackOnly(!showAttackOnly)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
+                showAttackOnly
+                  ? "bg-gold text-bg border-gold font-extrabold"
+                  : "bg-surface-2 border-white/25 text-white hover:bg-surface font-semibold"
+              }`}
+            >
+              <span>Attacks Only</span>
+            </button>
+
+            {/* Download CSV Button */}
+            <button
+              onClick={() => window.open(`${CAPTURE_API}/api/capture/download?format=csv${knownClean ? "&known_clean=1" : ""}`, "_blank")}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-blue hover:bg-blue-hi border border-white/25 text-white text-xs font-extrabold uppercase tracking-wider transition-all duration-200 shadow-sm hover:scale-[1.02] cursor-pointer whitespace-nowrap shrink-0"
+              title="Download flow feature dataset captured during the telemetry session as a .csv file"
+            >
+              <Download className="h-3.5 w-3.5 text-white" />
+              <span>Download CSV</span>
+            </button>
+
+            {isCapturing && (
+              <span className="text-xs text-gold font-bold flex items-center gap-1">
+                Streaming
+              </span>
+            )}
+          </div>
         </div>
+
+        {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-border text-text-muted uppercase tracking-wider bg-surface-2">
-                <th className="px-4 py-2.5 font-bold">Source IP</th>
-                <th className="font-bold">Src Port</th>
-                <th className="font-bold">Destination IP</th>
-                <th className="font-bold">Dst Port</th>
-                <th className="font-bold">Proto</th>
-                <th className="font-bold">Packets</th>
-                <th className="font-bold">Bytes</th>
-                <th className="font-bold">Attack</th>
-                <th className="font-bold">Severity</th>
+              <tr className="border-b-2 border-white/30 text-white/90 uppercase tracking-wider bg-transparent">
+                <th className="px-3 py-2.5 font-bold border-r border-white/25">Source IP</th>
+                <th className="px-3 py-2.5 font-bold border-r border-white/25">Src Port</th>
+                <th className="px-3 py-2.5 font-bold border-r border-white/25">Destination IP</th>
+                <th className="px-3 py-2.5 font-bold border-r border-white/25">Dst Port</th>
+                <th className="px-3 py-2.5 font-bold border-r border-white/25">Proto</th>
+                <th className="px-3 py-2.5 font-bold border-r border-white/25">Packets</th>
+                <th className="px-3 py-2.5 font-bold border-r border-white/25">Bytes</th>
+                <th className="px-3 py-2.5 font-bold border-r border-white/25">Attack</th>
+                <th className="px-3 py-2.5 font-bold">Severity</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-white/20">
               {!isCapturing && flowList.length === 0 ? (
                 <tr>
                   <td colSpan="9" className="py-16 text-center text-text-muted">
                     <Radio className="h-8 w-8 mx-auto mb-2 text-gold opacity-80" />
-                    <p className="text-sm font-bold text-text">Select an interface and click Start Capture to begin</p>
+                    <p className="text-sm font-bold text-white">Select an interface and click Start Capture to begin</p>
                   </td>
                 </tr>
               ) : flowList.length === 0 ? (
                 <tr>
                   <td colSpan="9" className="py-16 text-center text-text-muted">
-                    <p className="text-sm font-bold text-text">Capturing... waiting for packets</p>
+                    <p className="text-sm font-bold text-white">Capturing... waiting for packets</p>
                   </td>
                 </tr>
               ) : (
@@ -1315,25 +1337,25 @@ export default function LiveTraffic({ onInterfaceChange, onFlowsUpdate, onFlowCl
                       onClick={() => isAttack && onFlowClick && onFlowClick(flow)}
                       className={`transition-colors ${
                         isAttack
-                          ? "bg-surface-2 border-l-2 border-l-gold text-gold font-bold hover:bg-blue/30 cursor-pointer"
-                          : "hover:bg-surface-2 text-text"
+                          ? "bg-surface-2/80 border-l-2 border-l-gold text-gold font-bold hover:bg-blue/30 cursor-pointer"
+                          : "hover:bg-surface-2/50 text-text"
                       }`}
                     >
-                      <td className={`px-4 py-2 font-bold ${isAttack ? "text-gold" : "text-text"}`}>{flow.src_ip}</td>
-                      <td className={isAttack ? "text-gold" : "text-text-muted"}>{flow.src_port}</td>
-                      <td className={`font-bold ${isAttack ? "text-gold" : "text-white"}`}>{flow.dst_ip}</td>
-                      <td className={isAttack ? "text-gold" : "text-text-muted"}>{flow.dst_port}</td>
-                      <td>
+                      <td className={`px-3 py-2 font-bold border-r border-white/20 ${isAttack ? "text-gold" : "text-white"}`}>{flow.src_ip}</td>
+                      <td className={`px-3 py-2 border-r border-white/20 ${isAttack ? "text-gold font-semibold" : "text-text-muted"}`}>{flow.src_port}</td>
+                      <td className={`px-3 py-2 font-bold border-r border-white/20 ${isAttack ? "text-gold" : "text-white"}`}>{flow.dst_ip}</td>
+                      <td className={`px-3 py-2 border-r border-white/20 ${isAttack ? "text-gold font-semibold" : "text-text-muted"}`}>{flow.dst_port}</td>
+                      <td className="px-3 py-2 border-r border-white/20">
                         <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
-                          isAttack ? "bg-gold text-bg" : "bg-surface-2 text-text-muted border border-border"
+                          isAttack ? "bg-gold text-bg" : "bg-surface-2 text-text border border-border"
                         }`}>{flow.protocol}</span>
                       </td>
-                      <td className={isAttack ? "text-gold font-bold" : "text-text-muted"}>{flow.packet_count}</td>
-                      <td className={isAttack ? "text-gold font-bold" : "text-text-muted"}>{formatBytes(flow.byte_count)}</td>
-                      <td className={isAttack ? "text-gold font-bold uppercase" : "text-text-muted"}>
+                      <td className={`px-3 py-2 border-r border-white/20 ${isAttack ? "text-gold font-bold" : "text-text-muted"}`}>{flow.packet_count}</td>
+                      <td className={`px-3 py-2 border-r border-white/20 ${isAttack ? "text-gold font-bold" : "text-text-muted"}`}>{formatBytes(flow.byte_count)}</td>
+                      <td className={`px-3 py-2 border-r border-white/20 ${isAttack ? "text-gold font-bold uppercase" : "text-text-muted"}`}>
                         <span>{flow.attack_type && flow.attack_type !== 'Benign' ? flow.attack_type : (flow.ml_label && flow.ml_label !== 'benign' ? flow.ml_label.replace(/_/g, ' ') : '—')}</span>
                       </td>
-                      <td>
+                      <td className="px-3 py-2">
                         <span className={`px-1.5 py-0.5 rounded text-xs font-bold uppercase ${
                           isAttack ? "bg-gold text-bg" : "text-text-muted"
                         }`}>

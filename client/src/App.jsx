@@ -33,8 +33,9 @@ const LIVE_SUB_ITEMS = [
 
 const FORECAST_SUB_ITEMS = [
   { id: "risk-forecast", label: "Risk Forecast" },
-  { id: "mitre-attack-progression", label: "MITRE ATT&CK Progression" },
-  { id: "shap-explanation", label: "SHAP-Based Explanation" },
+  { id: "mitre-attack-progression", label: "Stage Progression Tree" },
+  { id: "mitre-attack-analysis", label: "MITRE ATT&CK Mapping" },
+  { id: "shap-explanation", label: "Feature Attribution (Occlusion)" },
   { id: "observed-network-evidence", label: "Observed Network Evidence" },
 ];
 
@@ -215,16 +216,16 @@ export default function App() {
                           setExpandedMenus(prev => ({ ...prev, [item.id]: !prev[item.id] }));
                         }
                       }}
-                      className={`w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl font-mono-tech text-[13px] transition-all relative cursor-pointer ${
+                      className={`w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg font-mono-tech text-[13px] transition-all relative cursor-pointer ${
                         isActive
-                          ? "bg-gold text-bg font-black shadow-sm border border-gold"
-                          : "bg-surface-2/70 text-white font-extrabold border border-border/80 hover:border-gold/50 hover:bg-surface-2 hover:text-white"
+                          ? "bg-gold text-bg font-bold shadow-sm"
+                          : "text-text-muted hover:text-white hover:bg-surface-2"
                       } ${sidebarCollapsed ? "justify-center px-0" : ""}`}
                       title={item.label}
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-bg" : "text-gold"}`} />
-                        {!sidebarCollapsed && <span className="tracking-wide font-extrabold truncate">{item.label}</span>}
+                        {!sidebarCollapsed && <span className="tracking-wide font-medium truncate">{item.label}</span>}
                       </div>
 
                       {/* Dropdown Chevron Indicator */}
@@ -239,7 +240,7 @@ export default function App() {
 
                     {/* Sub-navigation Tree under LIVE TELEMETRY */}
                     {isLiveItem && !sidebarCollapsed && isExpanded && (
-                      <div className="ml-3.5 pl-2.5 border-l border-border/50 flex flex-col gap-1.5 my-2">
+                      <div className="ml-3.5 pl-2.5 border-l border-border flex flex-col gap-1 my-1">
                         {LIVE_SUB_ITEMS.map((sub) => (
                           <button
                             key={sub.id}
@@ -247,7 +248,7 @@ export default function App() {
                               e.stopPropagation();
                               scrollToSection(sub.id, "live");
                             }}
-                            className="w-full flex items-center px-2.5 py-1.5 rounded-lg font-mono-tech text-xs transition-all cursor-pointer text-left border bg-surface-2/40 text-text-muted border-border/60 hover:text-white hover:bg-surface-2/80 hover:border-gold/40"
+                            className="w-full flex items-center px-2.5 py-1.5 rounded-md font-mono-tech text-xs transition-all cursor-pointer text-left text-text-muted hover:text-white hover:bg-surface-2"
                             title={sub.label}
                           >
                             <span className="truncate">{sub.label}</span>
@@ -258,7 +259,7 @@ export default function App() {
 
                     {/* Sub-navigation Tree under ATTACK FORECAST */}
                     {isForecastItem && !sidebarCollapsed && isExpanded && (
-                      <div className="ml-3.5 pl-2.5 border-l border-border/50 flex flex-col gap-1.5 my-2">
+                      <div className="ml-3.5 pl-2.5 border-l border-border flex flex-col gap-1 my-1">
                         {FORECAST_SUB_ITEMS.map((sub) => (
                           <button
                             key={sub.id}
@@ -266,7 +267,7 @@ export default function App() {
                               e.stopPropagation();
                               scrollToSection(sub.id, "forecast");
                             }}
-                            className="w-full flex items-center px-2.5 py-1.5 rounded-lg font-mono-tech text-xs transition-all cursor-pointer text-left border bg-surface-2/40 text-text-muted border-border/60 hover:text-white hover:bg-surface-2/80 hover:border-gold/40"
+                            className="w-full flex items-center px-2.5 py-1.5 rounded-md font-mono-tech text-xs transition-all cursor-pointer text-left text-text-muted hover:text-white hover:bg-surface-2"
                             title={sub.label}
                           >
                             <span className="truncate">{sub.label}</span>
@@ -285,32 +286,6 @@ export default function App() {
 
       {/* ===== MAIN CONTENT ===== */}
       <div className="flex-1 flex flex-col min-h-screen overflow-hidden bg-bg">
-        {/* Context-Aware Top Header Bar */}
-        <header className="border-b border-border bg-surface px-6 py-3 flex justify-between items-center sticky top-0 z-40">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-1.5 rounded-lg text-text-muted hover:text-white hover:bg-surface-2 transition-colors cursor-pointer"
-              title="Toggle Sidebar Nav"
-            >
-              <Menu className="h-5 w-5 text-gold" />
-            </button>
-            {activePage !== "live" && activePage !== "forecast" && activePage !== "upload" && (
-              <h2 className="text-base font-bold tracking-wider text-white uppercase">
-                {activeNavItem?.label}
-              </h2>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {activePage === "live" && (
-              <div className="flex items-center gap-1.5 bg-gold border border-gold px-3.5 py-1.5 rounded-full text-xs text-bg font-bold shadow-sm">
-                <Radio className="h-3.5 w-3.5 text-bg" />
-                <span>LIVE TELEMETRY</span>
-              </div>
-            )}
-          </div>
-        </header>
-
         {/* Page Content */}
         <main ref={mainScrollRef} className="flex-1 overflow-y-auto p-6 animate-fade-in bg-bg">
           <div style={{ display: activePage === "live" ? "block" : "none" }}>
@@ -318,13 +293,22 @@ export default function App() {
               onInterfaceChange={handleInterfaceChange}
               onFlowsUpdate={handleFlowsUpdate}
               onFlowClick={navigateToForecast}
+              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
             />
           </div>
           <div style={{ display: activePage === "forecast" ? "block" : "none" }}>
-            <AttackForecast isActive={activePage === "forecast"} />
+            <AttackForecast
+              isActive={activePage === "forecast"}
+              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+              onNavigateToUpload={() => setActivePage("upload")}
+            />
           </div>
           <div style={{ display: activePage === "upload" ? "block" : "none" }}>
-            <UploadAnalysis onAnalysisComplete={handleAnalysisComplete} />
+            <UploadAnalysis
+              onAnalysisComplete={handleAnalysisComplete}
+              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+              onNavigateToLive={() => setActivePage("live")}
+            />
           </div>
         </main>
       </div>

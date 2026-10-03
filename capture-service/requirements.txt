@@ -1,31 +1,26 @@
-# CyberForecaster — Python dependencies (Python 3.10+)
-# Install:  pip install -r requirements.txt
-# (capture-service/requirements.txt is identical and is what setup.ps1 / setup.sh use)
+# CyberForecaster - Python dependencies (Python 3.10 or newer)
+# Install:  pip install -r requirements.txt      (setup.ps1 / setup.sh do this for you)
+# capture-service/requirements.txt is an identical copy.
 
-# ── Backend API & streaming ─────────────────────────────────────
+# -- Backend API ---------------------------------------------------------------
 fastapi>=0.100.0
 uvicorn>=0.20.0
-websockets>=11.0
+websockets>=11.0               # live page WebSocket (/ws/live)
 python-multipart>=0.0.6        # file uploads (/api/upload)
 pydantic>=2.0.0
 
-# ── Packet capture & PCAP parsing ───────────────────────────────
+# -- Packet capture and PCAP reading --------------------------------------------
 scapy>=2.5.0                   # live capture (needs Npcap on Windows / root on Linux)
-dpkt>=1.9.8                    # offline PCAP → flow feature extraction
-psutil>=5.9.0                  # network interface stats
+dpkt>=1.9.8                    # uploaded PCAP -> flows
+psutil>=5.9.0                  # network interface list and statistics
 
-# ── ML: world model, baseline, explainability ───────────────────
-torch>=2.0.0                   # LSTM world model (CPU is enough)
-shap>=0.44.0                   # SHAP GradientExplainer
-scikit-learn>=1.2.0            # logistic-regression baseline, preprocessing
-xgboost>=1.7.0                 # per-flow live traffic classifier
-joblib>=1.2.0
+# -- Models ---------------------------------------------------------------------
+torch>=2.0.0                   # LSTM world model (uploads) and live-stage LSTM; CPU is enough
 numpy>=1.24.0
 pandas>=2.0.0
+scikit-learn>=1.2.0            # needed to load the live per-flow classifier; baselines in training
+xgboost>=1.7.0                 # live per-flow classifier; baselines in training
+joblib>=1.2.0
 
-# ── Training-only (not needed to run the dashboard) ─────────────
-imbalanced-learn>=0.10.0       # SMOTE in training/train_flow_classifier.py
-
-# ── Tests ───────────────────────────────────────────────────────
-httpx>=0.24.0                  # FastAPI TestClient
-requests>=2.28.0
+# -- Only for retraining the live per-flow classifier (training/train_flow_classifier.py) --
+imbalanced-learn>=0.10.0

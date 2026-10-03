@@ -1,0 +1,40 @@
+# 2026-10-02 23:07:39  python forecast_v2.py D:\ml-data\LLS_DDOS_1.0-inside.dump.gz --model D:\ml-data\processed\model_v3_unseen-none --out C:\Users\htc\OneDrive\Desktop\cyberforecaster\forecast_v3_out
+[*] Opening C:\Users\htc\AppData\Local\Temp\cf_v2_8775e9s6\unwrapped_0 ...
+[*] (1) Processing 'unwrapped_0' ...
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\dpkt\ip.py:140: UserWarning: IP.off is deprecated
+  deprecation_warning("IP.off is deprecated")
+[+] Processed 1 capture file(s) (0 skipped/unreadable).
+[+] Finished reading 649,787 packets (646,703 were IP/TCP/UDP).
+[+] Found 132,583 unique flows.
+[*] Writing features to C:\Users\htc\AppData\Local\Temp\cf_v2_8775e9s6\unwrapped_0.flows.csv ...
+[+] Wrote 132,583 rows to C:\Users\htc\AppData\Local\Temp\cf_v2_8775e9s6\unwrapped_0.flows.csv
+[+] DONE. This CSV has BOTH packet-level and flow-level features.
+[+] You do NOT need to send the raw .pcap or logs.zip -- only this CSV.
+
+file: LLS_DDOS_1.0-inside.dump.gz   format detected: pcap
+flows: 132,583   windows: 39,254   hosts: 34,515   time span: 11660 s
+NETWORK: 25 host(s) flagged   alert windows: 266 (0.7%)   peak risk: 0.958   (alert when risk_60s >= 0.8154)
+
+top hosts by peak risk:
+host                 peak  alerts  first alert         likely stage        MITRE   
+172.16.112.105      0.958       2  2000-03-07 14:51:50 command_control     TA0011  
+172.16.115.87       0.954       1  2000-03-07 14:51:30 command_control     TA0011  
+172.16.113.204      0.950      17  2000-03-07 14:21:30 command_control     TA0011  
+172.16.112.194      0.944       5  2000-03-07 14:34:30 command_control     TA0011  
+172.16.113.105      0.942      16  2000-03-07 14:51:50 command_control     TA0011  
+194.27.251.21       0.941      15  2000-03-07 14:34:00 reconnaissance      TA0043  
+172.16.112.100      0.935       2  2000-03-07 16:47:10 command_control     TA0011  
+194.7.248.153       0.932       9  2000-03-07 14:34:30 reconnaissance      TA0043  
+172.16.113.148      0.921      21  2000-03-07 14:42:50 command_control     TA0011  
+172.16.113.168      0.920      22  2000-03-07 14:26:40 command_control     TA0011  
+
+notices:
+ - compressed file was unpacked
+ - PCAP: flows were rebuilt from packets with the same extractor used for the PCAP-based training data (one record per direction of each connection)
+ - 96% of windows have fewer than 10 windows of history for their host (the model was trained with 10); they are scored by repeating the earliest window and are marked short_history
+ - alert threshold comes from the training networks. On a network the model has never seen, early warning is NOT proven (see results), so read risk as a ranking of hosts, not a calibrated probability
+
+saved:
+  C:\Users\htc\OneDrive\Desktop\cyberforecaster\forecast_v3_out\LLS_DDOS_1_windows.csv
+  C:\Users\htc\OneDrive\Desktop\cyberforecaster\forecast_v3_out\LLS_DDOS_1_hosts.csv
+  C:\Users\htc\OneDrive\Desktop\cyberforecaster\forecast_v3_out\LLS_DDOS_1_summary.json

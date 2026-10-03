@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+/* Fonts are bundled locally (@fontsource), imported in main.jsx: no internet needed. */
 
 @tailwind base;
 @tailwind components;
@@ -6,21 +6,22 @@
 
 html {
   font-size: 16px;
-  background-color: #0B0F14;
-  color: #F3F1EA;
+  background-color: #111110;
+  color: #f4f3ee;
 }
 
 :root {
-  --bg:        #0B0F14;
-  --surface:   #141A22;
-  --surface-2: #1B2430;
-  --border:    #262E3A;
+  --bg:        #111110;
+  --surface:   #1a1a19;
+  --surface-2: #262624;
+  --border:    #2e2e2b;
   --blue:      #22386E;
-  --blue-hi:   #3E63C7;
+  --blue-hi:   #3987e5;
   --gold:      #CBA135;
   --gold-hi:   #E0C36A;
-  --text:      #F3F1EA;
-  --text-muted:#9BA6B4;
+  --text:      #f4f3ee;
+  --text-secondary: #c3c2b7;
+  --text-muted:#8f8e86;
   --white:     #FFFFFF;
   font-family: 'Inter', "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
   background-color: var(--bg);
@@ -34,8 +35,8 @@ html {
 
 body {
   margin: 0;
-  color: #F3F1EA;
-  background-color: #0B0F14;
+  color: #f4f3ee;
+  background-color: #111110;
   overflow-x: hidden;
   font-size: 1rem;
   line-height: 1.5;
@@ -62,6 +63,15 @@ h1, h2, h3, h4, h5, h6 {
   background-image:
     linear-gradient(to right, rgba(38, 46, 58, 0.4) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(38, 46, 58, 0.4) 1px, transparent 1px);
+}
+
+/* Light blue subtle background squared grid with white-tinted grid lines */
+.cyber-grid-blue {
+  background-color: #0b1322;
+  background-size: 36px 36px;
+  background-image:
+    linear-gradient(to right, rgba(220, 235, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(220, 235, 255, 0.08) 1px, transparent 1px);
 }
 
 /* Clean panel / card */

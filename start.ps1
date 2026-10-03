@@ -106,8 +106,10 @@ function Wait-ServicePort([string]$ServiceName, [int]$Port, [int]$TimeoutSeconds
 # =============================================================================
 # Fresh launch = no uploaded file yet. Clear the previous session's forecast
 # so the Forecast page starts empty until a new CSV/PCAP is uploaded.
-$LatestForecast = Join-Path $Root "logs\latest_forecast.json"
-if (Test-Path $LatestForecast) { Remove-Item $LatestForecast -Force }
+foreach ($f in @("latest_forecast.json", "latest_forecast_v2.json")) {
+    $LatestForecast = Join-Path $Root "logs\$f"
+    if (Test-Path $LatestForecast) { Remove-Item $LatestForecast -Force }
+}
 
 Write-Status "1/2" "Starting Packet Capture & AI Forecasting Service on 0.0.0.0:8080..." "Yellow"
 $procs["capture"] = Start-Process -FilePath $Python `

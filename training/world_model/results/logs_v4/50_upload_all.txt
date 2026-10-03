@@ -1,0 +1,7 @@
+# 2026-10-03 18:49:00  python run_upload_all.py
+server reachable: True
+A_cic2017_friday_ddos_onset.csv: HTTP 200 in 26.2s  conversations 108  v2 success file A_cic2017_friday_ddos_onset.csv  same response as /latest: False
+B_cic2018_ftp_bruteforce_onset.csv: HTTP 200 in 17.1s  conversations 144  v2 success file B_cic2018_ftp_bruteforce_onset.csv  same response as /latest: False
+C_ctu13_botnet_c2_forecast.csv: HTTP 200 in 9.2s  conversations 38  v2 success file C_ctu13_botnet_c2_forecast.csv  same response as /latest: False
+D_unraveled_exfiltration_forecast.csv: HTTP 200 in 7.8s  conversations 187  v2 success file D_unraveled_exfiltration_forecast.csv  same response as /latest: False
+server stopped; the page's latest result was put back

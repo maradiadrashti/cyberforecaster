@@ -1,0 +1,311 @@
+# 2026-10-03 17:03:15  python run_api_test.py
+server reachable: True (after ~0s)
+1) GET /api/v2/forecast/latest -> success
+2) POST /api/v2/upload -> HTTP 200 in 4.0s
+{
+ "status": "success",
+ "reason": null,
+ "file": "real_sample_v4.csv",
+ "format": "common",
+ "flows": 108,
+ "windows": 34,
+ "hosts": 7,
+ "network": {
+  "hosts_flagged": 2,
+  "alert_windows": 2,
+  "peak_risk_60s": 0.9897327423095703,
+  "share_of_windows_alerted": 0.0588
+ },
+ "threshold": 0.7108,
+ "copies": 3,
+ "baseline_available": true,
+ "stage_steps": [
+  "now",
+  "+10 s",
+  "+20 s",
+  "+30 s",
+  "+40 s",
+  "+50 s",
+  "+60 s"
+ ],
+ "chart_hosts": 7,
+ "top_host": "172.31.69.28",
+ "top_host_last": {
+  "risk_60s": 0.9897000193595886,
+  "baseline": 0.9990000128746033,
+  "stage_forecast": [
+   "command_control",
+   "command_control",
+   "command_control",
+   "command_control",
+   "command_control",
+   "command_control",
+   "command_control"
+  ],
+  "prob": [
+   0.9710000157356262,
+   0.9769999980926514,
+   0.9829999804496765,
+   0.9810000061988831,
+   0.9769999980926514,
+   0.9769999980926514,
+   0.9769999980926514
+  ]
+ },
+ "cone_last": {
+  "curve": [
+   0.9796000123023987,
+   0.9848999977111816,
+   0.9891999959945679,
+   0.9894000291824341,
+   0.9897000193595886,
+   0.9897000193595886
+  ],
+  "min": [
+   0.9728000164031982,
+   0.9757999777793884,
+   0.9787999987602234,
+   0.9787999987602234,
+   0.9787999987602234,
+   0.9787999987602234
+  ],
+  "max": [
+   0.9871000051498413,
+   0.9926000237464905,
+   0.9948999881744385,
+   0.9976000189781189,
+   0.9976000189781189,
+   0.9976000189781189
+  ]
+ },
+ "attribution_last": {
+  "error": null,
+  "method": "occlusion (feature replaced by its training average)",
+  "top": [
+   [
+    "syn_per_flow",
+    0.047,
+    7.0
+   ],
+   [
+    "fin_per_flow",
+    0.0282,
+    7.0
+   ],
+   [
+    "fin_sum",
+    0.0106,
+    189.0
+   ],
+   [
+    "n_flows",
+    0.0087,
+    27.0
+   ],
+   [
+    "ack_sum",
+    -0.0062,
+    945.0
+   ]
+  ],
+  "by_group": {
+   "volume": 0.0139,
+   "timing": -0.0046,
+   "flags": 0.0845,
+   "ports": 0.0002,
+   "packet": 0.0014
+  }
+ },
+ "stage_dist_last_now": [
+  0.006000000052154064,
+  0.004000000189989805,
+  0.017999999225139618,
+  0.9710000157356262,
+  0.0,
+  0.0
+ ],
+ "classes": [
+  "normal",
+  "reconnaissance",
+  "initial_access",
+  "command_control",
+  "lateral_movement",
+  "exfiltration"
+ ]
+}
+3) POST /api/upload (old endpoint) -> HTTP 200 in 1.0s  status=success results=11 detail=None
+4) v2 result started by the old upload endpoint (after 0s):
+{
+ "status": "success",
+ "reason": null,
+ "file": "real_sample_v4.csv",
+ "format": "common",
+ "flows": 108,
+ "windows": 34,
+ "hosts": 7,
+ "network": {
+  "hosts_flagged": 2,
+  "alert_windows": 2,
+  "peak_risk_60s": 0.9897327423095703,
+  "share_of_windows_alerted": 0.0588
+ },
+ "threshold": 0.7108,
+ "copies": 3,
+ "baseline_available": true,
+ "stage_steps": [
+  "now",
+  "+10 s",
+  "+20 s",
+  "+30 s",
+  "+40 s",
+  "+50 s",
+  "+60 s"
+ ],
+ "chart_hosts": 7,
+ "top_host": "172.31.69.28",
+ "top_host_last": {
+  "risk_60s": 0.9897000193595886,
+  "baseline": 0.9990000128746033,
+  "stage_forecast": [
+   "command_control",
+   "command_control",
+   "command_control",
+   "command_control",
+   "command_control",
+   "command_control",
+   "command_control"
+  ],
+  "prob": [
+   0.9710000157356262,
+   0.9769999980926514,
+   0.9829999804496765,
+   0.9810000061988831,
+   0.9769999980926514,
+   0.9769999980926514,
+   0.9769999980926514
+  ]
+ },
+ "cone_last": {
+  "curve": [
+   0.9796000123023987,
+   0.9848999977111816,
+   0.9891999959945679,
+   0.9894000291824341,
+   0.9897000193595886,
+   0.9897000193595886
+  ],
+  "min": [
+   0.9728000164031982,
+   0.9757999777793884,
+   0.9787999987602234,
+   0.9787999987602234,
+   0.9787999987602234,
+   0.9787999987602234
+  ],
+  "max": [
+   0.9871000051498413,
+   0.9926000237464905,
+   0.9948999881744385,
+   0.9976000189781189,
+   0.9976000189781189,
+   0.9976000189781189
+  ]
+ },
+ "attribution_last": {
+  "error": null,
+  "method": "occlusion (feature replaced by its training average)",
+  "top": [
+   [
+    "syn_per_flow",
+    0.047,
+    7.0
+   ],
+   [
+    "fin_per_flow",
+    0.0282,
+    7.0
+   ],
+   [
+    "fin_sum",
+    0.0106,
+    189.0
+   ],
+   [
+    "n_flows",
+    0.0087,
+    27.0
+   ],
+   [
+    "ack_sum",
+    -0.0062,
+    945.0
+   ]
+  ],
+  "by_group": {
+   "volume": 0.0139,
+   "timing": -0.0046,
+   "flags": 0.0845,
+   "ports": 0.0002,
+   "packet": 0.0014
+  }
+ },
+ "stage_dist_last_now": [
+  0.006000000052154064,
+  0.004000000189989805,
+  0.017999999225139618,
+  0.9710000157356262,
+  0.0,
+  0.0
+ ],
+ "classes": [
+  "normal",
+  "reconnaissance",
+  "initial_access",
+  "command_control",
+  "lateral_movement",
+  "exfiltration"
+ ]
+}
+bytes of v2 JSON: 93514
+5) saved to disk: True 93514 bytes
+6) attribution description: syn_per_flow -> SYN flags per flow
+7) progression 172.31.69.28 True [('NOW', 'command_control', 0.978, None, None, None)] nodes: 1
+7) progression 13.58.98.64 True [('NOW', 'command_control', 0.466, None, None, None)] nodes: 7
+7) progression 172.31.69.15 True [('NOW', 'initial_access', 0.491, None, None, None), ('NEXT', 'lateral_movement', 0.857, 6, 7, 'about 22 h'), ('THEN', 'command_control', 0.5, 2, 4, 'about 2 days')] nodes: 11
+7) progression 172.31.69.25 False The model sees no attack stage for this host, so there is no progression to show. nodes: 0
+7) progression 172.31.69.24 False The model sees no attack stage for this host, so there is no progression to show. nodes: 0
+7) progression 103.201.24.10 False The model sees no attack stage for this host, so there is no progression to show. nodes: 0
+7) progression 101.89.152.230 False The model sees no attack stage for this host, so there is no progression to show. nodes: 0
+8) start outlook: world model (LSTM), start-soon output [300, 600] tested 300: {'threshold': 0.9603, 'test_precision': 0.9583, 'test_recall': 0.3403, 'test_fpr': 0.0, 'test_auroc': 0.9778, 'test_positives': 811, 'test_within_host': {'hosts': 12, 'median': 0.7415, 'weighted_mean': 0.8919}} | limits: Where it worked in testing: attacks that come back on the same host (Unraveled 0 | top host values: {'300': [0.11729999631643295, 0.11729999631643295, 0.37279999256134033], '600': [0.17790000140666962, 0.17790000140666962, 0.390500009059906]}
+9) likely stage prob + second choice present: True True
+10) POST /api/upload file B -> HTTP 200 in 9.7s  status=success listed=300 world_model=success
+    first conversations: [('18.221.219.4', '172.31.69.25', 0.9865000247955322, 'initial_access', 'world_model_v3 (forecast for the source host)'), ('172.31.64.113', '172.31.0.2', 0.0003000000142492354, 'normal', 'world_model_v3 (forecast for the source host)'), ('172.31.64.113', '169.254.169.254', 0.0003000000142492354, 'normal', 'world_model_v3 (forecast for the source host)')]
+    v2 check: {"windows_truly_attack": 68, "windows_truly_normal": 13871, "attack_windows_alerted": 0.8088, "normal_windows_alerted_false_alarms": 0.0019, "stage_named_correctly_on_attack_windows": 0.9265, "averaged_stage_named_correctly_on_attack_windows": 0.9412, "averaged_stage_named_correctly_on_alerted_attack_windows": [1.0, 55], "stage_recall_by_true_stage": {"initial_access": [0.926, 68]}} seconds: 5.9
+server stopped
+---- last lines of the server log ----
+started=true
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8091 (Press CTRL+C to quit)
+INFO:     127.0.0.1:8088 - "GET /api/v2/forecast/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8092 - "GET /api/v2/forecast/latest HTTP/1.1" 200 OK
+[LIVE_WINDOW_FINALIZER]
+running=true
+INFO:     127.0.0.1:8093 - "POST /api/v2/upload HTTP/1.1" 200 OK
+[UPLOAD v2] real_sample_v4.csv: success  (0.8 s)
+[UPLOAD] File: real_sample_v4.csv | Rows: 108 | Conversations: 11 | Listed: 11 | World model: success | Time: 0.917s
+INFO:     127.0.0.1:8094 - "POST /api/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8095 - "GET /api/v2/forecast/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8096 - "GET /api/v2/forecast/latest HTTP/1.1" 200 OK
+[LIVE_WINDOW_FINALIZER]
+running=true
+[LIVE_WINDOW_FINALIZER]
+running=true
+[UPLOAD v2] B_cic2018_ftp_bruteforce_onset.csv: success  (5.9 s)
+[LIVE_WINDOW_FINALIZER]
+running=true
+[UPLOAD] File: B_cic2018_ftp_bruteforce_onset.csv | Rows: 76922 | Conversations: 15626 | Listed: 300 | World model: success | Time: 8.548s
+INFO:     127.0.0.1:8097 - "POST /api/upload HTTP/1.1" 200 OK
+[LIVE_WINDOW_FINALIZER]
+running=true
+INFO:     127.0.0.1:8099 - "GET /api/v2/forecast/latest HTTP/1.1" 200 OK
+

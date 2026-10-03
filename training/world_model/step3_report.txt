@@ -1,0 +1,29 @@
+features: 73  windows: 2,233,318
+
+windows per sub-source and stage (ambiguous = few attack flows among many benign, ignored by training)
+stage      ambiguous  command_control  exfiltration  initial_access  lateral_movement   normal  other  reconnaissance
+sub                                                                                                                  
+cic2017          244              965             0             532                13   130118    349             106
+cic2018            2            20585             0             254                 6  1197170      0               0
+ctu13             10             6085             0               0                 0   166750      0               0
+dapt2020           4                0            15             188               121    13895      0             216
+unraveled       8559            24616          5872              33             15839   520560    211            2037
+unsw             820               29             0           10837                15    99840   2923            3499
+
+timestamp range per sub-source (check these look like the right years):
+  cic2017    2017-07-03 08:55:50 -> 2017-07-07 17:02:50  hosts=5,090
+  cic2018    2018-02-14 12:28:00 -> 2018-03-03 00:39:10  hosts=32,820
+  ctu13      2011-08-10 07:46:50 -> 2011-08-10 13:54:00  hosts=89,303
+  dapt2020   2019-07-15 13:45:30 -> 2026-09-19 18:08:10  hosts=129
+  unraveled  2021-05-26 18:02:50 -> 2021-07-06 06:42:10  hosts=1,768
+  unsw       2015-01-22 11:49:30 -> 2015-02-18 12:21:00  hosts=43
+
+share of attack windows where attack flows are < 100% of the host's flows (mixed windows):
+  32,653 of 95,346
+
+missing-value share per feature group, by source:
+  volume   merged=0%  unraveled=0%  unsw=0%  cic2017=0%
+  timing   merged=18%  unraveled=0%  unsw=0%  cic2017=0%
+  flags    merged=7%  unraveled=7%  unsw=93%  cic2017=7%
+  ports    merged=0%  unraveled=0%  unsw=5%  cic2017=0%
+  packet   merged=23%  unraveled=54%  unsw=15%  cic2017=33%

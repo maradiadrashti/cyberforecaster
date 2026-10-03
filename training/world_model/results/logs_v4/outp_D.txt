@@ -1,0 +1,30 @@
+
+=== api/D_unraveled_exfiltration_forecast: 187 conversations, 25 charted hosts, 1832 page renders
+  OK   page renders without error: 1832/1832
+  OK   tile: threat level: 1832/1832
+  OK   tile: attack probability: 1832/1832
+  OK   tile: 5 / 10 minute values: 1832/1832
+  OK   tile: model confidence: 1832/1832
+  OK   chart: alert threshold label: 1832/1832
+  OK   chart: model line (12 observed + 6 forecast points): 1832/1832
+  OK   chart: baseline line: 1832/1832
+  OK   chart: range upper edge: 1832/1832
+  OK   chart: range lower edge: 1832/1832
+  OK   chart: labelled-malicious shading: 1832/1832
+  OK   chart: selected window time shown: 1832/1832
+  OK   tree: stage name and probability: 1544/1544
+  OK   MITRE card: stage, tactic id, probability, basis: 964/964
+  OK   attribution: feature, contribution, share: 10773/10773
+  OK   attribution: main feature panel (description, observed value): 1539/1539
+  OK   actions: shown exactly when the latest window is HIGH RISK / ELEVATED: 1832/1832
+  OK   page shows the forecast of the conversation SOURCE host: 1832/1832
+  OK   actions: block rule names the source host: 763/763
+  OK   actions: target host = destination of the conversation: 763/763
+  OK   actions: stage named in action 2 (next stage of the tree, else current stage): 763/763
+  OK   flow table: source, destination, packets: 8449/8449
+  OK   flow table: rows belong to the selected conversation: 1832/1832
+  OK   tree: "no progression" message when no attack stage: 1246/1246
+  OK   attribution: message when not available or risk near zero: 293/293
+  OK   tree: "seen X of Y times" and delay: 757/757
+  OK   dropdown: label per conversation: 187/187
+  OK   dropdown: every entry has its own source-host forecast: 187/187

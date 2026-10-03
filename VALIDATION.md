@@ -1,4 +1,11 @@
-# Validation
+# Validation of the Live Traffic stage model
+
+> **Scope.** This document is about the earlier 15-feature LSTM (5 flows per conversation), which the dashboard
+> now uses only on the **Live Traffic** page. It was written before the world model existed and has not been re-run.
+> The stage-transition matrix described in section 3 is no longer used by the application (it is in `legacy/`).
+> Uploaded files are scored by the world model; its results are in
+> [`docs/RESULTS_world_model_v4.md`](docs/RESULTS_world_model_v4.md).
+
 
 How CyberForecaster was evaluated, the exact numbers, and what they do and do not prove.
 Every number here comes from the model files in `models/` and can be reproduced with the scripts in

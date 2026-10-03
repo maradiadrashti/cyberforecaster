@@ -1,0 +1,412 @@
+# 2026-10-02 23:09:24  python step4_train.py --epochs 15 --seeds 3 --v3 --unseen unsw
+23:09:27 windows: 2,233,308   features: 73   unseen dataset: unsw
+23:09:44 sequences: {'train': '979,616', 'val': '264,653', 'test': '295,590', 'unseen': '109,889'}
+23:09:44 current-stage windows at sequence ends, per split:
+                   train     val    test  unseen
+command_control    27391   15003    5238      26
+exfiltration        3388    1024    1073       0
+initial_access       383     329     141   10401
+lateral_movement    9289    3052    3287      15
+normal            932445  243619  283526   92450
+other/ambiguous     5645    1592    1959    3642
+reconnaissance      1075      34     366    3355
+23:09:48 train sequences: positives 73,174  negatives 731,770
+23:09:48 train onset events (history normal -> attack within 6): 1,031
+23:09:48 training LogReg last window
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:599: ConvergenceWarning: lbfgs failed to converge after 150 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=150).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+23:10:02 training LogReg 10 windows
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:599: ConvergenceWarning: lbfgs failed to converge after 150 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=150).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+23:10:35 training XGBoost 10 windows
+23:12:25 sampler groups: onset 1,031  attack-ongoing 73,315  normal 905,270
+23:13:27 [WM73 seed0] epoch 01  stage 0.617  within 0.332  next -0.229  val-AP 0.4948
+23:14:29 [WM73 seed0] epoch 02  stage 0.350  within 0.238  next -0.488  val-AP 0.4991
+23:15:24 [WM73 seed0] epoch 03  stage 0.307  within 0.220  next -0.595  val-AP 0.5060
+23:16:22 [WM73 seed0] epoch 04  stage 0.287  within 0.207  next -0.677  val-AP 0.5092
+23:17:20 [WM73 seed0] epoch 05  stage 0.273  within 0.197  next -0.687  val-AP 0.5339
+23:18:22 [WM73 seed0] epoch 06  stage 0.257  within 0.192  next -0.786  val-AP 0.5431
+23:19:24 [WM73 seed0] epoch 07  stage 0.251  within 0.186  next -0.807  val-AP 0.5229
+23:20:20 [WM73 seed0] epoch 08  stage 0.239  within 0.178  next -0.874  val-AP 0.5368
+23:21:18 [WM73 seed0] epoch 09  stage 0.233  within 0.174  next -0.894  val-AP 0.5365
+23:22:16 [WM73 seed0] epoch 10  stage 0.227  within 0.170  next -0.929  val-AP 0.5250
+23:23:16 [WM73 seed0] epoch 11  stage 0.219  within 0.165  next -0.934  val-AP 0.5242
+23:24:17 [WM73 seed0] epoch 12  stage 0.215  within 0.162  next -0.967  val-AP 0.5127
+23:24:17 early stop
+23:24:18 sampler groups: onset 1,031  attack-ongoing 73,315  normal 905,270
+23:25:17 [WM73 seed1] epoch 01  stage 0.625  within 0.340  next -0.222  val-AP 0.4899
+23:26:16 [WM73 seed1] epoch 02  stage 0.355  within 0.241  next -0.472  val-AP 0.5005
+23:27:16 [WM73 seed1] epoch 03  stage 0.307  within 0.218  next -0.544  val-AP 0.4995
+23:28:16 [WM73 seed1] epoch 04  stage 0.285  within 0.206  next -0.661  val-AP 0.5209
+23:29:14 [WM73 seed1] epoch 05  stage 0.268  within 0.197  next -0.707  val-AP 0.5220
+23:30:12 [WM73 seed1] epoch 06  stage 0.257  within 0.190  next -0.796  val-AP 0.5340
+23:31:08 [WM73 seed1] epoch 07  stage 0.248  within 0.185  next -0.828  val-AP 0.5428
+23:32:06 [WM73 seed1] epoch 08  stage 0.241  within 0.180  next -0.825  val-AP 0.5207
+23:33:07 [WM73 seed1] epoch 09  stage 0.234  within 0.174  next -0.906  val-AP 0.5299
+23:34:17 [WM73 seed1] epoch 10  stage 0.227  within 0.171  next -0.902  val-AP 0.5203
+23:35:17 [WM73 seed1] epoch 11  stage 0.221  within 0.169  next -0.937  val-AP 0.5446
+23:36:19 [WM73 seed1] epoch 12  stage 0.218  within 0.162  next -0.956  val-AP 0.5274
+23:37:21 [WM73 seed1] epoch 13  stage 0.216  within 0.161  next -0.977  val-AP 0.5480
+23:38:21 [WM73 seed1] epoch 14  stage 0.210  within 0.155  next -0.957  val-AP 0.5272
+23:39:20 [WM73 seed1] epoch 15  stage 0.205  within 0.152  next -1.017  val-AP 0.5275
+23:39:21 sampler groups: onset 1,031  attack-ongoing 73,315  normal 905,270
+23:40:22 [WM73 seed2] epoch 01  stage 0.619  within 0.331  next -0.205  val-AP 0.4909
+23:41:18 [WM73 seed2] epoch 02  stage 0.351  within 0.240  next -0.467  val-AP 0.5005
+23:42:19 [WM73 seed2] epoch 03  stage 0.308  within 0.218  next -0.575  val-AP 0.5010
+23:43:20 [WM73 seed2] epoch 04  stage 0.287  within 0.206  next -0.632  val-AP 0.5209
+23:44:25 [WM73 seed2] epoch 05  stage 0.271  within 0.198  next -0.664  val-AP 0.5279
+23:45:26 [WM73 seed2] epoch 06  stage 0.259  within 0.191  next -0.743  val-AP 0.5262
+23:46:26 [WM73 seed2] epoch 07  stage 0.244  within 0.181  next -0.797  val-AP 0.5100
+23:47:35 [WM73 seed2] epoch 08  stage 0.237  within 0.175  next -0.845  val-AP 0.5385
+23:48:37 [WM73 seed2] epoch 09  stage 0.233  within 0.173  next -0.856  val-AP 0.5379
+23:49:42 [WM73 seed2] epoch 10  stage 0.225  within 0.170  next -0.897  val-AP 0.5472
+23:50:47 [WM73 seed2] epoch 11  stage 0.221  within 0.168  next -0.881  val-AP 0.5399
+23:51:44 [WM73 seed2] epoch 12  stage 0.216  within 0.162  next -0.905  val-AP 0.5194
+23:52:43 [WM73 seed2] epoch 13  stage 0.212  within 0.158  next -0.975  val-AP 0.5278
+23:53:45 [WM73 seed2] epoch 14  stage 0.205  within 0.155  next -0.968  val-AP 0.5321
+23:54:44 [WM73 seed2] epoch 15  stage 0.206  within 0.152  next -0.986  val-AP 0.5341
+23:54:44 val score per seed: [0.5431, 0.548, 0.5472] -> best seed 1
+23:54:44 evaluating
+
+--- val  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   0.000   0.000     nan      90            0/26
+LogReg last window       0.002   0.722   0.003   0.183   0.001   0.761      90           22/26
+LogReg 10 windows        0.002   0.167   0.004   0.030   0.001   0.773      90            5/26
+XGBoost 10 windows       0.022   0.200   0.039   0.004   0.011   0.950      90           12/26
+WORLD MODEL (head)       0.312   0.111   0.164   0.000   0.061   0.966      90           10/26
+WM seed0                 0.229   0.122   0.159   0.000   0.072   0.970      90           11/26
+WM seed1                 0.312   0.111   0.164   0.000   0.061   0.966      90           10/26
+WM seed2                 0.263   0.111   0.156   0.000   0.057   0.942      90           10/26
+WORLD MODEL (ensemble of 3)   0.474   0.100   0.165   0.000   0.073   0.969      90            9/26
+
+--- val  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.995   0.652   0.788   0.001   0.690   0.826   29351               -
+LogReg last window       0.535   0.754   0.626   0.088   0.627   0.935   29351               -
+LogReg 10 windows        0.850   0.893   0.871   0.021   0.910   0.989   29351               -
+XGBoost 10 windows       0.983   0.966   0.975   0.002   0.995   0.999   29351               -
+WORLD MODEL (head)       0.985   0.950   0.967   0.002   0.991   0.998   29351               -
+WM seed0                 0.984   0.952   0.967   0.002   0.990   0.998   29351               -
+WM seed1                 0.985   0.950   0.967   0.002   0.991   0.998   29351               -
+WM seed2                 0.982   0.955   0.969   0.002   0.990   0.998   29351               -
+WORLD MODEL (ensemble of 3)   0.982   0.958   0.970   0.002   0.992   0.998   29351               -
+
+--- test  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   0.000   0.001     nan     168            0/47
+LogReg last window       0.002   0.512   0.004   0.166   0.002   0.715     168           33/47
+LogReg 10 windows        0.003   0.155   0.007   0.030   0.007   0.697     168            7/47
+XGBoost 10 windows       0.023   0.214   0.041   0.006   0.015   0.965     168           18/47
+WORLD MODEL (head)       0.084   0.101   0.092   0.001   0.028   0.936     168           12/47
+WM seed0                 0.055   0.143   0.080   0.002   0.030   0.963     168           16/47
+WM seed1                 0.084   0.101   0.092   0.001   0.028   0.936     168           12/47
+WM seed2                 0.086   0.155   0.110   0.001   0.033   0.954     168           16/47
+WORLD MODEL (ensemble of 3)   0.064   0.048   0.055   0.001   0.027   0.962     168            7/47
+
+--- test  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.990   0.493   0.658   0.000   0.525   0.746   20215               -
+LogReg last window       0.425   0.707   0.531   0.076   0.573   0.935   20215               -
+LogReg 10 windows        0.747   0.843   0.792   0.023   0.812   0.980   20215               -
+XGBoost 10 windows       0.943   0.970   0.956   0.005   0.988   0.999   20215               -
+WORLD MODEL (head)       0.865   0.929   0.896   0.011   0.971   0.997   20215               -
+WM seed0                 0.889   0.937   0.912   0.009   0.974   0.997   20215               -
+WM seed1                 0.865   0.929   0.896   0.011   0.971   0.997   20215               -
+WM seed2                 0.879   0.943   0.910   0.010   0.974   0.997   20215               -
+WORLD MODEL (ensemble of 3)   0.863   0.945   0.902   0.012   0.976   0.998   20215               -
+
+--- unseen  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   0.000     nan     nan       0             0/0
+LogReg last window       0.000   0.000   0.000   0.913     nan     nan       0             0/0
+LogReg 10 windows        0.000   0.000   0.000   0.910     nan     nan       0             0/0
+XGBoost 10 windows       0.000   0.000   0.000   0.013     nan     nan       0             0/0
+WORLD MODEL (head)       0.000   0.000   0.000   0.898     nan     nan       0             0/0
+WM seed0                 0.000   0.000   0.000   0.891     nan     nan       0             0/0
+WM seed1                 0.000   0.000   0.000   0.898     nan     nan       0             0/0
+WM seed2                 0.000   0.000   0.000   0.857     nan     nan       0             0/0
+WORLD MODEL (ensemble of 3)   0.000   0.000   0.000   0.829     nan     nan       0             0/0
+
+--- unseen  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      1.000   0.948   0.973   0.000   0.956   0.974   17524               -
+LogReg last window       0.116   0.607   0.195   0.900   0.095   0.141   17524               -
+LogReg 10 windows        0.019   0.090   0.031   0.910   0.093   0.087   17524               -
+XGBoost 10 windows       0.000   0.000   0.000   0.009   0.087   0.033   17524               -
+WORLD MODEL (head)       0.174   1.000   0.297   0.923   0.489   0.725   17524               -
+WM seed0                 0.177   0.993   0.301   0.899   0.138   0.328   17524               -
+WM seed1                 0.174   1.000   0.297   0.923   0.489   0.725   17524               -
+WM seed2                 0.176   1.000   0.300   0.911   0.451   0.647   17524               -
+WORLD MODEL (ensemble of 3)   0.174   1.000   0.297   0.922   0.193   0.423   17524               -
+
+##### UNSEEN NETWORK, THRESHOLD CALIBRATED ON ITS OWN EARLIEST 30% (normal traffic, 1% false-alarm budget); numbers below are on the remaining 70% #####
+
+--- unseen_calibrated  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   1.000     nan     nan       0             0/0
+LogReg last window       0.000   0.000   0.000   0.010     nan     nan       0             0/0
+LogReg 10 windows        0.000   0.000   0.000   0.013     nan     nan       0             0/0
+XGBoost 10 windows       0.000   0.000   0.000   0.009     nan     nan       0             0/0
+WORLD MODEL (head)       0.000   0.000   0.000   0.011     nan     nan       0             0/0
+WM seed0                 0.000   0.000   0.000   0.010     nan     nan       0             0/0
+WM seed1                 0.000   0.000   0.000   0.011     nan     nan       0             0/0
+WM seed2                 0.000   0.000   0.000   0.011     nan     nan       0             0/0
+WORLD MODEL (ensemble of 3)   0.000   0.000   0.000   0.011     nan     nan       0             0/0
+
+--- unseen_calibrated  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.199   1.000   0.332   1.000   0.957   0.973   14999               -
+LogReg last window       0.029   0.001   0.002   0.010   0.118   0.144   14999               -
+LogReg 10 windows        0.141   0.009   0.017   0.013   0.116   0.093   14999               -
+XGBoost 10 windows       0.000   0.000   0.000   0.009   0.107   0.033   14999               -
+WORLD MODEL (head)       0.773   0.143   0.242   0.011   0.528   0.723   14999               -
+WM seed0                 0.415   0.029   0.054   0.010   0.165   0.327   14999               -
+WM seed1                 0.773   0.143   0.242   0.011   0.528   0.723   14999               -
+WM seed2                 0.842   0.245   0.380   0.011   0.478   0.638   14999               -
+WORLD MODEL (ensemble of 3)   0.506   0.043   0.080   0.011   0.221   0.417   14999               -
+
+stage head (test): {
+ "macroF1_t+0": 0.8387,
+ "per_class_recall_t+0": {
+  "normal": 0.992,
+  "reconnaissance": 0.984,
+  "initial_access": 0.979,
+  "command_control": 0.974,
+  "lateral_movement": 0.977,
+  "exfiltration": 0.962
+ },
+ "recall_by_dataset_t+0": {
+  "normal": {
+   "cic2017": [
+    0.968,
+    13943
+   ],
+   "cic2018": [
+    1.0,
+    187073
+   ],
+   "ctu13": [
+    0.963,
+    7163
+   ],
+   "dapt2020": [
+    0.972,
+    2855
+   ],
+   "unraveled": [
+    0.981,
+    72492
+   ]
+  },
+  "reconnaissance": {
+   "cic2017": [
+    0.833,
+    36
+   ],
+   "dapt2020": [
+    1.0,
+    4
+   ],
+   "unraveled": [
+    1.0,
+    326
+   ]
+  },
+  "initial_access": {
+   "cic2017": [
+    1.0,
+    51
+   ],
+   "cic2018": [
+    0.962,
+    78
+   ],
+   "dapt2020": [
+    1.0,
+    12
+   ]
+  },
+  "command_control": {
+   "ctu13": [
+    0.981,
+    366
+   ],
+   "unraveled": [
+    0.974,
+    4872
+   ]
+  },
+  "lateral_movement": {
+   "cic2017": [
+    0.0,
+    3
+   ],
+   "dapt2020": [
+    0.0,
+    25
+   ],
+   "unraveled": [
+    0.985,
+    3259
+   ]
+  },
+  "exfiltration": {
+   "dapt2020": [
+    0.0,
+    1
+   ],
+   "unraveled": [
+    0.963,
+    1072
+   ]
+  }
+ },
+ "predicted_as_t+0": {
+  "normal": {
+   "normal": 281360,
+   "reconnaissance": 50,
+   "initial_access": 272,
+   "command_control": 678,
+   "lateral_movement": 836,
+   "exfiltration": 330
+  },
+  "reconnaissance": {
+   "reconnaissance": 360,
+   "initial_access": 6
+  },
+  "initial_access": {
+   "normal": 3,
+   "initial_access": 138
+  },
+  "command_control": {
+   "normal": 16,
+   "command_control": 5103,
+   "lateral_movement": 48,
+   "exfiltration": 71
+  },
+  "lateral_movement": {
+   "normal": 51,
+   "initial_access": 2,
+   "command_control": 23,
+   "lateral_movement": 3210,
+   "exfiltration": 1
+  },
+  "exfiltration": {
+   "normal": 7,
+   "command_control": 34,
+   "exfiltration": 1032
+  }
+ },
+ "macroF1_t+1": 0.7081,
+ "per_class_recall_t+1": {
+  "normal": 0.956,
+  "reconnaissance": 0.984,
+  "initial_access": 0.972,
+  "command_control": 0.975,
+  "lateral_movement": 0.933,
+  "exfiltration": 0.944
+ }
+}
+stage head (unseen unsw): {
+ "macroF1_t+0": 0.0413,
+ "per_class_recall_t+0": {
+  "normal": 0.107,
+  "reconnaissance": 0.027,
+  "initial_access": 0.0,
+  "command_control": 0.0,
+  "lateral_movement": 0.8
+ },
+ "recall_by_dataset_t+0": {
+  "normal": {
+   "unsw": [
+    0.107,
+    92450
+   ]
+  },
+  "reconnaissance": {
+   "unsw": [
+    0.027,
+    3355
+   ]
+  },
+  "initial_access": {
+   "unsw": [
+    0.0,
+    10401
+   ]
+  },
+  "command_control": {
+   "unsw": [
+    0.0,
+    26
+   ]
+  },
+  "lateral_movement": {
+   "unsw": [
+    0.8,
+    15
+   ]
+  }
+ },
+ "predicted_as_t+0": {
+  "normal": {
+   "normal": 9925,
+   "reconnaissance": 8397,
+   "initial_access": 4,
+   "lateral_movement": 68901,
+   "exfiltration": 5223
+  },
+  "reconnaissance": {
+   "normal": 58,
+   "reconnaissance": 90,
+   "lateral_movement": 2889,
+   "exfiltration": 318
+  },
+  "initial_access": {
+   "normal": 1215,
+   "reconnaissance": 298,
+   "lateral_movement": 8021,
+   "exfiltration": 867
+  },
+  "command_control": {
+   "lateral_movement": 24,
+   "exfiltration": 2
+  },
+  "lateral_movement": {
+   "normal": 1,
+   "lateral_movement": 12,
+   "exfiltration": 2
+  }
+ },
+ "macroF1_t+1": 0.035,
+ "per_class_recall_t+1": {
+  "normal": 0.083,
+  "reconnaissance": 0.027,
+  "initial_access": 0.0,
+  "command_control": 0.0,
+  "lateral_movement": 0.333
+ }
+}
+
+=== run-to-run spread over 3 seeds (same data, same settings, different random start) ===
+test onset AUROC       mean 0.951  std 0.011  min 0.936  max 0.963  (n=3)
+test onsets warned     mean 14.667  std 1.886  min 12.000  max 16.000  (n=3)
+test all-seq F1        mean 0.906  std 0.007  min 0.896  max 0.912  (n=3)
+unseen-net AUROC       mean 0.566  std 0.172  min 0.328  max 0.725  (n=3)
+unseen-net F1          mean 0.299  std 0.002  min 0.297  max 0.301  (n=3)
+00:03:25 DONE - everything is in D:\ml-data\processed\model_v3_unseen-unsw

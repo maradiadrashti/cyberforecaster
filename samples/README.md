@@ -1,12 +1,12 @@
 # samples/
 
-Small files you can upload on the dashboard's **File Upload** page straight after cloning.
+Files you can upload on the dashboard's **File Upload** page straight after cloning.
 
-| File | What it is | What to expect |
-| :--- | :--- | :--- |
-| `real_sample_v4.csv` | 108 real labeled flows (11 conversations) cut from the CSE-CIC-IDS-2018 part of the training corpus, already in the app's schema. | A mix of normal and attack conversations; the highest-risk one opens first on **Attack Forecast**. |
-| `cic2017_webattacks_sample.csv` | 500 flows from **CIC-IDS-2017 Web Attacks** (250 benign, 250 attack; 2 conversations) in the app's schema — a dataset the LSTM never trained on. IPs are reconstructed (the public CSV has none): attacks use the documented attacker → victim pair, benign flows an invented sender. | Attack conversations forecast as **Initial Access**. |
-| `cicflowmeter_raw_sample.csv` | 150 **raw CICFlowMeter** rows (80 benign, 70 web brute-force) with the original 80+ column names. | Shows the CSV adapter: converted to the schema automatically on upload (TTL imputed to 64, with a warning in the backend log). |
-| `test_sample.pcap` | A tiny PCAP. | Exercises the PCAP → flow extraction path. |
+| File | What it is |
+|---|---|
+| `real_sample_v4.csv` | 108 labelled flows from 7 hosts, cut from the CSE-CIC-IDS2018 part of the training data. A quick smoke test: it is small and its hosts have only a few windows each. |
+| `darpa2000_lldos_inside_slice.pcap` | 15 minutes (7 March 2000, 14:40–14:55 UTC) cut from the public DARPA 2000 LLDOS 1.0 "inside" capture: 51,704 packets, 10,012 flows, 91 hosts, 11 MB. Use it to try the PCAP path. This network is **not** in the training data and the file has no labels, so the result (12 hosts flagged) is not checked against ground truth. |
+| `test_files/` | Four labelled files cut from hours that were held back from training. Use these to see the model work; expected results are in [`test_files/README.md`](test_files/README.md). |
 
-`../sample_test_flows.csv` is used by `predict_csv.py` and the automated tests.
+The upload page accepts `.csv`, `.pcap` and `.pcapng`. A CSV must contain source IP, destination IP and a time for
+every flow (the model works per source host, on the order of events). Files without them are refused with the reason.
