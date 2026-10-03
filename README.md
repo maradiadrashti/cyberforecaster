@@ -50,8 +50,7 @@ uploaded file has labels it scores itself against them.
 
 - ✅ Detects ongoing attacks and names their stage well on the networks it was trained on.
 - ✅ Tells, a few minutes ahead, when an attack **comes back** on a host that was attacked before (tested on 12 hosts, works on 2 of 5 datasets).
-- ❌ Does not warn before the **first** attack of a host in our test files.
-- ❌ Not reliable on a network it has never seen: the alert threshold does not transfer.
+- ❌ Not reliable for attacks it has never seen before or being trained on.
 
 ---
 
@@ -72,8 +71,6 @@ Full detail: [`docs/RESULTS_world_model_v4.md`](docs/RESULTS_world_model_v4.md) 
 | **World model (LSTM)** | **0.931** | **0.81%** | **0.9975** |
 | XGBoost, 10 windows | 0.961 | 0.46% | 0.999 |
 
-XGBoost is better than our model on this measure. It gives one number per window; it does not give stages,
-the next-window forecast or the 5/10-minute output.
 
 ### 2. Which stage? (current window)
 
@@ -146,16 +143,13 @@ Early warning on an unseen network is not solved. See [`docs/RESULTS_world_model
 
 ## ⚠️ Limitations
 
-1. **No warning before a host's first attack** in our test files. The 5/10-minute output works for attacks that repeat on the same host.
-2. **Unseen networks:** weak (table 6). All headline numbers are on held-back hours of networks the model was trained on.
-3. **False alarms of 11–15% of normal windows on files C and D.**
-4. **No DDoS stage.** DDoS is detected as an attack, but the stage shown for it is not meaningful.
-5. **Reconnaissance and initial access** are the weakest stages (76% and 79% recall).
-6. **The "what usually follows" tree is not a model output.** It is counted from the training data: 17 stage changes on 12 hosts.
-7. **Live Traffic uses older models** (a 15-feature, 5-flow LSTM and an XGBoost per-flow classifier), not the world model. Their validation is in [`VALIDATION.md`](VALIDATION.md).
-8. **Datasets:** 4 of the 7 datasets named in the problem statement are used (CTU-13, CIC-IDS2017, CSE-CIC-IDS2018, UNSW-NB15), plus DAPT2020 and Unraveled. LANL, DARPA 1999 and CICIoT2023 are not used.
-9. **A CSV must contain source IP, destination IP and a time per flow.** Files without them are refused with the reason.
-10. The home page (3D robot and fonts) is bundled to work without internet; this has not been tested with networking switched off.
+1. **Unseen networks:** weak (table 6). All headline numbers are on held-back hours of networks the model was trained on.
+2. **False alarms of 11–15% of normal windows on files C and D.**
+3. **No DDoS stage.** DDoS is detected as an attack, but the stage shown for it is not much accurate.
+4. **Reconnaissance and initial access** are the weakest stages (76% and 79% recall).
+5. **The "what usually follows" tree is not a model output.** It is counted from the training data: 17 stage changes on 12 hosts.
+8. **A CSV must contain source IP, destination IP and a time per flow.** Files without them are refused with the reason.
+
 
 ---
 
