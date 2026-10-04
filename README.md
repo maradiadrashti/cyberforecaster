@@ -66,8 +66,6 @@ World model v5 · 3 copies averaged · measured on **hours held back from traini
 
 ### Comparison with baselines
 
-All models get the same input: the last 10 windows of a host, 88 features each. Same held-back test data.
-
 | Measure | Logistic regression | XGBoost | **World model (ours)** | World model + XGBoost (hybrid) |
 | :--- | :---: | :---: | :---: | :---: |
 | Detection F1 | 0.833 | 0.969 | **0.945** | 0.956 |
