@@ -50,7 +50,7 @@ the actual flows behind the alert.
 
 ---
 
-## Results at a glance
+## Results
 
 World model v5 · 3 copies averaged · measured on **hours held back from training** (299,632 host-windows).
 
@@ -80,8 +80,6 @@ All models get the same input: the last 10 windows of a host, 88 features each. 
 | Forecasts the stage for the next 60 s | ✗ | ✗ | **✓** | ✓ |
 | Predicts the host's next traffic window | ✗ | ✗ | **✓** | ✓ |
 
-**How to read it**
-
 - **Detection:** XGBoost is slightly ahead at spotting an attack that is already happening (0.969 against 0.945).
   It returns one yes/no score and nothing else.
 - **Forecasting:** the world model warns about more attack starts than either baseline (13 against 8), at four
@@ -92,26 +90,12 @@ All models get the same input: the last 10 windows of a host, 88 features each. 
 
 ### Forecasting in detail
 
-"Attack start" = the host has been normal for its last 10 windows and an attack begins within 60 seconds.
-
 | Warning horizon | Precision | Recall |
 | :--- | :---: | :---: |
 | Attack starts within 60 seconds | 9.2% | 13 of 47 starts |
 | Attack starts within 5 minutes | **91.8%** | 34.3% |
 | Attack starts within 10 minutes | 65.3% | 26.9% |
 
-### MITRE ATT&CK stage naming
-
-Macro-F1 over 6 classes: **0.842**.
-
-| Stage | Recall |
-| :--- | :---: |
-| Normal | 99.1% |
-| Exfiltration | 98.8% |
-| Command & control | 97.0% |
-| Lateral movement | 96.5% |
-| Initial access | 88.7% |
-| Reconnaissance | 67.6% |
 
 ### On the demo file (`samples/demo_unraveled_5_stages.csv`)
 
