@@ -246,23 +246,28 @@ cyberforecaster/
 
 ## Honest Limitations
 
-**1. First-time attacks are hard to forecast.**
+**1. First-time attacks are hard to forecast:**
+
 When a host has been normal and then attacks for the first time, the model warned in the minute before in 13 of
 47 cases on held-back data. In our test files it warned before a host's first attack in 1 of 7 cases. Many attacks
 give no sign in the traffic beforehand, so there is nothing to forecast from.
 
-**2. Stage naming is uneven.**
+**2. Stage naming is uneven:**
+
 Command & control, lateral movement and exfiltration are named correctly 96–99% of the time. Initial access is
 at 89% and reconnaissance at 68%. Initial access drops to 46% on CSE-CIC-IDS2018.
 
-**3. XGBoost is ahead on plain detection.**
+**3. XGBoost is ahead on plain detection:**
+
 On the same inputs XGBoost reaches F1 0.969 against our 0.945. Our model is ahead on early warning and is the
 only one of the two that names stages and forecasts.
 
-**4. Live Telemetry detects only when on the same network interface.**
+**4. Live Telemetry detects only when on the same network interface:**
+
  live telemetry can only  analyse the traffic that reaches the interface. To put it in simple words, it can only detect traffics coming from the same interface/network.
 
-**5. Input requirements.**
+**5. Input requirements:**
+
 A CSV must contain source IP, destination IP and a time for every flow. A file should hold all traffic of its
 time span, because the model also uses what each host receives.
 
