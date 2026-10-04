@@ -91,8 +91,8 @@ for ip, H in C['hosts'].items():
         r = [x['share'] / abs(x['contribution']) for x in A['features'] if abs(x['contribution']) > 0.003]
         if len(r) > 1: chk('attribution: shares proportional to contributions', max(r) / min(r) < 1.15, f'{ip} {tag} {r[:3]}')
     # ---- progression (tree + MITRE cards), recomputed from the counts file
-    P = H['progression']; D = np.array(H['stage_dist_last']); row = D[0] if D[0][1:].sum() >= 0.5 else D[-1]
-    chk('tree shown only when an attack stage is seen', P.get('available') == (row[1:].sum() >= 0.5) or abs(row[1:].sum() - 0.5) < 2e-3, f'{ip} {row[1:].sum():.3f}')
+    P = H['progression']; D = np.array(H['stage_dist_last']); _sm = D[:, 1:].sum(1); _mass = _sm[0] if _sm[0] >= 0.5 else _sm.max()      # an attack stage now, or in any forecast step
+    chk('tree shown only when an attack stage is seen', P.get('available') == (_mass >= 0.5) or abs(_mass - 0.5) < 2e-3, f'{ip} {_mass:.3f}')
     if P.get('available'):
         av = D[:, 1:].mean(0); st = sorted(((CL[j + 1], av[j]) for j in range(len(av))), key=lambda t: -t[1]); st = [s for s in st if s[1] / av.sum() >= 0.10][:2]
         roots = [nd for nd in P['nodes'] if nd['parent'] is None]

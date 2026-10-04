@@ -1,0 +1,85 @@
+{
+ "model": "C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\models\\world_model",
+ "flows": 132583,
+ "hosts": 34515,
+ "windows": 39254,
+ "threshold": 0.6937427520751953,
+ "hosts_flagged": 26,
+ "phases": {
+  "IP sweep (reconnaissance)": {
+   "labelled host-windows found": 14,
+   "alerted": 4,
+   "mean risk": 0.287,
+   "stage named": {
+    "command_control": 8,
+    "initial_access": 6
+   }
+  },
+  "sadmind probe (reconnaissance)": {
+   "labelled host-windows found": 9,
+   "alerted": 0,
+   "mean risk": 0.024,
+   "stage named": {
+    "lateral_movement": 7,
+    "command_control": 2
+   }
+  },
+  "break-in (initial access)": {
+   "labelled host-windows found": 7,
+   "alerted": 0,
+   "mean risk": 0.058,
+   "stage named": {
+    "initial_access": 7
+   }
+  },
+  "install DDoS tool": {
+   "labelled host-windows found": 10,
+   "alerted": 1,
+   "mean risk": 0.145,
+   "stage named": {
+    "command_control": 10
+   }
+  }
+ },
+ "before the DDoS: windows of hosts not in the answer key": {
+  "windows": 2155,
+  "alerted (false alarms)": 90,
+  "rate": 0.0418,
+  "hosts": 241,
+  "hosts with an alert": 14
+ },
+ "rank of hosts in the answer key by peak risk (before the DDoS)": {
+  "172.16.113.50": 34,
+  "172.16.112.10": 22,
+  "172.16.112.105": 1,
+  "172.16.115.20": 33,
+  "172.16.113.148": 7,
+  "172.16.113.105": 3,
+  "172.16.112.100": 16,
+  "172.16.117.132": 52,
+  "172.16.115.87": 2,
+  "202.77.162.213": 19,
+  "172.16.112.194": 5,
+  "172.16.112.50": 26
+ },
+ "first alert of each answer-key host": {
+  "172.16.112.10": "37.5 min before the DDoS",
+  "172.16.112.100": "126.2 min before the DDoS",
+  "172.16.112.105": "96.0 min before the DDoS",
+  "172.16.112.194": "125.8 min before the DDoS",
+  "172.16.112.50": "no alert before the DDoS",
+  "172.16.113.105": "96.0 min before the DDoS",
+  "172.16.113.148": "119.8 min before the DDoS",
+  "172.16.113.50": "no alert before the DDoS",
+  "172.16.115.20": "no alert before the DDoS",
+  "172.16.115.87": "96.3 min before the DDoS",
+  "172.16.117.132": "no alert before the DDoS",
+  "202.77.162.213": "1.7 min before the DDoS"
+ },
+ "phase starts (minutes before the DDoS)": {
+  "IP sweep (reconnaissance)": 96.2,
+  "sadmind probe (reconnaissance)": 79.7,
+  "break-in (initial access)": 54.7,
+  "install DDoS tool": 37.8
+ }
+}

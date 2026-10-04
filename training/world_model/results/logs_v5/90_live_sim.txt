@@ -1,0 +1,57 @@
+# 2026-10-04 00:53:18  python live_sim_test.py
+packets read: 51704
+packets in the last 10 minutes: 29766
+buffer holds: 51704 (buffer limit: None )
+[*] Opening C:\Users\htc\AppData\Local\Temp\tmpkpd08z26.pcap ...
+[*] (1) Processing 'tmpkpd08z26.pcap' ...
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\dpkt\ip.py:140: UserWarning: IP.off is deprecated
+  deprecation_warning("IP.off is deprecated")
+[+] Processed 1 capture file(s) (0 skipped/unreadable).
+[+] Finished reading 29,766 packets (28,911 were IP/TCP/UDP).
+[+] Found 5,584 unique flows.
+[*] Writing features to C:\Users\htc\AppData\Local\Temp\tmpkpd08z26.pcap.flows.csv ...
+[+] Wrote 5,584 rows to C:\Users\htc\AppData\Local\Temp\tmpkpd08z26.pcap.flows.csv
+[+] DONE. This CSV has BOTH packet-level and flow-level features.
+[+] You do NOT need to send the raw .pcap or logs.zip -- only this CSV.
+[LIVE_HOST] Registered real live host: 172.16.113.148 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.112.207 (role=source)
+[LIVE_HOST] Registered real live host: 209.1.224.190 (role=source)
+[LIVE_HOST] Registered real live host: 197.218.177.69 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.113.50 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.113.168 (role=source)
+[LIVE_HOST] Registered real live host: 196.37.75.158 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.113.169 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.112.20 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.115.1 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.112.194 (role=source)
+[LIVE_HOST] Registered real live host: 135.8.60.182 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.113.84 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.112.50 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.116.15 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.113.1 (role=source)
+[LIVE_HOST] Registered real live host: 209.143.199.30 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.115.20 (role=source)
+[LIVE_HOST] Registered real live host: 207.46.130.14 (role=source)
+[LIVE_HOST] Registered real live host: 194.7.248.153 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.116.20 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.113.207 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.112.100 (role=source)
+[LIVE_HOST] Registered real live host: 172.16.112.1 (role=source)
+[LIVE_HOST] Registered real live host: 0.0.0.0 (role=source)
+messages: 25 updates, 2 alerts; model label: ['world_model_v5'] threshold: [0.6937]
+[*] Opening C:\Users\htc\AppData\Local\Temp\live_sim_direct.pcap ...
+[*] (1) Processing 'live_sim_direct.pcap' ...
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\dpkt\ip.py:140: UserWarning: IP.off is deprecated
+  deprecation_warning("IP.off is deprecated")
+[+] Processed 1 capture file(s) (0 skipped/unreadable).
+[+] Finished reading 29,766 packets (28,911 were IP/TCP/UDP).
+[+] Found 5,584 unique flows.
+[*] Writing features to C:\Users\htc\AppData\Local\Temp\live_sim_direct.pcap.flows.csv ...
+[+] Wrote 5,584 rows to C:\Users\htc\AppData\Local\Temp\live_sim_direct.pcap.flows.csv
+[+] DONE. This CSV has BOTH packet-level and flow-level features.
+[+] You do NOT need to send the raw .pcap or logs.zip -- only this CSV.
+updates checked against the direct run: 25, mismatches: 0
+alerts sent only at or above the threshold: True | hosts at or above threshold in direct run: 2 | alert messages: 2
+updates without a risk value (COLLECTING): 0
+example: {"sourceIp": "172.16.113.148", "targetIp": "172.16.113.148", "hostIp": "172.16.113.148", "host": "172.16.113.148", "predicted_stage": "normal", "confidence": 0.999, "risk_score": 0.0005, "status": "READY 17/10", "model_status": "READY", "windows_collected": 17, "windowsCollected": 17, "min_windows_required": 10, "minRequired": 10, "recent_risk_history": [0.8171, 0.7245, 0.6745, 0.622, 0.4384, 0.1177, 0.0236, 0.0077, 0.0023, 0.0014, 0.0013, 0.0007, 0.0006, 0.0007, 0.0008, 0.0006, 0.0005], "stage_probs": {}, "stage_probabilities": {}, "model": "world_model_v5", "alert_threshold": 0.6937}
+LIVE SIM: OK

@@ -1,0 +1,545 @@
+# 2026-10-03 23:17:50  python release_check.py
+
+===== versions =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'pip_freeze.py']
+3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]
+fastapi 0.140.13
+uvicorn 0.52.0
+scapy 2.7.0
+psutil 7.2.2
+pandas 2.3.3
+numpy 2.3.4
+torch 2.13.0+cpu
+sklearn 1.9.0
+xgboost 3.4.1
+dpkt 1.9.8
+multipart 0.0.32
+shap 0.52.0
+joblib 1.5.3
+pydantic 2.13.4
+websockets 16.0
+starlette 1.3.1
+scipy 1.18.1
+git version 2.54.0.windows.1
+
+v25.9.0
+ 11.12.1
+
+
+-> OK (9 s)
+
+===== compile backend =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', '-m', 'py_compile', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\capture-service\\capture_server.py', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\capture-service\\world_model.py']
+
+-> OK (0 s)
+
+===== command line on sample =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\capture-service\\world_model.py', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\samples\\real_sample_v4.csv', '--out', 'D:\\ml-data\\processed\\release_out']
+
+file: real_sample_v4.csv   format detected: common
+flows: 108   windows: 34   hosts: 7   time span: 1211250 s
+NETWORK: 2 host(s) flagged   alert windows: 2 (5.9%)   peak risk: 0.983   (alert when risk_60s >= 0.6937)
+
+top hosts by peak risk:
+host                 peak  alerts  first alert         likely stage        MITRE   
+172.31.69.28        0.983       1  2018-02-21 18:11:10 command_control     TA0011  
+13.58.98.64         0.815       1  2018-02-14 18:01:20 initial_access      TA0001  
+172.31.69.25        0.438       0  -                   -                   -       
+172.31.69.15        0.247       0  -                   -                   -       
+172.31.69.24        0.009       0  -                   -                   -       
+103.201.24.10       0.001       0  -                   -                   -       
+101.89.152.230      0.000       0  -                   -                   -       
+
+check against the labels in this file: {
+ "windows_truly_attack": 9,
+ "windows_truly_normal": 25,
+ "attack_windows_alerted": 0.2222,
+ "normal_windows_alerted_false_alarms": 0.0,
+ "normal_windows_of_clean_hosts": 25,
+ "false_alarms_on_clean_hosts": 0.0,
+ "quiet_windows_of_attacking_hosts": 0,
+ "alerts_in_quiet_windows_of_attacking_hosts": null,
+ "stage_named_correctly_on_attack_windows": 0.2222,
+ "averaged_stage_named_correctly_on_attack_windows": 0.3333,
+ "averaged_stage_named_correctly_on_alerted_attack_windows": [
+  1.0,
+  2
+ ],
+ "stage_recall_by_true_stage": {
+  "initial_access": [
+   0.333,
+   3
+  ],
+  "command_control": [
+   0.25,
+   4
+  ],
+  "lateral_movement": [
+   0.0,
+   2
+  ]
+ }
+}
+
+notices:
+ - no IAT / back-forward ratio / PSH columns in this file: those features are left empty (the model was trained with them empty for this kind of data)
+ - 100% of windows have fewer than 10 windows of history for their host (the model was trained with 10); they are scored by repeating the earliest window and are marked short_history
+ - alert threshold comes from the training networks. On a network the model has never seen, early warning is NOT proven (see results), so read risk as a ranking of hosts, not a calibrated probability
+
+saved:
+  D:\ml-data\processed\release_out\real_sample_v4_windows.csv
+  D:\ml-data\processed\release_out\real_sample_v4_hosts.csv
+  D:\ml-data\processed\release_out\real_sample_v4_summary.json
+
+-> OK (2 s)
+
+===== upload A-D through the real server =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'run_upload_all.py']
+server reachable: True
+A_cic2017_friday_ddos_onset.csv: HTTP 200 in 8.7s  conversations 95  v2 success file A_cic2017_friday_ddos_onset.csv  same response as /latest: True
+B_cic2018_ftp_bruteforce_onset.csv: HTTP 200 in 21.1s  conversations 289  v2 success file B_cic2018_ftp_bruteforce_onset.csv  same response as /latest: True
+C_ctu13_botnet_c2_forecast.csv: HTTP 200 in 12.9s  conversations 43  v2 success file C_ctu13_botnet_c2_forecast.csv  same response as /latest: True
+D_unraveled_exfiltration_forecast.csv: HTTP 200 in 5.3s  conversations 206  v2 success file D_unraveled_exfiltration_forecast.csv  same response as /latest: True
+server stopped; the page's latest result was put back
+
+-> OK (50 s)
+
+===== backend audit A =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\training\\world_model\\checks\\audit_backend.py', 'A_cic2017_friday_ddos_onset']
+
+=== A_cic2017_friday_ddos_onset: 25 hosts, 178 windows checked
+  OK   alert threshold = value saved at training: 1/1
+  OK   windows / hosts / flows counts: 1/1
+  OK   label counts: 1/1
+  OK   host window count: 25/25
+  OK   window times: 25/25
+  OK   flows per window: 25/25
+  OK   true stage per window: 25/25
+  OK   baseline line (recomputed from saved coefficients): 178/178
+  OK   alert flag = risk at or above threshold: 178/178
+  OK   risk 10 s = first forecast step; risk 60 s = last: 178/178
+  OK   forecast steps never decrease: 178/178
+  OK   forecast inside the range of the 3 copies: 178/178
+  OK   stage now = first stage step: 178/178
+  OK   short-history flag: 178/178
+  OK   start-soon values between 0 and 1: 356/356
+  OK   peak window holds the highest risk: 50/50
+  OK   stage per step = most probable class: 50/50
+  OK   stage probability per step: 50/50
+  OK   second choice probability: 50/50
+  OK   stage probabilities sum to 1: 50/50
+  OK   averaged stage (shown when alerting): 50/50
+  OK   averaged stage probability: 50/50
+  OK   attribution risk = risk of that window: 50/50
+  OK   attribution sorted by size: 50/50
+  OK   attribution: observed feature value: 500/500
+  OK   attribution: standardised value: 500/500
+  OK   attribution: group label: 500/500
+  OK   attribution: share between 0 and 1: 500/500
+  OK   attribution: shares proportional to contributions: 50/50
+  OK   tree shown only when an attack stage is seen: 25/25
+  OK   tree: starting stages and their probability: 8/8
+  OK   tree: branch counts, probability and delay from the counts file: 30/30
+  OK   tree: gold path follows the most frequent branch: 8/8
+  OK   MITRE cards = gold path: 8/8
+  OK   MITRE mapping exists for every stage shown: 26/26
+  OK   host order = highest peak risk first: 1/1
+  OK   top-host table: 20/20
+
+-> OK (1 s)
+
+===== backend audit B =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\training\\world_model\\checks\\audit_backend.py', 'B_cic2018_ftp_bruteforce_onset']
+
+=== B_cic2018_ftp_bruteforce_onset: 25 hosts, 1173 windows checked
+  OK   alert threshold = value saved at training: 1/1
+  OK   windows / hosts / flows counts: 1/1
+  OK   label counts: 1/1
+  OK   host window count: 25/25
+  OK   window times: 25/25
+  OK   flows per window: 25/25
+  OK   true stage per window: 25/25
+  OK   baseline line (recomputed from saved coefficients): 1173/1173
+  OK   alert flag = risk at or above threshold: 1173/1173
+  OK   risk 10 s = first forecast step; risk 60 s = last: 1173/1173
+  OK   forecast steps never decrease: 1173/1173
+  OK   forecast inside the range of the 3 copies: 1173/1173
+  OK   stage now = first stage step: 1173/1173
+  OK   short-history flag: 1173/1173
+  OK   start-soon values between 0 and 1: 2346/2346
+  OK   peak window holds the highest risk: 50/50
+  OK   stage per step = most probable class: 50/50
+  OK   stage probability per step: 50/50
+  OK   second choice probability: 50/50
+  OK   stage probabilities sum to 1: 50/50
+  OK   averaged stage (shown when alerting): 29/29
+  OK   averaged stage probability: 50/50
+  OK   attribution risk = risk of that window: 50/50
+  OK   attribution sorted by size: 50/50
+  OK   attribution: observed feature value: 500/500
+  OK   attribution: standardised value: 500/500
+  OK   attribution: group label: 500/500
+  OK   attribution: share between 0 and 1: 500/500
+  OK   attribution: shares proportional to contributions: 29/29
+  OK   tree shown only when an attack stage is seen: 25/25
+  OK   tree: starting stages and their probability: 1/1
+  OK   tree: branch counts, probability and delay from the counts file: 5/5
+  OK   tree: gold path follows the most frequent branch: 1/1
+  OK   MITRE cards = gold path: 1/1
+  OK   MITRE mapping exists for every stage shown: 1/1
+  OK   host order = highest peak risk first: 1/1
+  OK   top-host table: 20/20
+
+-> OK (6 s)
+
+===== backend audit C =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\training\\world_model\\checks\\audit_backend.py', 'C_ctu13_botnet_c2_forecast']
+
+=== C_ctu13_botnet_c2_forecast: 25 hosts, 115 windows checked
+  OK   alert threshold = value saved at training: 1/1
+  OK   windows / hosts / flows counts: 1/1
+  OK   label counts: 1/1
+  OK   host window count: 25/25
+  OK   window times: 25/25
+  OK   flows per window: 25/25
+  OK   true stage per window: 25/25
+  OK   baseline line (recomputed from saved coefficients): 115/115
+  OK   alert flag = risk at or above threshold: 115/115
+  OK   risk 10 s = first forecast step; risk 60 s = last: 115/115
+  OK   forecast steps never decrease: 115/115
+  OK   forecast inside the range of the 3 copies: 115/115
+  OK   stage now = first stage step: 115/115
+  OK   short-history flag: 115/115
+  OK   start-soon values between 0 and 1: 230/230
+  OK   peak window holds the highest risk: 50/50
+  OK   stage per step = most probable class: 50/50
+  OK   stage probability per step: 50/50
+  OK   second choice probability: 50/50
+  OK   stage probabilities sum to 1: 50/50
+  OK   averaged stage probability: 50/50
+  OK   averaged stage (shown when alerting): 49/49
+  OK   attribution risk = risk of that window: 50/50
+  OK   attribution sorted by size: 50/50
+  OK   attribution: observed feature value: 500/500
+  OK   attribution: standardised value: 500/500
+  OK   attribution: group label: 500/500
+  OK   attribution: share between 0 and 1: 500/500
+  OK   attribution: shares proportional to contributions: 48/48
+  OK   tree shown only when an attack stage is seen: 25/25
+  OK   tree: starting stages and their probability: 24/24
+  OK   tree: gold path follows the most frequent branch: 24/24
+  OK   MITRE cards = gold path: 24/24
+  OK   MITRE mapping exists for every stage shown: 24/24
+  OK   host order = highest peak risk first: 1/1
+  OK   top-host table: 20/20
+
+-> OK (3 s)
+
+===== backend audit D =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\training\\world_model\\checks\\audit_backend.py', 'D_unraveled_exfiltration_forecast']
+
+=== D_unraveled_exfiltration_forecast: 25 hosts, 1336 windows checked
+  OK   alert threshold = value saved at training: 1/1
+  OK   windows / hosts / flows counts: 1/1
+  OK   label counts: 1/1
+  OK   host window count: 25/25
+  OK   window times: 25/25
+  OK   flows per window: 25/25
+  OK   true stage per window: 25/25
+  OK   baseline line (recomputed from saved coefficients): 1336/1336
+  OK   alert flag = risk at or above threshold: 1335/1335
+  OK   risk 10 s = first forecast step; risk 60 s = last: 1336/1336
+  OK   forecast steps never decrease: 1336/1336
+  OK   forecast inside the range of the 3 copies: 1336/1336
+  OK   stage now = first stage step: 1336/1336
+  OK   short-history flag: 1336/1336
+  OK   start-soon values between 0 and 1: 2672/2672
+  OK   peak window holds the highest risk: 50/50
+  OK   stage per step = most probable class: 50/50
+  OK   stage probability per step: 50/50
+  OK   second choice probability: 50/50
+  OK   stage probabilities sum to 1: 50/50
+  OK   averaged stage (shown when alerting): 49/49
+  OK   averaged stage probability: 50/50
+  OK   attribution risk = risk of that window: 50/50
+  OK   attribution sorted by size: 50/50
+  OK   attribution: observed feature value: 500/500
+  OK   attribution: standardised value: 500/500
+  OK   attribution: group label: 500/500
+  OK   attribution: share between 0 and 1: 500/500
+  OK   attribution: shares proportional to contributions: 46/46
+  OK   tree shown only when an attack stage is seen: 25/25
+  OK   tree: starting stages and their probability: 10/10
+  OK   tree: gold path follows the most frequent branch: 10/10
+  OK   MITRE cards = gold path: 10/10
+  OK   MITRE mapping exists for every stage shown: 22/22
+  OK   tree: branch counts, probability and delay from the counts file: 19/19
+  OK   host order = highest peak risk first: 1/1
+  OK   top-host table: 20/20
+
+-> OK (1 s)
+
+===== model audit (separate code) =====
+$ ['C:\\Users\\htc\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'audit_model.py']
+A_cic2017_friday_ddos_onset.csv: done (25 hosts)
+   features vs training: B 18.221.219.4: 2 common windows, 0 differing cells of 176
+   features vs training: B 172.31.69.25: 39 common windows, 0 differing cells of 3432
+B_cic2018_ftp_bruteforce_onset.csv: done (25 hosts)
+   features vs training: C 147.32.84.165: 46 common windows, 0 differing cells of 4048
+C_ctu13_botnet_c2_forecast.csv: done (25 hosts)
+   features vs training: D 10.1.3.17: 102 common windows, 0 differing cells of 8976
+   features vs training: D 10.1.3.8: 111 common windows, 0 differing cells of 9768
+D_unraveled_exfiltration_forecast.csv: done (25 hosts)
+
+=== MODEL AUDIT (independent recomputation)
+  OK   alert threshold: 4/4
+  OK   risk within 60 s: 2802/2802
+  OK   forecast curve (10..60 s): 2802/2802
+  OK   range across copies: lower / upper: 2802/2802
+  OK   line inside its range: 2802/2802
+  OK   alert flag: 2801/2801
+  OK   stage per step: 2802/2802
+  OK   stage probability per step (model confidence when not alerting): 2802/2802
+  OK   averaged stage (shown when alerting): 1867/1867
+  OK   averaged stage probability (model confidence when alerting): 2802/2802
+  OK   5 / 10 minute start values: 2802/2802
+  OK   attribution: risk of the window: 100/100
+  OK   attribution: contribution of each listed feature: 1000/1000
+  OK   attribution: share of each listed feature: 1000/1000
+  OK   attribution: same top features in the same order: 100/100
+  OK   attribution: per-group totals: 600/600
+  OK   upload features = training features (same host and window): 5/5
+
+-> OK (56 s)
+
+===== dashboard build =====
+$ npm run build
+
+> client@0.0.0 build
+> vite build
+
+[36mvite v8.2.2 [32mbuilding client environment for production...[36m[39m
+transforming...
+âœ“ 2506 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                     0.59 kB â”‚ gzip:   0.37 kB
+dist/assets/jetbrains-mono-greek-400-normal-C190GLew.woff2          4.22 kB
+dist/assets/jetbrains-mono-greek-500-normal-JpySY46c.woff2          4.28 kB
+dist/assets/jetbrains-mono-greek-700-normal-C6CZE3T8.woff2          4.30 kB
+dist/assets/inter-vietnamese-400-normal-DMkecbls.woff2              4.97 kB
+dist/assets/inter-vietnamese-900-normal-C4P836tE.woff2              5.02 kB
+dist/assets/inter-vietnamese-300-normal-Bdr24Bqb.woff2              5.06 kB
+dist/assets/inter-vietnamese-600-normal-Cc8MFFhd.woff2              5.10 kB
+dist/assets/inter-vietnamese-700-normal-DlLaEgI2.woff2              5.10 kB
+dist/assets/inter-vietnamese-500-normal-DOriooB6.woff2              5.11 kB
+dist/assets/inter-vietnamese-800-normal-Cm7tD1pz.woff2              5.17 kB
+dist/assets/inter-greek-ext-400-normal-DGGRlc-M.woff2               5.26 kB
+dist/assets/jetbrains-mono-cyrillic-400-normal-BEIGL1Tu.woff2       5.32 kB
+dist/assets/jetbrains-mono-cyrillic-700-normal-BWTpRfYl.woff2       5.33 kB
+dist/assets/inter-greek-ext-300-normal-l2DDyC6M.woff2               5.34 kB
+dist/assets/inter-greek-ext-900-normal-voj7phVX.woff2               5.34 kB
+dist/assets/jetbrains-mono-cyrillic-500-normal-DmUKJPL_.woff2
+...
+owler-DSnz3ENa.js                                     26.63 kB â”‚ gzip:   7.85 kB
+dist/assets/runtime-depthOfField-RNAILIMC-pF4iFobD.js              30.36 kB â”‚ gzip:   6.78 kB
+dist/assets/runtime-chunk-JGJHCU7V-Bv70BuGQ.js                     31.02 kB â”‚ gzip:  10.08 kB
+dist/assets/runtime-collisionBVH-CQUE6RZV-BjRk7hp7.js              44.87 kB â”‚ gzip:  14.59 kB
+dist/assets/runtime-particles-5AUBBZPV-BE_TKfTd.js                 45.76 kB â”‚ gzip:  11.35 kB
+dist/assets/process-BZ5Ut62-.js                                    47.92 kB â”‚ gzip:  17.00 kB
+dist/assets/runtime-chunk-EIOBJQBM-CqsgUgyp.js                     51.56 kB â”‚ gzip:  13.45 kB
+dist/assets/navmesh-qrA4T1ng.js                                    55.05 kB â”‚ gzip:  10.90 kB
+dist/assets/runtime-chunk-3IZ67XSS-CzPPN8W-.js                     59.73 kB â”‚ gzip:  13.74 kB
+dist/assets/runtime-chunk-LA3MNJXE-_s-uKikJ.js                     61.67 kB â”‚ gzip:  17.91 kB
+dist/assets/runtime-gameControls-ESAPEMHC-BYfqhnyD.js              69.70 kB â”‚ gzip:  19.27 kB
+dist/assets/gaussian-splat-compression-BlKq-7pm.js                 82.30 kB â”‚ gzip:  23.20 kB
+dist/assets/hana-ui-CSIbqxz6.js                                    85.53 kB â”‚ gzip:  21.82 kB
+dist/assets/runtime-chunk-WKTS4T2Q-ycer_cZs.js                    126.27 kB â”‚ gzip:  37.09 kB
+dist/assets/physics-3mrXzcWD.js                                   140.22 kB â”‚ gzip:  24.84 kB
+dist/assets/opentype-CFUlRwdr.js                                  170.02 kB â”‚ gzip:  50.65 kB
+dist/assets/runtime-chunk-OI54TB2U-DMv8I9QG.js                    181.51 kB â”‚ gzip:  54.12 kB
+dist/assets/react-spline-D8SyJd1z.js                              269.53 kB â”‚ gzip:  76.11 kB
+dist/assets/runtime-chunk-BVVSZMXD-BmXs1pf2.js                    283.80 kB â”‚ gzip:  75.22 kB
+dist/assets/runtime-webgpu-QYPHEICY-Cu20ZW40.js                   422.94 kB â”‚ gzip: 125.42 kB
+dist/assets/runtime-classicRuntime-JWT6ZC5L-DyPnjgNy.js           622.50 kB â”‚ gzip: 146.64 kB
+dist/assets/runtime-chunk-GNCRONVM-CPVXCpic.js                    643.87 kB â”‚ gzip: 182.55 kB
+dist/assets/index-D4uLSw_y.js                                     704.67 kB â”‚ gzip: 204.06 kB
+
+[32mâœ“ built in 1.38s[39m
+
+[stderr]
+
+new URL("../libs/draco/draco_decoder.wasm",import.meta.url) doesn't exist at build time, it will remain unchanged to be resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress this warning.
+
+new URL("../libs/draco/draco_wasm_wrapper.js",import.meta.url) doesn't exist at build time, it will remain unchanged to be resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress this warning.
+
+new URL('boolean_wasm_bg.wasm', import.meta.url) doesn't exist at build time, it will remain unchanged to be resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress this warning.
+
+new URL("../libs/draco/draco_decoder.js",import.meta.url) doesn't exist at build time, it will remain unchanged to be resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress this warning.
+
+new URL("../libs/draco/gltf/draco_wasm_wrapper.js",import.meta.url) doesn't exist at build time, it will remain unchanged to be resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress this warning.
+
+new URL("../libs/draco/gltf/draco_decoder.wasm",import.meta.url) doesn't exist at build time, it will remain unchanged to be resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress this warning.
+[33m[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+
+-> OK (4 s)
+
+===== page audit A =====
+$ ['node', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\training\\world_model\\checks\\audit_page.cjs', 'D:\\ml-data\\processed\\audit\\A', 'D:\\ml-data\\processed\\audit\\A_v2']
+
+=== D:\ml-data\processed\audit\A_v2: 95 conversations, 25 charted hosts, 474 page renders
+  OK   page renders without error: 474/474
+  OK   tile: threat level: 474/474
+  OK   tile: attack probability: 474/474
+  OK   tile: 5 / 10 minute values: 474/474
+  OK   tile: model confidence: 474/474
+  OK   chart: alert threshold label: 474/474
+  OK   chart: model line (12 observed + 6 forecast points): 474/474
+  OK   chart: baseline line: 474/474
+  OK   chart: range upper edge: 474/474
+  OK   chart: range lower edge: 474/474
+  OK   chart: labelled-malicious shading: 474/474
+  OK   chart: selected window time shown: 474/474
+  OK   tree: stage name and probability: 248/248
+  OK   tree: "seen X of Y times" and delay: 121/121
+  OK   MITRE card: stage, tactic id, probability, basis: 143/143
+  OK   attribution: feature, contribution, share: 1162/1162
+  OK   attribution: main feature panel (description, observed value): 166/166
+  OK   actions: shown exactly when the latest window is HIGH RISK / ELEVATED: 474/474
+  OK   page shows the forecast of the conversation SOURCE host: 474/474
+  OK   actions: block rule names the source host: 32/32
+  OK   actions: target host = destination of the conversation: 32/32
+  OK   actions: stage named in action 2 (next stage of the tree, else current stage): 32/32
+  OK   flow table: source, destination, packets: 1996/1996
+  OK   flow table: rows belong to the selected conversation: 474/474
+  OK   tree: "no progression" message when no attack stage: 370/370
+  OK   attribution: message when not available or risk near zero: 308/308
+  OK   dropdown: label per conversation: 95/95
+  OK   dropdown: every entry has its own source-host forecast: 95/95
+
+-> OK (3 s)
+
+===== page audit B =====
+$ ['node', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\training\\world_model\\checks\\audit_page.cjs', 'D:\\ml-data\\processed\\audit\\B', 'D:\\ml-data\\processed\\audit\\B_v2']
+
+=== D:\ml-data\processed\audit\B_v2: 289 conversations, 25 charted hosts, 2188 page renders
+  OK   page renders without error: 2188/2188
+  OK   tile: threat level: 2188/2188
+  OK   tile: attack probability: 2188/2188
+  OK   tile: 5 / 10 minute values: 2188/2188
+  OK   tile: model confidence: 2188/2188
+  OK   chart: alert threshold label: 2188/2188
+  OK   chart: model line (12 observed + 6 forecast points): 2188/2188
+  OK   chart: baseline line: 2188/2188
+  OK   chart: range upper edge: 2188/2188
+  OK   chart: range lower edge: 2188/2188
+  OK   chart: labelled-malicious shading: 2188/2188
+  OK   chart: selected window time shown: 2188/2188
+  OK   tree: stage name and probability: 245/245
+  OK   tree: "seen X of Y times" and delay: 175/175
+  OK   MITRE card: stage, tactic id, probability, basis: 35/35
+  OK   attribution: feature, contribution, share: 245/245
+  OK   attribution: main feature panel (description, observed value): 35/35
+  OK   actions: shown exactly when the latest window is HIGH RISK / ELEVATED: 2188/2188
+  OK   page shows the forecast of the conversation SOURCE host: 2188/2188
+  OK   actions: block rule names the source host: 35/35
+  OK   actions: target host = destination of the conversation: 35/35
+  OK   actions: stage named in action 2 (next stage of the tree, else current stage): 35/35
+  OK   flow table: source, destination, packets: 10012/10012
+  OK   flow table: rows belong to the selected conversation: 2188/2188
+  OK   tree: "no progression" message when no attack stage: 2153/2153
+  OK   attribution: message when not available or risk near zero: 2153/2153
+  OK   dropdown: label per conversation: 289/289
+  OK   dropdown: every entry has its own source-host forecast: 289/289
+
+-> OK (89 s)
+
+===== page audit C =====
+$ ['node', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\training\\world_model\\checks\\audit_page.cjs', 'D:\\ml-data\\processed\\audit\\C', 'D:\\ml-data\\processed\\audit\\C_v2']
+
+=== D:\ml-data\processed\audit\C_v2: 43 conversations, 25 charted hosts, 207 page renders
+  OK   page renders without error: 207/207
+  OK   tile: threat level: 207/207
+  OK   tile: attack probability: 207/207
+  OK   tile: 5 / 10 minute values: 207/207
+  OK   tile: model confidence: 207/207
+  OK   chart: alert threshold label: 207/207
+  OK   chart: model line (12 observed + 6 forecast points): 207/207
+  OK   chart: baseline line: 207/207
+  OK   chart: range upper edge: 207/207
+  OK   chart: range lower edge: 207/207
+  OK   chart: labelled-malicious shading: 207/207
+  OK   chart: selected window time shown: 207/207
+  OK   tree: "no progression" message when no attack stage: 15/15
+  OK   attribution: message when not available or risk near zero: 15/15
+  OK   actions: shown exactly when the latest window is HIGH RISK / ELEVATED: 207/207
+  OK   page shows the forecast of the conversation SOURCE host: 207/207
+  OK   flow table: source, destination, packets: 787/787
+  OK   flow table: rows belong to the selected conversation: 207/207
+  OK   tree: stage name and probability: 192/192
+  OK   MITRE card: stage, tactic id, probability, basis: 192/192
+  OK   attribution: feature, contribution, share: 1344/1344
+  OK   attribution: main feature panel (description, observed value): 192/192
+  OK   actions: block rule names the source host: 192/192
+  OK   actions: target host = destination of the conversation: 192/192
+  OK   actions: stage named in action 2 (next stage of the tree, else current stage): 192/192
+  OK   dropdown: label per conversation: 43/43
+  OK   dropdown: every entry has its own source-host forecast: 43/43
+
+-> OK (2 s)
+
+===== page audit D =====
+$ ['node', 'C:\\Users\\htc\\OneDrive\\Desktop\\cyberforecaster\\training\\world_model\\checks\\audit_page.cjs', 'D:\\ml-data\\processed\\audit\\D', 'D:\\ml-data\\processed\\audit\\D_v2']
+
+=== D:\ml-data\processed\audit\D_v2: 206 conversations, 25 charted hosts, 2042 page renders
+  OK   page renders without error: 2042/2042
+  OK   tile: threat level: 2042/2042
+  OK   tile: attack probability: 2042/2042
+  OK   tile: 5 / 10 minute values: 2042/2042
+  OK   tile: model confidence: 2042/2042
+  OK   chart: alert threshold label: 2042/2042
+  OK   chart: model line (12 observed + 6 forecast points): 2042/2042
+  OK   chart: baseline line: 2042/2042
+  OK   chart: range upper edge: 2042/2042
+  OK   chart: range lower edge: 2042/2042
+  OK   chart: labelled-malicious shading: 2042/2042
+  OK   chart: selected window time shown: 2042/2042
+  OK   tree: stage name and probability: 1535/1535
+  OK   MITRE card: stage, tactic id, probability, basis: 941/941
+  OK   attribution: feature, contribution, share: 10444/10444
+  OK   attribution: main feature panel (description, observed value): 1492/1492
+  OK   actions: shown exactly when the latest window is HIGH RISK / ELEVATED: 2042/2042
+  OK   page shows the forecast of the conversation SOURCE host: 2042/2042
+  OK   actions: block rule names the source host: 460/460
+  OK   actions: target host = destination of the conversation: 460/460
+  OK   actions: stage named in action 2 (next stage of the tree, else current stage): 460/460
+  OK   flow table: source, destination, packets: 9494/9494
+  OK   flow table: rows belong to the selected conversation: 2042/2042
+  OK   tree: "no progression" message when no attack stage: 1486/1486
+  OK   attribution: message when not available or risk near zero: 550/550
+  OK   tree: "seen X of Y times" and delay: 771/771
+  OK   dropdown: label per conversation: 206/206
+  OK   dropdown: every entry has its own source-host forecast: 206/206
+
+-> OK (37 s)
+
+===== SUMMARY =====
+  OK      versions
+  OK      compile backend
+  OK      command line on sample
+  OK      upload A-D through the real server
+  OK      backend audit A
+  OK      backend audit B
+  OK      backend audit C
+  OK      backend audit D
+  OK      model audit (separate code)
+  OK      dashboard build
+  OK      page audit A
+  OK      page audit B
+  OK      page audit C
+  OK      page audit D
+RELEASE CHECK: ALL OK

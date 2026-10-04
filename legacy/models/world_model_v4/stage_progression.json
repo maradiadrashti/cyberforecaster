@@ -1,0 +1,109 @@
+{
+ "what": "order in which attacker hosts first reached each stage, measured on the training windows",
+ "datasets": [
+  "cic2017",
+  "cic2018",
+  "ctu13",
+  "dapt2020",
+  "unraveled"
+ ],
+ "unsw_included": false,
+ "attacker_hosts": 2424,
+ "hosts_with_a_progression": 12,
+ "total_progressions": 17,
+ "first_stage": {
+  "initial_access": 8,
+  "command_control": 2400,
+  "lateral_movement": 6,
+  "reconnaissance": 8,
+  "exfiltration": 2
+ },
+ "stages": {
+  "reconnaissance": {
+   "hosts_reached": 9,
+   "hosts_moved_on": 5,
+   "next": {
+    "initial_access": {
+     "count": 5,
+     "median_delay_min": 1673.2,
+     "min_delay_min": 1462.3,
+     "max_delay_min": 1859.5,
+     "datasets": {
+      "dapt2020": 4,
+      "unraveled": 1
+     }
+    }
+   }
+  },
+  "initial_access": {
+   "hosts_reached": 13,
+   "hosts_moved_on": 7,
+   "next": {
+    "lateral_movement": {
+     "count": 6,
+     "median_delay_min": 1319.9,
+     "min_delay_min": 865.2,
+     "max_delay_min": 1790.7,
+     "datasets": {
+      "dapt2020": 6
+     }
+    },
+    "reconnaissance": {
+     "count": 1,
+     "median_delay_min": 4547.8,
+     "min_delay_min": 4547.8,
+     "max_delay_min": 4547.8,
+     "datasets": {
+      "cic2017": 1
+     }
+    }
+   }
+  },
+  "command_control": {
+   "hosts_reached": 2403,
+   "hosts_moved_on": 0,
+   "next": {}
+  },
+  "lateral_movement": {
+   "hosts_reached": 12,
+   "hosts_moved_on": 4,
+   "next": {
+    "command_control": {
+     "count": 2,
+     "median_delay_min": 3385.6,
+     "min_delay_min": 1217.0,
+     "max_delay_min": 5554.2,
+     "datasets": {
+      "cic2017": 1,
+      "unraveled": 1
+     }
+    },
+    "exfiltration": {
+     "count": 2,
+     "median_delay_min": 19422.8,
+     "min_delay_min": 1195.3,
+     "max_delay_min": 37650.2,
+     "datasets": {
+      "dapt2020": 1,
+      "unraveled": 1
+     }
+    }
+   }
+  },
+  "exfiltration": {
+   "hosts_reached": 4,
+   "hosts_moved_on": 1,
+   "next": {
+    "command_control": {
+     "count": 1,
+     "median_delay_min": 441.8,
+     "min_delay_min": 441.8,
+     "max_delay_min": 441.8,
+     "datasets": {
+      "unraveled": 1
+     }
+    }
+   }
+  }
+ }
+}

@@ -69,6 +69,14 @@ FEATURE_DESC = {
     "payload_mean_mean": "Average payload size", "payload_mean_std": "Spread of payload size between flows",
     "payload_std_mean": "Average payload variation inside flows", "bwd_fwd_mean": "Reply packets per sent packet",
     "bwd_fwd_std": "Spread of the reply / sent ratio", "one_sided_frac": "Share of flows that got no reply",
+    "in_flows": "Flows received by this host", "in_src_ips": "Different hosts that contacted this host",
+    "in_dst_ports": "Different ports of this host that were contacted", "in_pkt_sum": "Packets received",
+    "in_byte_sum": "Bytes received", "in_syn_only_frac": "Share of received flows that are bare connection attempts (SYN only)",
+    "in_rst_frac": "Share of received flows with a reset", "in_port_diversity": "Different contacted ports per received flow",
+    "in_flows_60s": "Flows received in the last 60 s", "in_src_60s": "Contacting hosts in the last 60 s (per window, added up)",
+    "in_ports_60s": "Contacted ports in the last 60 s (per window, added up)", "in_syn_only_60s": "Bare connection attempts received in the last 60 s",
+    "in_flows_300s": "Flows received in the last 5 minutes", "in_src_300s": "Contacting hosts in the last 5 minutes (per window, added up)",
+    "in_ports_300s": "Contacted ports in the last 5 minutes (per window, added up)",
 }
 
 
@@ -102,7 +110,77 @@ GROUPS = {
                "win_var_mean", "frag_mean", "payload_mean_mean", "payload_mean_std",
                "payload_std_mean", "bwd_fwd_mean", "bwd_fwd_std", "one_sided_frac"],
 }
-FEATS = [f for g in GROUPS.values() for f in g]
+BASE_FEATS = [f for g in GROUPS.values() for f in g]
+
+# ---- incoming traffic: what every host RECEIVED (identical in step3_windows.py and world_model.py)
+IN_FEATS = ["in_flows", "in_src_ips", "in_dst_ports", "in_pkt_sum", "in_byte_sum", "in_syn_only_frac",
+            "in_rst_frac", "in_port_diversity", "in_flows_60s", "in_src_60s", "in_ports_60s",
+            "in_syn_only_60s", "in_flows_300s", "in_src_300s", "in_ports_300s"]
+IN_KEYS = ["dst", "win", "src", "dport"]
+
+
+def _iphash(s):
+    return pd.util.hash_pandas_object(pd.Series(np.asarray(s)).astype(str), index=False).values
+
+
+def inbound_rows(df):
+    """flows -> compact table: one row per (receiving host, window, sending host, destination port)"""
+    num = lambda c: pd.to_numeric(df[c], errors="coerce")
+    syn, ack, rst = num("syn_count"), num("ack_count"), num("rst_count")
+    valid = (syn.notna() & ack.notna()).values
+    o = pd.DataFrame({
+        "dst": _iphash(df["dst_ip"]), "src": _iphash(df["src_ip"]),
+        "win": (num("flow_start") // WIN).astype("int64").values,
+        "dport": num("dst_port").fillna(-1).astype("int32").values,
+        "n": np.ones(len(df), "int64"),
+        "pk": num("packet_count").fillna(0).values.astype("float64"),
+        "by": num("byte_count").fillna(0).values.astype("float64"),
+        "flag_n": valid.astype("int64"),
+        "syn_only": (((syn > 0) & (ack == 0)).values & valid).astype("int64"),
+        "rst_any": ((rst > 0).values & valid).astype("int64")})
+    return o.groupby(IN_KEYS, sort=False, as_index=False).sum()
+
+
+def incoming_features(inb, host_ip, win):
+    """incoming-traffic features for the window rows (host_ip[i], win[i]); hosts that received nothing get 0"""
+    f32 = "float32"
+    win = np.asarray(win, dtype=np.int64)
+    out = pd.DataFrame(np.zeros((len(win), len(IN_FEATS)), f32), columns=IN_FEATS)
+    if len(inb) == 0 or len(win) == 0:
+        return out
+    D = inb.groupby(["dst", "win"], sort=True).agg(
+        n=("n", "sum"), src=("src", "nunique"), port=("dport", "nunique"), pk=("pk", "sum"), by=("by", "sum"),
+        flag_n=("flag_n", "sum"), syn_only=("syn_only", "sum"), rst_any=("rst_any", "sum")).reset_index()
+    uniq, code = np.unique(D["dst"].values, return_inverse=True)
+    key = (code.astype(np.int64) << 33) | D["win"].values.astype(np.int64)        # sorted: host, then window
+    hh = _iphash(host_ip)
+    hc = np.minimum(np.searchsorted(uniq, hh), len(uniq) - 1)
+    found = uniq[hc] == hh
+    q = (hc.astype(np.int64) << 33) | win
+    pos = np.minimum(np.searchsorted(key, q), len(key) - 1)
+    hit = found & (key[pos] == q)
+    col = lambda c: D[c].values[pos].astype("float64")
+    n, fl = col("n"), col("flag_n")
+    out["in_flows"] = np.where(hit, n, 0.0)
+    out["in_src_ips"] = np.where(hit, col("src"), 0.0)
+    out["in_dst_ports"] = np.where(hit, col("port"), 0.0)
+    out["in_pkt_sum"] = np.where(hit, col("pk"), 0.0)
+    out["in_byte_sum"] = np.where(hit, col("by"), 0.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out["in_syn_only_frac"] = np.where(hit, np.where(fl > 0, col("syn_only") / fl, np.nan), 0.0)
+        out["in_rst_frac"] = np.where(hit, np.where(fl > 0, col("rst_any") / fl, np.nan), 0.0)
+        out["in_port_diversity"] = np.where(hit, col("port") / n, 0.0)
+    hi = np.searchsorted(key, q, "right")
+    for span, tag in [(6, "60s"), (30, "300s")]:                                   # this window and the ones before it
+        lo = np.searchsorted(key, q - span, "right")
+        for c, name in [("n", "in_flows_"), ("src", "in_src_"), ("port", "in_ports_"), ("syn_only", "in_syn_only_")]:
+            if name + tag in IN_FEATS:
+                cs = np.concatenate([[0.0], np.cumsum(D[c].values.astype("float64"))])
+                out[name + tag] = np.where(found, cs[hi] - cs[lo], 0.0)
+    return out.astype(f32)
+
+GROUPS["incoming"] = IN_FEATS
+FEATS = BASE_FEATS + IN_FEATS
 
 PRIVATE = r"^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)"
 
@@ -114,8 +192,10 @@ def entropy_stats(df, key, col):
     return np.log(s["n"]) - s["s"] / s["n"], s["mx"], s["n"]
 
 
-def make_windows(df, name):
+def make_windows(df, name, inb=None):
     key = ["host", "win"]
+    if inb is None:                      # an uploaded file: every flow of the file counts as incoming traffic
+        inb = inbound_rows(df)
     f32 = "float32"
     df["host"], hostnames = pd.factorize(df["src_ip"])
     df["win"] = (df["flow_start"] // WIN).astype("int64")
@@ -227,10 +307,13 @@ def make_windows(df, name):
     stage_id = np.where(is_att, best, np.where(A["n_attack_flows"] > 0, -1, 0))
     A["stage_id"] = stage_id.astype("int8")
 
-    out = A[FEATS].replace([np.inf, -np.inf], np.nan).astype(f32)
+    out = A[BASE_FEATS].replace([np.inf, -np.inf], np.nan).astype(f32)
     out.insert(0, "host_ip", np.asarray(hostnames)[A.index.get_level_values("host")])
     out.insert(1, "win", A.index.get_level_values("win").values)
     out.insert(2, "t0", out["win"].values * WIN)
+    _in = incoming_features(inb, out["host_ip"].values, out["win"].values)
+    for c in IN_FEATS:
+        out[c] = _in[c].values
     out["n_attack_flows"], out["attack_share"] = A["n_attack_flows"].values, A["attack_share"].values.astype(f32)
     out["stage_id"] = A["stage_id"].values
     out.insert(0, "source", name)
@@ -876,10 +959,11 @@ def progression_outlook(dist, classes, depth=3, max_children=3):
     if not P or dist is None:
         return {"available": False, "reason": "Stage-progression statistics are not installed."}
     dist = np.asarray(dist, dtype=float)
-    row, when = dist[0], "now"
-    if row[1:].sum() < 0.5:                                  # no attack stage now: use the model's 60-second view
-        row, when = dist[-1], "within 60 s"
-    mass = float(row[1:].sum())
+    # An attack stage "now" if the current step says so; otherwise "within 60 s" if ANY forecast step does
+    # (a burst the model expects in 10-40 s counts, even when it expects the host to be normal again at 60 s).
+    step_mass = dist[:, 1:].sum(1)
+    when = "now" if step_mass[0] >= 0.5 else "within 60 s"
+    mass = float(step_mass[0] if step_mass[0] >= 0.5 else step_mass.max())
     if mass < 0.5:
         return {"available": False, "attack_stage_probability": round(mass, 3),
                 "reason": "The model sees no attack stage for this host, so there is no progression to show."}
@@ -1125,6 +1209,14 @@ def analyze(path, out_dir=None, pcap_flows_csv=None):
         chk = {"windows_truly_attack": int(ta.sum()), "windows_truly_normal": int(tn.sum()),
                "attack_windows_alerted": round(float(alert[ta].mean()), 4) if ta.any() else None,
                "normal_windows_alerted_false_alarms": round(float(alert[tn].mean()), 4) if tn.any() else None}
+        # false alarms split: hosts with no attack flow anywhere in the file ("clean") against the quiet
+        # windows of hosts that do attack somewhere in the file (an alert there is not a mistake about the host)
+        _hip = W["host_ip"].to_numpy()
+        _dirty = np.isin(_hip, np.unique(_hip[truth != 0]))
+        chk["normal_windows_of_clean_hosts"] = int((tn & ~_dirty).sum())
+        chk["false_alarms_on_clean_hosts"] = round(float(alert[tn & ~_dirty].mean()), 4) if (tn & ~_dirty).any() else None
+        chk["quiet_windows_of_attacking_hosts"] = int((tn & _dirty).sum())
+        chk["alerts_in_quiet_windows_of_attacking_hosts"] = round(float(alert[tn & _dirty].mean()), 4) if (tn & _dirty).any() else None
         st_ok = (truth >= 1) & (truth <= 5)
         if st_ok.any():
             chk["stage_named_correctly_on_attack_windows"] = round(float((now[st_ok] == truth[st_ok]).mean()), 4)

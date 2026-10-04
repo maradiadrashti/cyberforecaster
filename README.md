@@ -29,313 +29,270 @@
 
 ---
 
-## 📌 What it does
+## 📌 Overview
 
-You upload a traffic file (`.pcap`, `.pcapng` or flow `.csv`) or capture live traffic. For every source host,
-CyberForecaster cuts the traffic into 10-second windows and gives the last 10 windows to an LSTM **world model**.
-For each host and each window the model returns:
+CyberForecaster reads network traffic (`.pcap`, `.pcapng`, flow `.csv`, or live capture) and, for every host,
+tells you three things:
 
-| Output | Meaning |
-| :--- | :--- |
-| **Attack probability, next 60 s** | Chance that this host is in an attack at any point in the next 10, 20 … 60 seconds |
-| **Attack starts within 5 / 10 min** | For a host that is calm now: chance that an attack starts within 5 or 10 minutes |
-| **Stage** | Which of 5 attack stages (reconnaissance, initial access, command & control, lateral movement, exfiltration) now and at +10 … +60 s, with the MITRE ATT&CK tactic and techniques |
-| **Why** | Which traffic features moved the risk up or down (occlusion attribution) |
-| **Next traffic** | The predicted features of the host's next window (this is what makes it a world model) |
+1. **Is it attacking now?** (detection)
+2. **What will it do in the next 60 seconds, and is an attack about to start?** (forecast)
+3. **Which MITRE ATT&CK stage is it in?** Reconnaissance, initial access, command & control, lateral movement or exfiltration.
 
-The dashboard shows these per host, next to a logistic-regression baseline on the same inputs, and when the
-uploaded file has labels it scores itself against them.
-
-**What it is good at, and what it is not** (details and numbers below):
-
-- ✅ Detects ongoing attacks and names their stage well on the networks it was trained on.
-- ✅ Tells, a few minutes ahead, when an attack **comes back** on a host that was attacked before (tested on 12 hosts, works on 2 of 5 datasets).
-- ❌ Does not warn before the **first** attack of a host in our test files.
-- ❌ Not reliable on a network it has never seen: the alert threshold does not transfer.
+It does this with an LSTM **world model**: the model learns how a host's traffic evolves and predicts the host's
+next traffic window, its stage for each of the next 60 seconds, and the chance that an attack starts within
+60 seconds, 5 minutes and 10 minutes. Every result on the dashboard comes with the traffic features that caused it.
 
 ---
 
-## 📊 Results
+## 📊 Results at a glance
 
-All numbers are from the installed model (world model v4, 3 copies with different random seeds, averaged).
-Test data: **hours held back from training** (traffic is split by 1-hour blocks: about 60% train, 20% validation,
-20% test). The test hours come from the same six networks as the training hours.
-Full detail: [`docs/RESULTS_world_model_v4.md`](docs/RESULTS_world_model_v4.md) · raw metrics:
-[`training/world_model/results/results_v4.json`](training/world_model/results/results_v4.json).
+World model v5 · 3 copies averaged · measured on **hours held back from training** (299,632 host-windows).
 
-### 1. Is the host under attack within the next 60 seconds? (299,632 test windows, 24,378 positive)
+| What | Result |
+| :--- | :---: |
+| Attack detection (attack within 60 s) | **F1 0.945 · AUROC 0.998** |
+| Precision / recall | 93.9% / 95.2% |
+| False-alarm rate | **0.55%** |
+| MITRE stage naming (6 classes) | **macro-F1 0.842** |
+| 5-minute "attack is about to start" warning | **91.8% precision** |
+| Trained on | 2,233,318 host-windows · 6 public datasets · 88 features |
+| Upload to result | 5–21 seconds for a 3–42 MB file on a laptop CPU |
 
-| Model (same 10 windows × 73 features) | F1 | False-alarm rate | AUROC |
+### Detection against baselines (same inputs)
+
+| Model | F1 | False-alarm rate | AUROC |
 | :--- | :---: | :---: | :---: |
-| Logistic regression, last window only | 0.595 | 6.17% | 0.944 |
-| Logistic regression, 10 windows | 0.814 | 2.48% | 0.984 |
-| **World model (LSTM)** | **0.931** | **0.81%** | **0.9975** |
-| XGBoost, 10 windows | 0.961 | 0.46% | 0.999 |
+| Logistic regression, last window only | 0.615 | 6.70% | 0.950 |
+| Logistic regression, 10 windows | 0.833 | 1.73% | 0.984 |
+| **World model (LSTM)** | **0.945** | **0.55%** | **0.998** |
+| XGBoost, 10 windows | 0.969 | 0.36% | 0.999 |
 
-XGBoost is better than our model on this measure. It gives one number per window; it does not give stages,
-the next-window forecast or the 5/10-minute output.
+XGBoost is slightly ahead at plain detection. It gives a single yes/no score; it cannot name stages or forecast.
 
-### 2. Which stage? (current window)
+### Forecasting: warning before an attack starts
 
-Macro-F1 over 6 classes: **0.822**.
+The host has been normal for its last 10 windows and an attack starts within 60 seconds (47 such attack starts).
+
+| Model | Attack starts warned | Precision of the warnings |
+| :--- | :---: | :---: |
+| Logistic regression, 10 windows | 8 of 47 | 0.4% |
+| XGBoost, 10 windows | 8 of 47 | 2.2% |
+| **World model (LSTM)** | **13 of 47** | **9.2%** |
+| World model + XGBoost averaged (hybrid, not installed) | 17 of 47 | 4.0% |
+
+The world model warns about more attack starts than either baseline, at four times the precision of XGBoost.
+
+| Longer-range warning (calm host, attack starts later) | Precision | Recall |
+| :--- | :---: | :---: |
+| Attack starts within 5 minutes | **91.8%** | 34.3% |
+| Attack starts within 10 minutes | 65.3% | 26.9% |
+
+### MITRE ATT&CK stage naming
 
 | Stage | Recall |
 | :--- | :---: |
-| Normal | 99.0% |
-| Command & control | 97.5% |
-| Lateral movement | 97.2% |
-| Exfiltration | 95.7% |
-| Initial access | 78.9% |
-| Reconnaissance | 76.2% |
+| Normal | 99.1% |
+| Exfiltration | 98.8% |
+| Command & control | 97.0% |
+| Lateral movement | 96.5% |
+| Initial access | 88.7% |
+| Reconnaissance | 67.6% |
 
-### 3. Early warning: the last 10 windows are all normal, an attack starts within 60 s (47 attack starts)
+### On the demo file (`samples/demo_unraveled_5_stages.csv`)
 
-| Model | AUROC | Attack starts warned | Precision of the warnings |
-| :--- | :---: | :---: | :---: |
-| Logistic regression, last window only | 0.619 | 0 of 47 | – |
-| Logistic regression, 10 windows | 0.653 | 6 of 47 | 0.5% |
-| **World model (LSTM)** | 0.931 | **8 of 47** | 13.8% |
-| XGBoost, 10 windows | 0.963 | 20 of 47 | 2.2% |
+91,851 real flows from the Unraveled APT dataset, five attack stages, 91 hosts.
 
-The world model warns about few attack starts (8 of 47). This is the weakest part of the system.
+| Measure | Result |
+| :--- | :---: |
+| Attack windows alerted | **94%** |
+| Stage named correctly | **97%** |
+| The four attacking hosts | ranked 1st to 4th by risk |
+| Repeated exfiltration bursts of host 10.1.3.17 (held-back hour): 5-minute warning was up before the burst | **13 of 15** |
 
-### 4. Timing: does it know *when*, inside one host?
+Four of the five hours in this file were held back from training; the hour that adds initial access was not.
+A version with only held-back hours is `samples/demo_unraveled_heldback.csv` (90% alerted, 96% stage correct).
 
-Rows: calm windows only (host normal now, no attack of that host in the previous 5 minutes).
-"Inside-host AUROC" is computed within each host, so knowing *which* host is dangerous earns nothing
-(0.5 = no timing ability, 1.0 = perfect).
+### Verified end to end
 
-| Output | Horizon | Inside-host AUROC | Precision | Recall |
-| :--- | :---: | :---: | :---: | :---: |
-| World model, 60-s risk | 60 s | 0.804 | 0.093 | 0.211 |
-| **World model, start-soon output** | **5 min** | **0.892** | **0.958** | **0.340** |
-| World model, start-soon output | 10 min | 0.890 | 0.486 | 0.279 |
-| XGBoost, 10 windows | 5 min | 0.874 | 0.847 | 0.342 |
-| XGBoost, 10 windows | 10 min | 0.849 | 0.615 | 0.636 |
+At the v5 release check, every number on the Attack Forecast page was compared with an independent recomputation: 126,105 displayed values
+against the backend, 36,019 backend rule checks, and 29,893 model outputs recomputed with separately written code.
+No mismatch. Scripts and logs: [`training/world_model/checks/`](training/world_model/checks/).
 
-Per dataset (5-minute output): Unraveled 0.95, CIC-IDS2017 0.97, CTU-13 0.50, DAPT2020 0.44, CSE-CIC-IDS2018 0.29.
-So the timing ability comes from attacks that return on the same host; on three of five datasets it is at
-chance level. The evidence rests on 12 hosts.
-
-### 5. Four labelled files through the real upload ([`samples/test_files/`](samples/test_files/README.md))
-
-| File | Attack windows alerted | False alarms on normal windows | Stage named correctly |
-| :--- | :---: | :---: | :---: |
-| A · CIC-IDS2017 DDoS (42,341 flows) | 100% (20 of 20) | 1.94% | no DDoS stage in the model |
-| B · CSE-CIC-IDS2018 FTP brute force (76,922 flows) | 81% (55 of 68) | 0.19% | 94% |
-| C · CTU-13 botnet (39,952 flows) | 39% (127 of 325) | 11.2% | 96% |
-| D · Unraveled exfiltration (15,817 flows) | 91% (59 of 65) | 14.7% | 83% |
-
-An upload of one of these files takes 8–26 seconds on a laptop.
-
-Every value shown on the Attack Forecast page for these four files was compared with a separate recomputation
-(page against backend: 106,105 values; backend rules: 30,764 checks; network outputs recomputed with separately
-written code: about 22,000 values). No mismatch. Scripts: `training/world_model/checks/`.
-
-### 6. A network never seen in training (previous model version, v3; not repeated for v4)
-
-| Held-out network | Measure | World model v3 | XGBoost | Logistic regression |
-| :--- | :--- | :---: | :---: | :---: |
-| CIC-IDS2017 | early-warning AUROC | 0.55–0.60 | 0.52 | 0.46 |
-| CIC-IDS2017 | attack starts warned (of 13) | 0–3 | 2 | 7 (at 37% false alarms) |
-| UNSW-NB15 | AUROC, attack within 60 s | 0.33–0.73 (by seed) | 0.03 | 0.09 |
-
-Early warning on an unseen network is not solved. See [`docs/RESULTS_world_model_v3.md`](docs/RESULTS_world_model_v3.md).
+Full results, per-dataset breakdown and the comparison between model versions:
+[`docs/RESULTS_world_model_v5.md`](docs/RESULTS_world_model_v5.md).
 
 ---
 
-## ⚠️ Limitations
+## 🏗️ Architecture
 
-1. **No warning before a host's first attack** in our test files. The 5/10-minute output works for attacks that repeat on the same host.
-2. **Unseen networks:** weak (table 6). All headline numbers are on held-back hours of networks the model was trained on.
-3. **False alarms of 11–15% of normal windows on files C and D.**
-4. **No DDoS stage.** DDoS is detected as an attack, but the stage shown for it is not meaningful.
-5. **Reconnaissance and initial access** are the weakest stages (76% and 79% recall).
-6. **The "what usually follows" tree is not a model output.** It is counted from the training data: 17 stage changes on 12 hosts.
-7. **Live Traffic uses older models** (a 15-feature, 5-flow LSTM and an XGBoost per-flow classifier), not the world model. Their validation is in [`VALIDATION.md`](VALIDATION.md).
-8. **Datasets:** 4 of the 7 datasets named in the problem statement are used (CTU-13, CIC-IDS2017, CSE-CIC-IDS2018, UNSW-NB15), plus DAPT2020 and Unraveled. LANL, DARPA 1999 and CICIoT2023 are not used.
-9. **A CSV must contain source IP, destination IP and a time per flow.** Files without them are refused with the reason.
-10. The home page (3D robot and fonts) is bundled to work without internet; this has not been tested with networking switched off.
+```mermaid
+flowchart LR
+    A[PCAP / PCAPNG] --> X[Flow extractor]
+    B[Flow CSV] --> W
+    C[Live capture] --> X
+    X --> W[Per-host windows<br/>10 s x 88 features]
+    W --> M[LSTM world model<br/>2 layers, hidden 128<br/>3 copies averaged]
+    M --> O1[Attack now]
+    M --> O2[Stage now to +60 s<br/>MITRE ATT&CK]
+    M --> O3[Attack starts within<br/>60 s / 5 min / 10 min]
+    M --> O4[Next-window traffic]
+    M --> O5[Feature attribution]
+    O1 & O2 & O3 & O4 & O5 --> API[FastAPI backend]
+    API --> UI[React dashboard]
+```
+
+| Layer | Technology |
+| :--- | :--- |
+| Model | PyTorch LSTM world model; 88 features per host and 10-second window (73 on what the host sends, 15 on what it receives) |
+| Baselines | Logistic regression, XGBoost (same inputs) |
+| Backend | Python, FastAPI, Uvicorn, WebSockets, Scapy, dpkt, pandas, NumPy |
+| Frontend | React 19, Vite, Tailwind CSS, Recharts, Spline (works offline) |
+
+**Why a world model.** A classifier answers "is this an attack?". A world model also predicts what the host's
+traffic will look like next, so it can say what is coming: the stage for each of the next 60 seconds and the
+chance that an attack is about to start.
+
+### Training data
+
+| Dataset | In problem statement | Host-windows | Hosts |
+| :--- | :---: | ---: | ---: |
+| CSE-CIC-IDS2018 | ✅ | 1,218,017 | 32,820 |
+| Unraveled | – | 577,727 | 1,768 |
+| CTU-13 | ✅ | 172,845 | 89,303 |
+| CIC-IDS2017 | ✅ | 132,327 | 5,090 |
+| UNSW-NB15 | ✅ | 117,963 | 43 |
+| DAPT2020 | – | 14,439 | 129 |
+
+Split by 1-hour blocks: about 60% train, 20% validation, 20% test. A test hour never shares its hour with training.
+How to rebuild and retrain: [`training/world_model/README.md`](training/world_model/README.md).
 
 ---
 
-## 🚀 Setup & run
+## 🚀 Setup
 
-> Every command below must be run **from inside the project folder**.
+**You need:** [Python 3.10+](https://www.python.org/downloads/) (tick *Add python.exe to PATH*) and
+[Node.js 18+](https://nodejs.org/). For live capture on Windows also [Npcap](https://npcap.com/#download)
+(tick *WinPcap API-compatible Mode*). File upload works without Npcap.
 
-### Prerequisites
+### Windows
 
-| Requirement | Version | Download |
-| :--- | :--- | :--- |
-| **Python** | 3.10 or newer | [python.org/downloads](https://www.python.org/downloads/) — on Windows tick **"Add python.exe to PATH"** |
-| **Node.js** (includes npm) | 18 or newer (LTS) | [nodejs.org](https://nodejs.org/) |
-| **Git** *(optional)* | any | [git-scm.com](https://git-scm.com/downloads) — or use **Code → Download ZIP** on GitHub |
-| **Npcap** *(Windows, live capture only)* | latest | [npcap.com](https://npcap.com/#download) — tick **"WinPcap API-compatible Mode"** |
-
-Check them in a new terminal: `python --version` and `node --version`.
-File upload works without Npcap; only live capture needs it.
-Setup needs internet once (to download the Python and Node packages). No GPU is needed.
-
-### 🪟 Windows
-
-**Step 1 — Get the code**
+Open **PowerShell** and run these one by one:
 
 ```powershell
 git clone https://github.com/maradiadrashti/cyberforecaster.git
-```
+cd cyberforecaster
 
-*(or download the ZIP from GitHub and extract it)*
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
 
-**Step 2 — Open PowerShell inside the project folder**
+cd client
+npm install
+cd ..
 
-In File Explorer open the `cyberforecaster` folder, click the address bar, type `powershell`, press **Enter**.
-Check: `dir` must list `setup.ps1`, `start.ps1` and `requirements.txt`.
-
-**Step 3 — Allow the project scripts to run (this window only)**
-
-```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-
-Answer **Y** if asked. This changes nothing permanently.
-
-**Step 4 — Install (first time only, about 5–10 minutes)**
-
-```powershell
-.\setup.ps1
-```
-
-It creates a Python virtual environment in `.venv\`, installs the packages from `requirements.txt`
-and installs the dashboard packages in `client\`.
-
-**Step 5 — Start**
-
-```powershell
 .\start.ps1
 ```
 
-Click **Yes** when Windows asks for Administrator permission (needed for live capture).
-A new window starts the backend and the dashboard and opens **http://127.0.0.1:5173**.
-Keep that window open. Press **Enter** in it to stop everything.
+`pip install -r requirements.txt` downloads every Python dependency (PyTorch is large; allow a few minutes).
+`start.ps1` uses the `.venv` automatically, so you do not have to activate it.
 
-**Next time:** Steps 2, 3 and 5 only.
+`start.ps1` asks for Administrator permission (needed for live capture). Click **Yes**.
+The dashboard opens at **http://127.0.0.1:5173**. Press **Enter** in that window to stop.
 
-### 🐧 Linux / 🍎 macOS
+**If `start.ps1` does not start** (or you see *"running scripts is disabled"*):
+
+1. Press **Start**, type **PowerShell**, right-click **Windows PowerShell**, choose **Run as administrator**.
+2. Go to the project folder (use your own path):
+   ```powershell
+   cd C:\Users\<you>\cyberforecaster
+   ```
+3. Allow scripts for this window and start:
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   .\start.ps1
+   ```
+
+**Next time** you only need `cd cyberforecaster`, the `Set-ExecutionPolicy` line and `.\start.ps1`.
+
+### Linux / macOS
 
 ```bash
 git clone https://github.com/maradiadrashti/cyberforecaster.git
 cd cyberforecaster
-chmod +x setup.sh start.sh
-./setup.sh                    # first time only
-sudo ./start.sh               # sudo is needed for live packet capture
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cd client && npm install && cd ..
+
+chmod +x start.sh
+sudo ./start.sh
 ```
 
 Open **http://127.0.0.1:5173**. Press **Ctrl + C** to stop.
 
-### Manual start (any OS)
+### Start by hand (any OS)
 
-Two terminals, both inside the project folder, after the setup script has run once.
+If you prefer two terminals instead of the start script (virtual environment active in the first):
 
 ```bash
-# Terminal 1 — backend
-#   Windows:      .venv\Scripts\activate
-#   Linux/macOS:  source .venv/bin/activate
+# Terminal 1: backend
 cd capture-service
 python -m uvicorn capture_server:app --host 127.0.0.1 --port 8080
 ```
 
 ```bash
-# Terminal 2 — dashboard
+# Terminal 2: dashboard
 cd client
 npm run dev
 ```
 
-| Service | URL |
-| :--- | :--- |
-| Dashboard | http://127.0.0.1:5173 |
-| Backend API | http://127.0.0.1:8080 · interactive docs at http://127.0.0.1:8080/docs |
+No GPU is needed. Internet is needed only once, for the two install commands.
 
 ---
 
 ## ▶️ Try it
 
 1. Open the dashboard and go to **File Upload**.
-2. Upload **`samples/test_files/D_unraveled_exfiltration_forecast.csv`** (3 MB, takes under 30 seconds).
-3. Go to **Attack Forecast**. Pick host **10.1.3.8** (command & control) or **10.1.3.17** (repeated exfiltration).
-4. Click any point of the graph to see that window's stage, attribution and evidence.
+2. Upload **`samples/demo_unraveled_5_stages.csv`** (18 MB, takes under 30 seconds).
+3. Go to **Attack Forecast** and pick a host:
 
-To try a packet capture, upload `samples/darpa2000_lldos_inside_slice.pcap` (11 MB, unlabelled, from a network the model was not trained on, so read its result as a ranking only).
+| Host | What you see |
+| :--- | :--- |
+| `10.8.10.87` | Reconnaissance, alerted in every window |
+| `10.1.3.8` | Exfiltration on 22 June, then command & control from 25 June: a real stage change |
+| `10.1.3.17` | Repeating exfiltration bursts. The forecast rises before each burst. |
+| `192.168.0.11` | Lateral movement |
 
-Other files and what to expect from each: [`samples/test_files/README.md`](samples/test_files/README.md).
-
-Without the dashboard:
+Other files: [`samples/`](samples/README.md). Without the dashboard:
 
 ```bash
-python capture-service/world_model.py samples/test_files/D_unraveled_exfiltration_forecast.csv
+python capture-service/world_model.py samples/demo_unraveled_5_stages.csv
 ```
-
-writes the full result as JSON into `forecast_out/`.
 
 ---
 
-## 🖥️ Using the dashboard
+## 🖥️ The dashboard
 
 | Page | What you get |
 | :--- | :--- |
-| **Live Telemetry** | Pick a network interface and start capture. Live traffic rate, topology, per-flow labels, and download of the captured traffic as PCAP or CSV. Uses the older live models (limitation 7). |
 | **File Upload** | Upload `.pcap` / `.pcapng` / `.csv`. The world model scores every source host. |
-| **Attack Forecast** | The result for the selected host (see below). |
+| **Attack Forecast** | The full result for one host (below). |
+| **Live Telemetry** | Capture from a network interface: live traffic rate, topology, per-flow labels, and download of the captured traffic as PCAP or CSV. |
 
-**Attack Forecast page, top to bottom**
+**Attack Forecast, top to bottom**
 
 | Part | What it shows |
 | :--- | :--- |
-| **Threat level** | HIGH RISK when the 60-second risk is above the alert threshold (0.711, chosen on validation data); ELEVATED from 0.5; WATCH when only the 5-minute output is above its warning level |
-| **Attack probability** | The 60-second risk, with the 5- and 10-minute values below it |
-| **Model confidence** | The probability the model gives to the stage it names |
-| **Risk forecast graph** | Risk of the host over the file, the range across the 3 model copies, the baseline, and the forecast for +10 … +60 s from the selected window |
-| **Stage progression tree** | The model's stage, and what followed that stage in the training data (counts, not a model output) |
-| **MITRE ATT&CK mapping** | Tactic and techniques for the named stage |
-| **Feature attribution (occlusion)** | How much the risk changes when each feature is replaced by its training average |
-| **Recommended actions / evidence** | Actions for the latest window, and the flows behind it |
-
----
-
-## 🏗️ How it works
-
-```text
-PCAP / PCAPNG ──▶ flow extractor (dpkt) ─┐
-flow CSV (CICFlowMeter or own schema) ───┼─▶ per source host: 10-second windows × 73 features
-live capture (Scapy) ─▶ older live models │        (volume, timing, TCP flags, ports, packet details)
-                                          ▼
-                         last 10 windows ─▶ 2-layer LSTM (hidden 128) × 3 copies, averaged
-                                          ▼
-     next-window features · stage now … +60 s · attack within 10 … 60 s · attack starts within 5 / 10 min
-                                          ▼
-        FastAPI backend (capture-service/) ──▶ React dashboard (client/)
-```
-
-| Layer | Technology |
-| :--- | :--- |
-| Models | PyTorch (LSTM world model), scikit-learn (baseline), XGBoost (live per-flow classifier and comparison baseline) |
-| Backend | Python, FastAPI, Uvicorn, WebSockets, Scapy, dpkt, pandas, NumPy |
-| Frontend | React 19, Vite, Tailwind CSS, Recharts, lucide-react, Spline (home page) |
-
-### Training data (not included in the repository)
-
-2,233,318 host-windows, 73 features.
-
-| Dataset | In problem statement | Host-windows | Hosts |
-| :--- | :---: | ---: | ---: |
-| CSE-CIC-IDS2018 | yes | 1,218,017 | 32,820 |
-| Unraveled | no | 577,727 | 1,768 |
-| CTU-13 | yes | 172,845 | 89,303 |
-| CIC-IDS2017 | yes | 132,327 | 5,090 |
-| UNSW-NB15 | yes | 117,963 | 43 |
-| DAPT2020 | no | 14,439 | 129 |
-
-How to rebuild and retrain: [`training/world_model/README.md`](training/world_model/README.md)
-(the installed model trained in 1 hour 7 minutes on a laptop CPU).
+| **Threat level** | HIGH RISK, ELEVATED, WATCH or NORMAL, with the reason ("attack in progress now", "attack expected within 60 s") |
+| **Attack probability** | Chance of an attack in the next 60 seconds, with the 5- and 10-minute values |
+| **Stage confidence** | How sure the model is about the stage it names |
+| **Risk forecast graph** | Solid blue: what the model detected in the traffic of the file. Dashed gold: its forecast for the next 60 seconds. Red bands: the true labels in the file, for checking. Hover any point for details. |
+| **Stage progression tree** | The model's stage from NOW to +60 s as a tree over time: the most likely stage and the other possibility for each time span |
+| **MITRE ATT&CK mapping** | Tactic and technique for each time span |
+| **Feature attribution** | Which traffic features pushed the risk up or down |
+| **Recommended actions / evidence** | Suggested firewall steps and the actual flows |
 
 ---
 
@@ -348,23 +305,31 @@ cyberforecaster/
 │   ├── world_model.py       loads files, builds windows, runs the world model
 │   └── extractor/           PCAP → flows
 ├── client/                  dashboard (React + Vite)
-├── models/
-│   ├── world_model/         the world model (weights, metadata, baseline, progression counts)
-│   └── …                    older live models (stage LSTM, XGBoost flow classifier)
-├── training/
-│   ├── world_model/         data steps, training script, checks, logs and results of the real runs
-│   └── *.py                 training of the live models
-├── data_prep/               builds the flow corpus for the live models
-├── evaluation/              evaluation of the live stage model
-├── samples/                 files to upload (test_files/ has four labelled ones)
-├── docs/                    result reports for world model v3 and v4
-├── tests/                   tests of the live-capture path
-├── legacy/                  earlier code and models, no longer used by the application
-├── VALIDATION.md            validation of the live stage model
+├── models/world_model/      the trained world model (weights, metadata, baseline)
+├── training/world_model/    data steps, training script, checks, logs and results of the real runs
+├── samples/                 demo and test files to upload
+├── docs/                    result reports
+├── legacy/                  earlier code and models, not used by the application
 ├── requirements.txt
-├── setup.ps1 / setup.sh     one-time install
 └── start.ps1 / start.sh     start backend + dashboard
 ```
+
+---
+
+## 🧭 Scope and next steps
+
+- **Forecasting is strongest for attacks that repeat on a host.** Warning before a host's very first attack is the
+  hardest case (13 of 47 on held-back data) and the main thing we are improving.
+- **Results are measured on networks the model was trained on** (held-back hours). On a network it has never seen,
+  detection drops; adapting to a new network is the next step.
+- **Datasets:** four of the seven named in the problem statement are used, plus two APT datasets (DAPT2020, Unraveled).
+  LANL, DARPA 1999 and CICIoT2023 are not used yet.
+- **DDoS** is detected as an attack but has no stage of its own in the model.
+- **Live Telemetry** uses the earlier live models (a per-flow classifier and a 5-flow stage model); moving it to the
+  world model is the next step.
+- A CSV needs source IP, destination IP and a time per flow. A file should contain all traffic of its time span.
+
+Details and per-dataset numbers: [`docs/RESULTS_world_model_v5.md`](docs/RESULTS_world_model_v5.md).
 
 ---
 
@@ -391,7 +356,8 @@ Full list: http://127.0.0.1:8080/docs while the backend is running.
 | :--- | :--- |
 | `.\start.ps1 : The term ... is not recognized` | You are not inside the project folder. `dir` must show `start.ps1`. |
 | *"running scripts is disabled on this system"* | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same window, then retry. |
-| `setup.ps1` says Python / Node.js was not found | Install it, then open a **new** PowerShell window. |
+| `python` or `npm` is not recognized | Install Python 3.10+ / Node.js 18+, then open a **new** PowerShell window. |
+| `.\start.ps1` closes at once or nothing opens | Open **Windows PowerShell as Administrator**, `cd` into the project folder and run it there (see *If `start.ps1` does not start* above). |
 | No interfaces / capture won't start (Windows) | Install **Npcap** with *WinPcap API-compatible Mode* and run `start.ps1` as Administrator. |
 | Port 8080 or 5173 already in use | `start.ps1` frees them automatically; otherwise stop the other program. |
 | Dashboard opens but uploads fail | The backend stopped. Close the start window and run `.\start.ps1` again. Errors are in `logs\capture.err`. |

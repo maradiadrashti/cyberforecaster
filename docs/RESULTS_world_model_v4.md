@@ -1,9 +1,12 @@
 # World model v4: results (3 October 2026)
 
+> v4 has been replaced by v5 (see `RESULTS_world_model_v5.md`). The v4 model files are in `legacy/models/world_model_v4/`.
+> Test files B and C were rebuilt for v5, so the file table below refers to the earlier, thinned-out versions.
+
 v4 = v3 plus two extra outputs: "an attack of this host starts within 5 minutes" and "within 10 minutes".
 Same data, same 73 features, same hour-block split (60% train / 20% validation / 20% held back), 3 copies averaged.
 Everything below is on the held-back hours unless it says otherwise. Scripts, logs and both result files are in
-`training/world_model/` (logs: `results/logs_v4/`). The installed model is `models/world_model/`; the v3 model is kept in `legacy/models/world_model_v3/`.
+`training/world_model/` (logs: `results/logs_v4/`). The v3 model is kept in `legacy/models/world_model_v3/`.
 
 ## v3 against v4 (average of 3 copies)
 

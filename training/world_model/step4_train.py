@@ -36,17 +36,22 @@ ap.add_argument("--v3", action="store_true", help="train also on hosts with a SH
 ap.add_argument("--v4", action="store_true", help="v3 + two extra outputs: 'an attack STARTS within 5 / 10 minutes', trained on quiet hosts (normal now, no attack in the last 5 minutes) and judged INSIDE each host (timing, not host identity)")
 ap.add_argument("--netnorm", action="store_true", help="EXPERIMENT: standardise every network with its OWN statistics (unseen network: its earliest 30%% of traffic, no labels)")
 ap.add_argument("--epochs", type=int, default=30)
+ap.add_argument("--v5", action="store_true", help="v4 + incoming-traffic features (use with --windows windows_v5.pkl --groups-file feature_groups_v5.json) and a larger share of attack starts in every training batch")
+ap.add_argument("--groups-file", default="feature_groups.json")
+ap.add_argument("--members", default=None, help="no training: load the saved copies from these model folders (comma separated) and evaluate them together as one averaged model")
 ap.add_argument("--windows", default=None)
 ap.add_argument("--L", type=int, default=10)
 ap.add_argument("--K", type=int, default=6)
 A = ap.parse_args()
+if A.v5:
+    A.v4 = True
 if A.v4:
     A.v3 = True
 
 DIR = Path(__file__).resolve().parent
 UN = "none" if A.train_unsw else A.unseen
 GTAG = "" if A.groups == "all" else "_groups-" + A.groups.replace(",", "-")
-OUT = DIR / (("model_v4" if A.v4 else "model_v3" if A.v3 else "model_v2") + GTAG + ("_netnorm" if A.netnorm else "") + ("_smoke" if A.smoke else "") + f"_unseen-{UN}")
+OUT = DIR / (("model_v5" if A.v5 else "model_v4" if A.v4 else "model_v3" if A.v3 else "model_v2") + GTAG + ("_netnorm" if A.netnorm else "") + ("_smoke" if A.smoke else "") + ("_members" if A.members else "") + f"_unseen-{UN}")
 OUT.mkdir(exist_ok=True)
 L, K, MAXGAP = A.L, A.K, 12            # MAXGAP: a host timeline breaks after 12 empty windows (120 s)
 C = 6                                   # classes: normal, recon, initial_access, c2, lateral, exfil
@@ -62,7 +67,7 @@ def log(*a):
 
 # =========================================================== 1. load + clean
 W = pd.read_pickle(A.windows or DIR / "windows.pkl")
-G = json.loads((DIR / "feature_groups.json").read_text())
+G = json.loads((DIR / A.groups_file).read_text())
 FEATS, GROUPS = G["features"], G["groups"]
 W = W[W["t0"] < 1.7e9]                      # drops 10 junk windows dated 2026 (bad timestamps in DAPT)
 if A.smoke:                                                    # keep 25% of hosts
@@ -351,7 +356,7 @@ def run_eval(scorers, tag=""):
 
 
 # =========================================================== 3. world model
-def train_world_model(fidx, seed, epochs, steps, tag):
+def train_world_model(fidx, seed, epochs, steps, tag, state=None):
     import torch, torch.nn as nn, torch.nn.functional as Fn
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -398,6 +403,8 @@ def train_world_model(fidx, seed, epochs, steps, tag):
         g_hard = (T["soon_y"][:, -1] == 0) & T["soon_m"][:, -1] & _has_att[host_code[trr]] & g_rest
         g_rest = g_rest & ~(g_soon | g_hard)
         groups_ = [(g_on, 0.15), (g_att, 0.25), (g_soon, 0.08), (g_hard, 0.12), (g_rest, 0.40)]
+        if A.v5:
+            groups_ = [(g_on, 0.22), (g_att, 0.22), (g_soon, 0.10), (g_hard, 0.13), (g_rest, 0.33)]
         log(f"v4 sampler groups: attack starts within {SOON[-1]} s {g_soon.sum():,}  same hosts, no start {g_hard.sum():,}")
     wgt = np.zeros(len(trr))
     for g, share in groups_:
@@ -473,6 +480,10 @@ def train_world_model(fidx, seed, epochs, steps, tag):
         return float(np.mean(sc)) if sc else None
 
     best, best_state, bad = -1, None, 0
+    if state is not None:                      # a saved copy: nothing is trained
+        model.load_state_dict(state)
+        model.eval()
+        best_state, best, epochs = state, val_score(), 0
     for ep in range(1, epochs + 1):
         model.train()
         tl = []
@@ -525,16 +536,38 @@ def train_world_model(fidx, seed, epochs, steps, tag):
             res.append(torch.stack(risk, 1).cpu().numpy())
         return np.concatenate(res)
 
-    return model, predict, rollout, best, {k: v for k, v in best_state.items()}, dev, predict_soon
+    @torch.no_grad()
+    def predict_stage(rows, bs=4096):
+        model.eval()
+        outs = []
+        for i in range(0, len(rows), bs):
+            x = torch.tensor(hist(rows[i:i + bs], fidx), device=dev)
+            outs.append(torch.softmax(model(x)[2], -1).cpu().numpy())
+        return np.concatenate(outs)
+
+    return model, predict, rollout, best, {k: v for k, v in best_state.items()}, dev, predict_soon, predict_stage
 
 
 if not A.no_torch:
     epochs, steps = (2, 40) if A.smoke else (A.epochs, 300)
     all_idx = list(range(F))
     runs = []
-    for seed in range(A.seeds):
+    MEMBER_OF = []
+    if A.members:
+        import torch as _t
+        for _mi, _d in enumerate(A.members.split(",")):
+            _mm = json.loads((Path(_d) / "world_model_meta.json").read_text())
+            _fi = [FEATS.index(f) for f in _mm["features"]]
+            _chk = max(float(np.abs(np.asarray(_mm["mean"]) - mean[_fi]).max()), float(np.abs(np.asarray(_mm["std"]) - std[_fi]).max()))
+            log(f"member {_d}: {len(_fi)} features, largest difference between its saved scaling and the scaling used here: {_chk:.2e}")
+            for _si, _st in enumerate(_t.load(Path(_d) / "world_model.pt", map_location="cpu")["states"]):
+                runs.append(train_world_model(_fi, _si, 0, 0, f"member{_mi}", state=_st)); MEMBER_OF.append(_mi)
+    for seed in range(0 if A.members else A.seeds):
         runs.append(train_world_model(all_idx, seed, epochs, steps, "WM73"))   # (model, predict, rollout, vscore, state, dev)
     bi = int(np.argmax([r[3] for r in runs]))
+    if A.members:                                # the single-copy diagnostics below need a copy that uses every feature
+        _full = [i for i, r in enumerate(runs) if r[0].lstm.input_size == F]
+        bi = max(_full, key=lambda i: runs[i][3])
     model, predict, rollout, vscore, state, dev = runs[bi][:6]
     log("val score per seed:", [round(r[3], 4) for r in runs], "-> best seed", bi)
     scorers_wm = dict(scorers)
@@ -543,6 +576,9 @@ if not A.no_torch:
         scorers_wm[f"WM seed{i}"] = r[1]
     if len(runs) > 1:
         scorers_wm[f"WORLD MODEL (ensemble of {len(runs)})"] = lambda rows: np.mean([r[1](rows) for r in runs], axis=0)
+        if "XGBoost 10 windows" in scorers:          # hybrid: the averaged world model and the tree model, half each
+            scorers_wm["WORLD MODEL + XGBoost (average)"] = lambda rows: 0.5 * (
+                np.maximum.accumulate(np.mean([r[1](rows) for r in runs], axis=0), axis=1) + scorers["XGBoost 10 windows"](rows))
     log("evaluating")
     run_eval(scorers_wm)
     if A.rollout:
@@ -559,6 +595,27 @@ if not A.no_torch:
             x = torch.tensor(hist(rows[i:i + 4096]), device=next(model.parameters()).device)
             out.append(model(x)[2][:, k].argmax(-1).cpu().numpy())
         return np.concatenate(out)
+    for s in ["val", "test"]:                    # stage named by the AVERAGE of the copies (what the dashboard shows)
+        if len(rows_by[s]) == 0:
+            continue
+        T = targets(rows_by[s]); ok = T["stage"][:, 0] >= 0
+        _sub = W["sub"].to_numpy()[rows_by[s]][ok]; _y = T["stage"][ok, 0]
+        _sets = {"all copies": list(range(len(runs)))}
+        for _mi in sorted(set(MEMBER_OF)):
+            _sets[f"member{_mi} only"] = [i for i, m_ in enumerate(MEMBER_OF) if m_ == _mi]
+        for _nm, _ids in _sets.items():
+            _p = np.mean([runs[i][7](rows_by[s])[:, 0] for i in _ids], axis=0).argmax(-1)[ok]
+            labs = sorted(set(_y))
+            RESULTS.setdefault(s, {}).setdefault("stage_averaged", {})[_nm] = {
+                "macroF1": round(float(f1_score(_y, _p, labels=labs, average="macro")), 4),
+                "recall": {CLASS_NAMES[c]: round(float((_p[_y == c] == c).mean()), 3) for c in labs},
+                "recall_by_dataset": {CLASS_NAMES[c]: {str(d): [round(float((_p[(_y == c) & (_sub == d)] == c).mean()), 3), int(((_y == c) & (_sub == d)).sum())]
+                                                         for d in pd.unique(_sub[_y == c])} for c in labs if c != 0}}
+        log(f"stage (average of copies) on {s}: " + json.dumps(RESULTS[s]["stage_averaged"]))
+    if A.members:                                # each member alone, as an averaged model
+        for _mi in sorted(set(MEMBER_OF)):
+            _ids = [i for i, m_ in enumerate(MEMBER_OF) if m_ == _mi]
+            run_eval({f"member{_mi} (average of {len(_ids)})": (lambda rows, _ids=_ids: np.mean([runs[i][1](rows) for i in _ids], axis=0))})
     for s in ["test", "unseen"]:
         if len(rows_by[s]) == 0:
             continue
@@ -680,7 +737,7 @@ if not A.no_torch:
     import torch
     torch.save({"states": [r[4] for r in runs], "best": bi}, OUT / "world_model.pt")
     meta = dict(features=FEATS, groups=GROUPS, log_idx=log_idx, nan_fill="zero_after_standardise", v3=bool(A.v3), netnorm=bool(A.netnorm),
-                v4=bool(A.v4), soon_horizons=(SOON if A.v4 else []), soon=SOON_META, mean=mean.tolist(),
+                v4=bool(A.v4), v5=bool(A.v5), model_version=("v5" if A.v5 else "v4" if A.v4 else "v3"), soon_horizons=(SOON if A.v4 else []), soon=SOON_META, mean=mean.tolist(),
                 std=std.tolist(), L=L, K=K, classes=CLASS_NAMES, hidden=128, layers=2,
                 thresholds={f"{a}|{b}|{c}": v for (a, b, c), v in THR.items() if a.startswith("WORLD MODEL")},
                 mitre=json.loads((DIR / "mitre_map.json").read_text()))

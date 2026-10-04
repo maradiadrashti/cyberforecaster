@@ -35,7 +35,7 @@ const FORECAST_SUB_ITEMS = [
   { id: "risk-forecast", label: "Risk Forecast" },
   { id: "mitre-attack-progression", label: "Stage Progression Tree" },
   { id: "mitre-attack-analysis", label: "MITRE ATT&CK Mapping" },
-  { id: "shap-explanation", label: "Feature Attribution (Occlusion)" },
+  { id: "shap-explanation", label: "Feature Attribution" },
   { id: "observed-network-evidence", label: "Observed Network Evidence" },
 ];
 
@@ -292,7 +292,6 @@ export default function App() {
             <LiveTraffic
               onInterfaceChange={handleInterfaceChange}
               onFlowsUpdate={handleFlowsUpdate}
-              onFlowClick={navigateToForecast}
               onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
             />
           </div>

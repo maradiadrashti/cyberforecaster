@@ -1,4 +1,4 @@
-features: 73  windows: 2,233,318
+features: 88  windows: 2,233,318
 
 windows per sub-source and stage (ambiguous = few attack flows among many benign, ignored by training)
 stage      ambiguous  command_control  exfiltration  initial_access  lateral_movement   normal  other  reconnaissance
@@ -27,3 +27,4 @@ missing-value share per feature group, by source:
   flags    merged=7%  unraveled=7%  unsw=93%  cic2017=7%
   ports    merged=0%  unraveled=0%  unsw=5%  cic2017=0%
   packet   merged=23%  unraveled=54%  unsw=15%  cic2017=33%
+  incoming merged=0%  unraveled=0%  unsw=1%  cic2017=0%

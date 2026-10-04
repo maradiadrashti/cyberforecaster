@@ -82,6 +82,23 @@
    "bwd_fwd_mean",
    "bwd_fwd_std",
    "one_sided_frac"
+  ],
+  "incoming": [
+   "in_flows",
+   "in_src_ips",
+   "in_dst_ports",
+   "in_pkt_sum",
+   "in_byte_sum",
+   "in_syn_only_frac",
+   "in_rst_frac",
+   "in_port_diversity",
+   "in_flows_60s",
+   "in_src_60s",
+   "in_ports_60s",
+   "in_syn_only_60s",
+   "in_flows_300s",
+   "in_src_300s",
+   "in_ports_300s"
   ]
  },
  "features": [
@@ -157,7 +174,22 @@
   "payload_std_mean",
   "bwd_fwd_mean",
   "bwd_fwd_std",
-  "one_sided_frac"
+  "one_sided_frac",
+  "in_flows",
+  "in_src_ips",
+  "in_dst_ports",
+  "in_pkt_sum",
+  "in_byte_sum",
+  "in_syn_only_frac",
+  "in_rst_frac",
+  "in_port_diversity",
+  "in_flows_60s",
+  "in_src_60s",
+  "in_ports_60s",
+  "in_syn_only_60s",
+  "in_flows_300s",
+  "in_src_300s",
+  "in_ports_300s"
  ],
  "stages": [
   "normal",

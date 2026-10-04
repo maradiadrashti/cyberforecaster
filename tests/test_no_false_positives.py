@@ -16,7 +16,7 @@ import os
 # Ensure we can import from the project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from models.flow_classifier_infer import predict_flow
+from legacy.models.flow_classifier_infer import predict_flow
 
 
 # ---------------------------------------------------------------------------

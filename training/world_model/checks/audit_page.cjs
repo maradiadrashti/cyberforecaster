@@ -50,7 +50,8 @@ for(const c of convs){
     const T=toks(html); const risk=H.risk_60s[w];
     // ---- tiles
     const s5=H.start_soon?.['300']?.[w], s10=H.start_soon?.['600']?.[w], lvl=C.start_outlook?.tested?.['300']?.threshold;
-    let threat = risk>=thr?'HIGH RISK': risk>=0.5?'ELEVATED': (Number.isFinite(s5)&&typeof lvl==='number'&&s5>=lvl)?'WATCH':'NORMAL';
+    const _s0=H.stage_forecast[w]?.[0], _p0=H.stage_forecast_prob[w]?.[0]; const atkNow=_s0&&_s0!=='normal'&&_p0>=0.5;
+    let threat = (atkNow||risk>=thr)?'HIGH RISK': risk>=0.5?'ELEVATED': (Number.isFinite(s5)&&typeof lvl==='number'&&s5>=lvl)?'WATCH':'NORMAL';
     chk('tile: threat level',(after(T,'THREAT LEVEL')||[])[0]===threat,`${key} w${w}: page ${after(T,'THREAT LEVEL')} expected ${threat} (risk ${risk})`);
     const ap=after(T,'ATTACK PROBABILITY',2)||[];
     chk('tile: attack probability',ap[0]===(risk*100).toFixed(1)+'%',`${key} w${w}: page ${ap[0]} expected ${(risk*100).toFixed(1)}%`);
@@ -60,42 +61,48 @@ for(const c of convs){
     const sf=H.stage_forecast[w], sp=H.stage_forecast_prob[w];
     if(risk>=thr){ conf=(H.likely_attack_stage_prob[w]*100).toFixed(1)+'%'; confSub='average over now to +60 s'; }
     else { let i=sf.findIndex(s=>s!=='normal'); if(i<0){ conf=(sp[0]*100).toFixed(1)+'%'; confSub='no attack stage'; } else conf=(sp[i]*100).toFixed(1)+'%'; }
-    const mc=after(T,'MODEL CONFIDENCE',2)||[];
+    const mc=after(T,'STAGE CONFIDENCE',2)||[];
     chk('tile: model confidence',mc[0]===conf,`${key} w${w}: page ${mc[0]} expected ${conf}`);
     // ---- chart
-    chk('chart: alert threshold label',T.some(t=>t===`Alert threshold (${thr.toFixed(2)})`),key);
+    chk('chart: no threshold line',!T.some(t=>t.startsWith('Attack threshold')),key);
     const w0=Math.max(0,w-11); const obs=[]; for(let i=w0;i<=w;i++) obs.push(i);
     const N=obs.length+6; const X=i=>N===1?52+764/2:52+(i/(N-1))*764;
-    const wm=[...obs.map(i=>H.risk_60s[i]),...H.forecast_curve[w]].map((v,i)=>[X(i),Y(v)]);
+    const pAtk=(i,k)=>{const st=H.stage_forecast[i][k],pr=H.stage_forecast_prob[i][k]; return st!=='normal'?pr:1-pr;};
+    const wm=[...obs.map(i=>pAtk(i,0)),...[1,2,3,4,5,6].map(k=>pAtk(w,k))].map((v,i)=>[X(i),Y(v)]);
     const lr=obs.map((i,k)=>[X(k),Y(H.baseline_risk_60s[i])]);
-    const up=[[X(obs.length-1),Y(H.risk_60s[w])],...H.forecast_curve_max[w].map((v,k)=>[X(obs.length+k),Y(v)])];
-    const lo=[[X(obs.length-1),Y(H.risk_60s[w])],...H.forecast_curve_min[w].map((v,k)=>[X(obs.length+k),Y(v)])];
+    const text0=T.join(' | ');
     const paths=[...html.matchAll(/<path[^>]* d="([^"]+)"/g)].map(x=>ends(x[1]));
     const has=P=>paths.some(q=>q.length===P.length&&q.every((p,i)=>near(p[0],P[i][0])&&near(p[1],P[i][1])));
-    chk('chart: model line (12 observed + 6 forecast points)',has(wm),`${key} w${w}`);
+    chk('chart: detected line (solid) = attack probability of each observed window',obs.length<2||has(wm.slice(0,obs.length)),`${key} w${w}`);
+    chk('chart: forecast line (dashed) = NOW + 6 forecast points',has(wm.slice(obs.length-1)),`${key} w${w}`);
+    { const ab=obs.filter(i=>pAtk(i,0)>=0.5).length; chk('graph summary: number of observed windows above the threshold',text0.includes(`Of the ${obs.length} observed windows shown, the model reads ${ab} as attack (probability 50% or more).`),`${key} w${w}: ${ab} of ${obs.length}`);
+      const pn=pAtk(w,0); chk('graph summary: selected window probability and reading',text0.includes(`attack probability ${(pn*100).toFixed(0)}%. The model reads this host as ${pn>=0.5?'attacking now':'normal right now'}`),`${key} w${w}`); }
     chk('chart: baseline line',lr.length<2||has(lr),`${key} w${w}`);
-    chk('chart: range upper edge',has(up),`${key} w${w}`); chk('chart: range lower edge',has(lo),`${key} w${w}`);
     const nAtt=obs.filter(i=>H.true_stage&&H.true_stage[i]&&!['normal','ambiguous'].includes(H.true_stage[i])).length;
     chk('chart: labelled-malicious shading',(html.match(/fill="rgba\(208,59,59,0\.13\)"/g)||[]).length===nAtt,`${key} w${w}: expected ${nAtt}`);
     chk('chart: selected window time shown',T.includes(H.time[w].split(' ').pop()),`${key} w${w}`);
-    // ---- tree + MITRE cards (always for the latest window)
-    const P=H.progression; const text=T.join(' | ');
-    if(P&&P.available){
-      for(const nd of P.nodes){
-        chk('tree: stage name and probability',T.includes(disp(nd.stage))&&text.includes(`${Math.round(nd.prob*100)}%`),`${key} ${nd.stage} ${nd.prob}`);
-        if(nd.parent!==null) chk('tree: "seen X of Y times" and delay',text.includes(`seen ${nd.observed} of ${nd.observed_total} times`)&&text.includes(fmtDelay(nd.median_delay_min)),`${key} ${nd.stage} seen ${nd.observed} of ${nd.observed_total} ${fmtDelay(nd.median_delay_min)}`);
-      }
-      P.steps.forEach((s,i)=>{ const mi=C.mitre[s.stage]||{}; const ok=T.includes(disp(s.stage))&&(!mi.tactic_id||T.includes(mi.tactic_id))&&T.includes(`${Math.round(s.prob*100)}%`)&&
-          (s.basis==='model'?T.includes("Model's current reading"):text.includes(`Seen ${s.observed} of ${s.observed_total} times`));
-        chk('MITRE card: stage, tactic id, probability, basis',ok,`${key} step ${i} ${s.stage}`); });
-    } else chk('tree: "no progression" message when no attack stage',text.includes((P&&P.reason)||'no progression'),key);
+    // ---- stage forecast boxes + MITRE cards (selected window)
+    const text=T.join(' | '); const P=H.progression;
+    { const sf7=H.stage_forecast[w].slice(0,7), sp7=H.stage_forecast_prob[w]; const segs=[];
+      sf7.forEach((st,k)=>{ const l=segs[segs.length-1]; if(l&&l.stage===st){l.to=k;l.p.push(sp7[k]);} else segs.push({stage:st,from:k,to:k,p:[sp7[k]]}); });
+      const lab=k=>k===0?'now':`+${k*10} s`;
+      for(const sg of segs){ const when=sg.from===sg.to?lab(sg.from):`${lab(sg.from)} to ${lab(sg.to)}`; const lo=Math.round(Math.min(...sg.p)*100), hi=Math.round(Math.max(...sg.p)*100);
+        const pt=lo===hi?`${hi}%`:`${lo}–${hi}%`; const name=sg.stage==='normal'?'Normal':disp(sg.stage);
+        chk('stage boxes: stage, time span and probability of every run',T.includes(name)&&T.includes(when.toUpperCase())&&T.includes(pt),`${key} w${w}: ${name} ${when} ${pt}`);
+        if(sg.stage!=='normal'){ const mi=C.mitre[sg.stage]||{}; chk('MITRE card: one per forecast attack stage, with tactic id and time span',(!mi.tactic_id||T.includes(mi.tactic_id))&&T.includes(when.toUpperCase())&&text.includes(`${Math.round(Math.max(...sg.p)*100)}%`),`${key} w${w} ${sg.stage}`); } }
+      { const s2=H.stage_forecast_second?.[w]||[], p2=H.stage_forecast_second_prob?.[w]||[];
+        for(const sg of segs){ const alt={}; for(let k=sg.from;k<=sg.to;k++){ const st=s2[k], pr=p2[k]; if(st&&st!==sg.stage&&Number.isFinite(pr)) alt[st]=Math.max(alt[st]||0,pr); }
+          const best=Object.entries(alt).sort((a,b)=>b[1]-a[1])[0];
+          if(best&&best[1]>=0.05) chk('tree: other possibility (second choice) with its probability',T.includes(best[0]==='normal'?'Normal':disp(best[0]))&&T.includes(`up to ${Math.round(best[1]*100)}%`),`${key} w${w}: ${best}`); } }
+      if(!segs.some(sg=>sg.stage!=='normal')) chk('MITRE: normal spans say there is no attack tactic',text.includes('No attack tactic (Normal)'),`${key} w${w}`);
+      chk('old progression tree is gone',!text.includes('seen ')||!text.includes(' times ·'),key); }
     // ---- attribution (latest window)
     const A=H.attribution_last;
     if(A&&A.features&&!A.error&&A.risk_60s>=0.05){
       A.features.slice(0,7).forEach(f=>{ const cs=f.contribution>=0?`+${f.contribution.toFixed(3)}`:f.contribution.toFixed(3);
         chk('attribution: feature, contribution, share',T.includes(f.feature)&&T.includes(cs)&&text.includes(`${(f.share*100).toFixed(1)}%`),`${key} ${f.feature} ${cs} ${(f.share*100).toFixed(1)}%`); });
       const f0=A.features[0];
-      chk('attribution: main feature panel (description, observed value)',text.includes(f0.description)&&(f0.value==null||text.includes(`(Observed value: ${f0.value})`))&&T.includes(f0.contribution>=0?'INCREASES RISK':'DECREASES RISK'),`${key} ${f0.feature}`);
+      chk('attribution: main feature panel (description, observed value)',text.includes(f0.description)&&(f0.value==null||text.includes(`(Observed value: ${f0.value})`))&&T.some(x=>x.toUpperCase()===(f0.contribution>=0?'INCREASES RISK':'DECREASES RISK')),`${key} ${f0.feature}`);
     } else chk('attribution: message when not available or risk near zero',text.includes('nothing to attribute')||text.includes('not available'),key);
     // ---- recommended actions (must describe the latest window, like the attribution above them)
     const rl=H.risk_60s[n-1]; const lt=rl>=thr?'HIGH RISK':rl>=0.5?'ELEVATED':'NORMAL'; const show=lt!=='NORMAL';
