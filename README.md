@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🛡️ CyberForecaster
+# CyberForecaster
 
 ### AI-Based Network Attack Forecasting from Network Traffic Data
 
@@ -16,7 +16,7 @@
 
 ---
 
-## 🏷️ Problem statement
+## Problem statement
 
 | | |
 | :--- | :--- |
@@ -29,22 +29,28 @@
 
 ---
 
-## 📌 Overview
+## Overview
 
-CyberForecaster reads network traffic (`.pcap`, `.pcapng`, flow `.csv`, or live capture) and, for every host,
-tells you three things:
+Most intrusion-detection systems raise an alarm only after an attack is under way. **CyberForecaster** goes one
+step further: it reads network traffic (`.pcap`, `.pcapng`, flow `.csv`, or live capture) and, for every host on
+the network, answers three questions.
 
-1. **Is it attacking now?** (detection)
-2. **What will it do in the next 60 seconds, and is an attack about to start?** (forecast)
-3. **Which MITRE ATT&CK stage is it in?** Reconnaissance, initial access, command & control, lateral movement or exfiltration.
+| Question | What CyberForecaster gives you |
+| :--- | :--- |
+| **Is this host attacking right now?** | Detection, with a probability for every 10-second window |
+| **What will it do next?** | A forecast of the host's stage for each of the next 60 seconds, and the chance that an attack starts within 60 seconds, 5 minutes and 10 minutes |
+| **Which stage of the attack is it in?** | The MITRE ATT&CK stage: reconnaissance, initial access, command & control, lateral movement or exfiltration |
 
-It does this with an LSTM **world model**: the model learns how a host's traffic evolves and predicts the host's
-next traffic window, its stage for each of the next 60 seconds, and the chance that an attack starts within
-60 seconds, 5 minutes and 10 minutes. Every result on the dashboard comes with the traffic features that caused it.
+At its core is an LSTM **world model**. Instead of only classifying traffic as good or bad, it learns how a host's
+traffic evolves over time and predicts what that traffic will look like next. That is what lets it forecast, not
+just detect.
+
+Every result is explainable: the dashboard shows which traffic features pushed the risk up or down, along with
+the actual flows behind the alert.
 
 ---
 
-## 📊 Results at a glance
+## Results at a glance
 
 World model v5 · 3 copies averaged · measured on **hours held back from training** (299,632 host-windows).
 
@@ -58,36 +64,45 @@ World model v5 · 3 copies averaged · measured on **hours held back from traini
 | Trained on | 2,233,318 host-windows · 6 public datasets · 88 features |
 | Upload to result | 5–21 seconds for a 3–42 MB file on a laptop CPU |
 
-### Detection against baselines (same inputs)
+### Comparison with baselines
 
-| Model | F1 | False-alarm rate | AUROC |
-| :--- | :---: | :---: | :---: |
-| Logistic regression, last window only | 0.615 | 6.70% | 0.950 |
-| Logistic regression, 10 windows | 0.833 | 1.73% | 0.984 |
-| **World model (LSTM)** | **0.945** | **0.55%** | **0.998** |
-| XGBoost, 10 windows | 0.969 | 0.36% | 0.999 |
+All models get the same input: the last 10 windows of a host, 88 features each. Same held-back test data.
 
-XGBoost is slightly ahead at plain detection. It gives a single yes/no score; it cannot name stages or forecast.
+| Measure | Logistic regression | XGBoost | **World model (ours)** | World model + XGBoost (hybrid) |
+| :--- | :---: | :---: | :---: | :---: |
+| Detection F1 | 0.833 | 0.969 | **0.945** | 0.956 |
+| False-alarm rate | 1.73% | 0.36% | **0.55%** | 0.64% |
+| AUROC | 0.984 | 0.999 | **0.998** | 0.999 |
+| Attack starts warned 60 s ahead (of 47) | 8 | 8 | **13** | 17 |
+| Precision of those warnings | 0.4% | 2.2% | **9.2%** | 4.0% |
+| 5-minute warning: precision | – | 64.2% | **91.8%** | – |
+| Names the MITRE ATT&CK stage | ✗ | ✗ | **✓** | ✓ |
+| Forecasts the stage for the next 60 s | ✗ | ✗ | **✓** | ✓ |
+| Predicts the host's next traffic window | ✗ | ✗ | **✓** | ✓ |
 
-### Forecasting: warning before an attack starts
+**How to read it**
 
-The host has been normal for its last 10 windows and an attack starts within 60 seconds (47 such attack starts).
+- **Detection:** XGBoost is slightly ahead at spotting an attack that is already happening (0.969 against 0.945).
+  It returns one yes/no score and nothing else.
+- **Forecasting:** the world model warns about more attack starts than either baseline (13 against 8), at four
+  times the precision of XGBoost. Its 5-minute warning is right 92 times out of 100, against 64 for XGBoost.
+- **Hybrid:** averaging our model with XGBoost warns about the most attack starts (17 of 47) at lower precision.
+  It is measured here for reference; the dashboard runs the world model alone.
+- Logistic regression on the last window only (no history) reaches F1 0.615, which shows how much the history matters.
 
-| Model | Attack starts warned | Precision of the warnings |
+### Forecasting in detail
+
+"Attack start" = the host has been normal for its last 10 windows and an attack begins within 60 seconds.
+
+| Warning horizon | Precision | Recall |
 | :--- | :---: | :---: |
-| Logistic regression, 10 windows | 8 of 47 | 0.4% |
-| XGBoost, 10 windows | 8 of 47 | 2.2% |
-| **World model (LSTM)** | **13 of 47** | **9.2%** |
-| World model + XGBoost averaged (hybrid, not installed) | 17 of 47 | 4.0% |
-
-The world model warns about more attack starts than either baseline, at four times the precision of XGBoost.
-
-| Longer-range warning (calm host, attack starts later) | Precision | Recall |
-| :--- | :---: | :---: |
+| Attack starts within 60 seconds | 9.2% | 13 of 47 starts |
 | Attack starts within 5 minutes | **91.8%** | 34.3% |
 | Attack starts within 10 minutes | 65.3% | 26.9% |
 
 ### MITRE ATT&CK stage naming
+
+Macro-F1 over 6 classes: **0.842**.
 
 | Stage | Recall |
 | :--- | :---: |
@@ -100,29 +115,39 @@ The world model warns about more attack starts than either baseline, at four tim
 
 ### On the demo file (`samples/demo_unraveled_5_stages.csv`)
 
-91,851 real flows from the Unraveled APT dataset, five attack stages, 91 hosts.
+91,851 real flows from the Unraveled APT dataset · five attack stages · 91 hosts.
 
 | Measure | Result |
 | :--- | :---: |
 | Attack windows alerted | **94%** |
 | Stage named correctly | **97%** |
 | The four attacking hosts | ranked 1st to 4th by risk |
-| Repeated exfiltration bursts of host 10.1.3.17 (held-back hour): 5-minute warning was up before the burst | **13 of 15** |
+| Host 10.1.3.8: exfiltration, then command & control | both stages named, 154 of 156 windows alerted |
+| Host 10.1.3.17: repeating exfiltration bursts (held-back hour), 5-minute warning up before the burst | **13 of 15** |
 
 Four of the five hours in this file were held back from training; the hour that adds initial access was not.
 A version with only held-back hours is `samples/demo_unraveled_heldback.csv` (90% alerted, 96% stage correct).
 
+### What the dashboard shows for each host
+
+| Part | Content |
+| :--- | :--- |
+| Threat level | HIGH RISK / ELEVATED / WATCH / NORMAL, with the reason |
+| Risk forecast graph | Solid line: what the model detected in the file. Dashed line: its forecast for the next 60 s. Red bands: the true labels, for checking. |
+| Stage progression tree | Most likely stage and the other possibility for every time span from NOW to +60 s |
+| MITRE ATT&CK mapping | Tactic and technique for each time span |
+| Feature attribution | The traffic features behind the result |
+
 ### Verified end to end
 
-At the v5 release check, every number on the Attack Forecast page was compared with an independent recomputation: 126,105 displayed values
-against the backend, 36,019 backend rule checks, and 29,893 model outputs recomputed with separately written code.
-No mismatch. Scripts and logs: [`training/world_model/checks/`](training/world_model/checks/).
+At the v5 release check, every number on the Attack Forecast page was compared with an independent recomputation:
+126,105 displayed values against the backend, 36,019 backend rule checks, and 29,893 model outputs recomputed
+with separately written code. No mismatch. Scripts and logs: [`training/world_model/checks/`](training/world_model/checks/).
 
 Full results, per-dataset breakdown and the comparison between model versions:
 [`docs/RESULTS_world_model_v5.md`](docs/RESULTS_world_model_v5.md).
 
 ---
-
 ## 🏗️ Architecture
 
 ```mermaid
