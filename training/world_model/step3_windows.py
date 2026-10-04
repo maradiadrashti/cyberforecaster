@@ -57,7 +57,77 @@ GROUPS = {
                "win_var_mean", "frag_mean", "payload_mean_mean", "payload_mean_std",
                "payload_std_mean", "bwd_fwd_mean", "bwd_fwd_std", "one_sided_frac"],
 }
-FEATS = [f for g in GROUPS.values() for f in g]
+BASE_FEATS = [f for g in GROUPS.values() for f in g]
+
+# ---- incoming traffic: what every host RECEIVED (identical in step3_windows.py and world_model.py)
+IN_FEATS = ["in_flows", "in_src_ips", "in_dst_ports", "in_pkt_sum", "in_byte_sum", "in_syn_only_frac",
+            "in_rst_frac", "in_port_diversity", "in_flows_60s", "in_src_60s", "in_ports_60s",
+            "in_syn_only_60s", "in_flows_300s", "in_src_300s", "in_ports_300s"]
+IN_KEYS = ["dst", "win", "src", "dport"]
+
+
+def _iphash(s):
+    return pd.util.hash_pandas_object(pd.Series(np.asarray(s)).astype(str), index=False).values
+
+
+def inbound_rows(df):
+    """flows -> compact table: one row per (receiving host, window, sending host, destination port)"""
+    num = lambda c: pd.to_numeric(df[c], errors="coerce")
+    syn, ack, rst = num("syn_count"), num("ack_count"), num("rst_count")
+    valid = (syn.notna() & ack.notna()).values
+    o = pd.DataFrame({
+        "dst": _iphash(df["dst_ip"]), "src": _iphash(df["src_ip"]),
+        "win": (num("flow_start") // WIN).astype("int64").values,
+        "dport": num("dst_port").fillna(-1).astype("int32").values,
+        "n": np.ones(len(df), "int64"),
+        "pk": num("packet_count").fillna(0).values.astype("float64"),
+        "by": num("byte_count").fillna(0).values.astype("float64"),
+        "flag_n": valid.astype("int64"),
+        "syn_only": (((syn > 0) & (ack == 0)).values & valid).astype("int64"),
+        "rst_any": ((rst > 0).values & valid).astype("int64")})
+    return o.groupby(IN_KEYS, sort=False, as_index=False).sum()
+
+
+def incoming_features(inb, host_ip, win):
+    """incoming-traffic features for the window rows (host_ip[i], win[i]); hosts that received nothing get 0"""
+    f32 = "float32"
+    win = np.asarray(win, dtype=np.int64)
+    out = pd.DataFrame(np.zeros((len(win), len(IN_FEATS)), f32), columns=IN_FEATS)
+    if len(inb) == 0 or len(win) == 0:
+        return out
+    D = inb.groupby(["dst", "win"], sort=True).agg(
+        n=("n", "sum"), src=("src", "nunique"), port=("dport", "nunique"), pk=("pk", "sum"), by=("by", "sum"),
+        flag_n=("flag_n", "sum"), syn_only=("syn_only", "sum"), rst_any=("rst_any", "sum")).reset_index()
+    uniq, code = np.unique(D["dst"].values, return_inverse=True)
+    key = (code.astype(np.int64) << 33) | D["win"].values.astype(np.int64)        # sorted: host, then window
+    hh = _iphash(host_ip)
+    hc = np.minimum(np.searchsorted(uniq, hh), len(uniq) - 1)
+    found = uniq[hc] == hh
+    q = (hc.astype(np.int64) << 33) | win
+    pos = np.minimum(np.searchsorted(key, q), len(key) - 1)
+    hit = found & (key[pos] == q)
+    col = lambda c: D[c].values[pos].astype("float64")
+    n, fl = col("n"), col("flag_n")
+    out["in_flows"] = np.where(hit, n, 0.0)
+    out["in_src_ips"] = np.where(hit, col("src"), 0.0)
+    out["in_dst_ports"] = np.where(hit, col("port"), 0.0)
+    out["in_pkt_sum"] = np.where(hit, col("pk"), 0.0)
+    out["in_byte_sum"] = np.where(hit, col("by"), 0.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out["in_syn_only_frac"] = np.where(hit, np.where(fl > 0, col("syn_only") / fl, np.nan), 0.0)
+        out["in_rst_frac"] = np.where(hit, np.where(fl > 0, col("rst_any") / fl, np.nan), 0.0)
+        out["in_port_diversity"] = np.where(hit, col("port") / n, 0.0)
+    hi = np.searchsorted(key, q, "right")
+    for span, tag in [(6, "60s"), (30, "300s")]:                                   # this window and the ones before it
+        lo = np.searchsorted(key, q - span, "right")
+        for c, name in [("n", "in_flows_"), ("src", "in_src_"), ("port", "in_ports_"), ("syn_only", "in_syn_only_")]:
+            if name + tag in IN_FEATS:
+                cs = np.concatenate([[0.0], np.cumsum(D[c].values.astype("float64"))])
+                out[name + tag] = np.where(found, cs[hi] - cs[lo], 0.0)
+    return out.astype(f32)
+
+GROUPS["incoming"] = IN_FEATS
+FEATS = BASE_FEATS + IN_FEATS
 
 MITRE = {
     "reconnaissance": {"tactic_id": "TA0043", "tactic": "Reconnaissance",
@@ -94,10 +164,18 @@ def load_source(name, path):
         for ch in pd.read_csv(path, usecols=["src_ip", "attack_stage"], chunksize=CHUNK, nrows=MAX_ROWS):
             hosts.update(ch.loc[ch["attack_stage"] != "normal", "src_ip"].unique())
         print(f"  attacker hosts found: {len(hosts):,}", flush=True)
-    parts, seen = [], 0
+    parts, inbs, seen = [], [], 0
     for ch in pd.read_csv(path, chunksize=CHUNK, nrows=MAX_ROWS, low_memory=False):
         seen += len(ch)
         ch["src_ip"] = ch["src_ip"].astype(str).str.replace("\u00ef\u00bb\u00bf", "", regex=False)
+        # incoming traffic of the hosts that are kept, counted from ALL flows (before normal hosts are thinned out)
+        cv = ch[ch["attack_stage"].isin(STAGES)].dropna(subset=["flow_start"])
+        if hosts is not None:
+            dd = cv["dst_ip"].astype(str)
+            cv = cv[dd.isin(hosts).values | (pd.util.hash_pandas_object(dd, index=False).values % 1000 < KEEP[name] * 1000)]
+        inbs.append(inbound_rows(cv))
+        if len(inbs) >= 8:
+            inbs = [pd.concat(inbs, ignore_index=True).groupby(IN_KEYS, sort=False, as_index=False).sum()]
         if hosts is not None:
             h = pd.util.hash_pandas_object(ch["src_ip"], index=False).values % 1000
             ch = ch[ch["src_ip"].isin(hosts) | (h < KEEP[name] * 1000)]
@@ -108,8 +186,9 @@ def load_source(name, path):
         parts.append(ch)
         print(f"  read {seen:,} rows", end="\r", flush=True)
     df = pd.concat(parts, ignore_index=True)
-    print(f"\n  kept {len(df):,} flows")
-    return df
+    inb = pd.concat(inbs, ignore_index=True).groupby(IN_KEYS, sort=False, as_index=False).sum()
+    print(f"\n  kept {len(df):,} flows; incoming table {len(inb):,} rows")
+    return df, inb
 
 
 def entropy_stats(df, key, col):
@@ -119,8 +198,10 @@ def entropy_stats(df, key, col):
     return np.log(s["n"]) - s["s"] / s["n"], s["mx"], s["n"]
 
 
-def make_windows(df, name):
+def make_windows(df, name, inb=None):
     key = ["host", "win"]
+    if inb is None:                      # an uploaded file: every flow of the file counts as incoming traffic
+        inb = inbound_rows(df)
     f32 = "float32"
     df["host"], hostnames = pd.factorize(df["src_ip"])
     df["win"] = (df["flow_start"] // WIN).astype("int64")
@@ -232,10 +313,13 @@ def make_windows(df, name):
     stage_id = np.where(is_att, best, np.where(A["n_attack_flows"] > 0, -1, 0))
     A["stage_id"] = stage_id.astype("int8")
 
-    out = A[FEATS].replace([np.inf, -np.inf], np.nan).astype(f32)
+    out = A[BASE_FEATS].replace([np.inf, -np.inf], np.nan).astype(f32)
     out.insert(0, "host_ip", np.asarray(hostnames)[A.index.get_level_values("host")])
     out.insert(1, "win", A.index.get_level_values("win").values)
     out.insert(2, "t0", out["win"].values * WIN)
+    _in = incoming_features(inb, out["host_ip"].values, out["win"].values)
+    for c in IN_FEATS:
+        out[c] = _in[c].values
     out["n_attack_flows"], out["attack_share"] = A["n_attack_flows"].values, A["attack_share"].values.astype(f32)
     out["stage_id"] = A["stage_id"].values
     out.insert(0, "source", name)
@@ -249,12 +333,13 @@ def main():
         if not path.exists():
             print(f"!! missing {path} - skipping {name}")
             continue
-        w = make_windows(load_source(name, path), name)
+        _d, _i = load_source(name, path)
+        w = make_windows(_d, name, _i)
         print(f"  windows: {len(w):,}")
         allw.append(w)
     W = pd.concat(allw, ignore_index=True)
-    W.to_pickle(DIR / ("windows_test.pkl" if TEST else "windows.pkl"))
-    (DIR / "feature_groups.json").write_text(json.dumps({"groups": GROUPS, "features": FEATS,
+    W.to_pickle(DIR / ("windows_v5_test.pkl" if TEST else "windows_v5.pkl"))
+    (DIR / "feature_groups_v5.json").write_text(json.dumps({"groups": GROUPS, "features": FEATS,
                                                           "stages": STAGES}, indent=1))
     (DIR / "mitre_map.json").write_text(json.dumps(MITRE, indent=1))
     names = {-1: "ambiguous", **{i: s for i, s in enumerate(STAGES)}}
@@ -274,7 +359,7 @@ def main():
                                            for s in W.source.unique()))
     txt = "\n".join(rep)
     print("\n" + txt)
-    (DIR / ("step3_report_test.txt" if TEST else "step3_report.txt")).write_text(txt)
+    (DIR / ("step3_v5_report_test.txt" if TEST else "step3_v5_report.txt")).write_text(txt)
     print("\nDONE")
 
 

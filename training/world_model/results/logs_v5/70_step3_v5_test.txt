@@ -1,0 +1,55 @@
+# 2026-10-03 21:43:52  python step3_windows_v5.py --test
+D:\ml-data\processed\step3_windows_v5.py:4: SyntaxWarning: "\m" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\m"? A raw string is also an option.
+  Run from PowerShell:   python D:\ml-data\processed\step3_windows.py
+
+=== merged: D:\ml-data\merged_final_v5.csv
+  attacker hosts found: 0
+  read 200,000 rows  read 400,000 rows  read 600,000 rows
+  kept 207,841 flows; incoming table 79,400 rows
+  windows: 26,937
+
+=== unraveled: D:\ml-data\processed\unraveled_common.csv
+  attacker hosts found: 1
+  read 200,000 rows  read 400,000 rows  read 600,000 rows
+  kept 129,723 flows; incoming table 106,210 rows
+  windows: 33,646
+
+=== unsw: D:\ml-data\processed\unsw_common.csv
+  read 200,000 rows  read 400,000 rows  read 600,000 rows
+  kept 600,000 flows; incoming table 461,802 rows
+  windows: 30,139
+
+=== cic2017: D:\ml-data\processed\cic2017_common.csv
+  attacker hosts found: 7
+  read 200,000 rows  read 400,000 rows  read 600,000 rows
+  kept 453,596 flows; incoming table 121,893 rows
+  windows: 13,549
+
+features: 88  windows: 104,271
+
+windows per sub-source and stage (ambiguous = few attack flows among many benign, ignored by training)
+stage      ambiguous  command_control  initial_access  lateral_movement  normal  other  reconnaissance
+sub                                                                                                   
+cic2017           30              117               0                 0   13194    102             106
+cic2018            0                0               0                 0   26937      0               0
+unraveled          7                0               0                 3   33636      0               0
+unsw             107                4            1518                 6   27493    505             506
+
+timestamp range per sub-source (check these look like the right years):
+  cic2017    2017-07-07 08:59:10 -> 2017-07-07 17:02:50  hosts=1,829
+  cic2018    2018-02-21 12:28:30 -> 2018-02-21 21:30:20  hosts=1,785
+  unraveled  2021-05-26 18:02:50 -> 2021-06-01 06:58:10  hosts=121
+  unsw       2015-01-22 11:49:30 -> 2015-01-22 18:17:00  hosts=40
+
+share of attack windows where attack flows are < 100% of the host's flows (mixed windows):
+  465 of 2,867
+
+missing-value share per feature group, by source:
+  volume   merged=0%  unraveled=0%  unsw=0%  cic2017=0%
+  timing   merged=18%  unraveled=0%  unsw=0%  cic2017=0%
+  flags    merged=7%  unraveled=7%  unsw=93%  cic2017=7%
+  ports    merged=0%  unraveled=0%  unsw=5%  cic2017=0%
+  packet   merged=23%  unraveled=54%  unsw=15%  cic2017=32%
+  incoming merged=0%  unraveled=0%  unsw=2%  cic2017=0%
+
+DONE

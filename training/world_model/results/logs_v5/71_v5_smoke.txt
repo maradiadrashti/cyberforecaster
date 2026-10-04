@@ -1,0 +1,158 @@
+# 2026-10-03 21:44:22  python step4_train.py --smoke --v5 --epochs 2 --seeds 1 --unseen none --windows windows_v5_test.pkl --groups-file feature_groups_v5.json
+21:44:22 windows: 39,241   features: 88   unseen dataset: none
+21:44:22 sequences: {'train': '22,997', 'val': '2,766', 'test': '4,671', 'unseen': '0'}
+21:44:22 current-stage windows at sequence ends, per split:
+                  train   val  test  unseen
+command_control     118     0     0       0
+initial_access     1401     0    91       0
+lateral_movement      8     0     1       0
+normal            20321  2766  4445       0
+other/ambiguous     666     0    68       0
+reconnaissance      483     0    66       0
+21:44:23 train sequences: positives 2,734  negatives 16,498
+21:44:23 train onset events (history normal -> attack within 6): 36
+21:44:23 training LogReg last window
+21:44:24 training LogReg 10 windows
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:599: ConvergenceWarning: lbfgs failed to converge after 150 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=150).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+21:44:25 saved D:\ml-data\processed\model_v5_smoke_unseen-none\baseline_lr.json
+21:44:25 training XGBoost 10 windows
+21:44:36 v4 sampler groups: attack starts within 600 s 50  same hosts, no start 3,203
+21:44:36 sampler groups: onset 36  attack-ongoing 2,714  normal 16,994
+21:44:42 [WM73 seed0] epoch 01  stage 1.118  within 0.521  next 0.101  soon 0.457  val-AP -1.6398
+21:44:49 [WM73 seed0] epoch 02  stage 0.525  within 0.293  next -0.171  soon 0.232  val-AP -0.8177
+21:44:49 val score per seed: [-0.8177] -> best seed 0
+21:44:49 evaluating
+21:44:53 tree timing model for 300 s trained on 16,930 rows (50 positives)
+21:44:55 tree timing model for 600 s trained on 15,360 rows (74 positives)
+21:44:56 timing evaluated on val
+21:44:57 timing evaluated on test
+
+--- val  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   0.000     nan     nan       0             0/0
+LogReg last window       0.000   0.000   0.000   0.001     nan     nan       0             0/0
+LogReg 10 windows        0.000   0.000   0.000   0.002     nan     nan       0             0/0
+XGBoost 10 windows       0.000   0.000   0.000   0.000     nan     nan       0             0/0
+WORLD MODEL (head)       0.000   0.000   0.000   0.087     nan     nan       0             0/0
+WM seed0                 0.000   0.000   0.000   0.087     nan     nan       0             0/0
+
+--- val  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   0.000     nan     nan       0               -
+LogReg last window       0.000   0.000   0.000   0.001     nan     nan       0               -
+LogReg 10 windows        0.000   0.000   0.000   0.002     nan     nan       0               -
+XGBoost 10 windows       0.000   0.000   0.000   0.000     nan     nan       0               -
+WORLD MODEL (head)       0.000   0.000   0.000   0.087     nan     nan       0               -
+WM seed0                 0.000   0.000   0.000   0.087     nan     nan       0               -
+
+--- test  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   0.000     nan     nan       0             0/0
+LogReg last window       0.000   0.000   0.000   0.053     nan     nan       0             0/0
+LogReg 10 windows        0.000   0.000   0.000   0.029     nan     nan       0             0/0
+XGBoost 10 windows       0.000   0.000   0.000   0.006     nan     nan       0             0/0
+WORLD MODEL (head)       0.000   0.000   0.000   0.022     nan     nan       0             0/0
+WM seed0                 0.000   0.000   0.000   0.022     nan     nan       0             0/0
+
+--- test  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      1.000   0.965   0.982   0.000   0.966   0.982     226               -
+LogReg last window       0.506   0.996   0.671   0.053   0.969   0.997     226               -
+LogReg 10 windows        0.647   0.996   0.784   0.029   0.995   1.000     226               -
+XGBoost 10 windows       0.880   0.880   0.880   0.006   0.966   0.997     226               -
+WORLD MODEL (head)       0.670   0.845   0.748   0.022   0.869   0.954     226               -
+WM seed0                 0.670   0.845   0.748   0.022   0.869   0.954     226               -
+
+--- unseen  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+
+--- unseen  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+
+stage head (test): {
+ "macroF1_t+0": 0.4057,
+ "per_class_recall_t+0": {
+  "normal": 0.944,
+  "reconnaissance": 0.242,
+  "initial_access": 0.33,
+  "lateral_movement": 0.0
+ },
+ "recall_by_dataset_t+0": {
+  "normal": {
+   "cic2017": [
+    0.834,
+    1484
+   ],
+   "cic2018": [
+    1.0,
+    2325
+   ],
+   "unraveled": [
+    1.0,
+    437
+   ],
+   "unsw": [
+    0.985,
+    199
+   ]
+  },
+  "reconnaissance": {
+   "cic2017": [
+    0.0,
+    36
+   ],
+   "unsw": [
+    0.533,
+    30
+   ]
+  },
+  "initial_access": {
+   "unsw": [
+    0.33,
+    91
+   ]
+  },
+  "lateral_movement": {
+   "unsw": [
+    0.0,
+    1
+   ]
+  }
+ },
+ "predicted_as_t+0": {
+  "normal": {
+   "normal": 4195,
+   "reconnaissance": 1,
+   "initial_access": 2,
+   "command_control": 247
+  },
+  "reconnaissance": {
+   "normal": 35,
+   "reconnaissance": 16,
+   "initial_access": 15
+  },
+  "initial_access": {
+   "reconnaissance": 61,
+   "initial_access": 30
+  },
+  "lateral_movement": {
+   "reconnaissance": 1
+  }
+ },
+ "macroF1_t+1": 0.4515,
+ "per_class_recall_t+1": {
+  "normal": 0.947,
+  "reconnaissance": 0.0,
+  "initial_access": 1.0,
+  "lateral_movement": 0.0
+ }
+}
+21:44:57 DONE - everything is in D:\ml-data\processed\model_v5_smoke_unseen-none

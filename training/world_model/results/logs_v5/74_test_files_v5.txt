@@ -1,0 +1,43 @@
+# 2026-10-03 23:02:55  python make_test_files_v5.py
+read 1,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 2,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 3,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 4,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 5,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 6,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 7,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 8,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 9,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 10,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 11,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 12,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 13,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 14,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 15,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 16,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 17,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 18,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 19,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 20,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 21,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 0, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 22,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 28361, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 23,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 61940, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 24,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 92322, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 25,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 117980, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 26,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 146419, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 27,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 177313, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 28,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 202594, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 29,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 227678, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 30,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 249096, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 31,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 32,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 33,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 34,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 35,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 36,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 37,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 38,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 0}
+read 39,000,000  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 130384}
+read 39,279,217  kept {'B_cic2018_ftp_bruteforce_onset.csv': 273229, 'C_ctu13_botnet_c2_forecast.csv': 130384}
+B_cic2018_ftp_bruteforce_onset.csv 273,229 flows, 42.4 MB, source hosts 7,053 {'normal': 251069, 'initial_access': 22160}
+C_ctu13_botnet_c2_forecast.csv 130,384 flows, 19.1 MB, source hosts 23,631 {'normal': 129413, 'command_control': 971}

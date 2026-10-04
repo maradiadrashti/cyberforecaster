@@ -1,0 +1,39 @@
+# 2026-10-04 14:25:10  python dapt_demo_check.py
+format common flows 86691 windows 23878 hosts 715 labels True
+
+ 206.207.50.50 windows 216
+   true reconnaissance    train windows    2  alerted    2  stage named: {'reconnaissance': 2}
+   true reconnaissance    val   windows   80  alerted   53  stage named: {'reconnaissance': 73, 'initial_access': 6, 'lateral_movement': 1}
+   true reconnaissance    test  windows   15  alerted   15  stage named: {'reconnaissance': 15}
+   true initial_access    train windows   42  alerted   24  stage named: {'reconnaissance': 23, 'lateral_movement': 9, 'initial_access': 8, 'command_control': 2}
+   true initial_access    val   windows   19  alerted   19  stage named: {'reconnaissance': 17, 'lateral_movement': 2}
+   true initial_access    test  windows   18  alerted    0  stage named: {'reconnaissance': 12, 'command_control': 6}
+   true lateral_movement  test  windows   12  alerted    9  stage named: {'lateral_movement': 9, 'reconnaissance': 3}
+   true exfiltration      val   windows    8  alerted    3  stage named: {'initial_access': 6, 'reconnaissance': 1, 'command_control': 1}
+   true exfiltration      test  windows    6  alerted    3  stage named: {'initial_access': 3, 'reconnaissance': 2, 'command_control': 1}
+
+ 184.98.36.245 windows 504
+   true reconnaissance    train windows   82  alerted   82  stage named: {'reconnaissance': 82}
+   true reconnaissance    test  windows    6  alerted    6  stage named: {'reconnaissance': 3, 'initial_access': 3}
+   true initial_access    train windows    5  alerted    4  stage named: {'initial_access': 5}
+   true initial_access    test  windows   16  alerted    5  stage named: {'reconnaissance': 14, 'initial_access': 2}
+
+ 192.168.3.29 windows 6067
+   true initial_access    train windows    2  alerted    1  stage named: {'initial_access': 1, 'lateral_movement': 1}
+   true lateral_movement  train windows   15  alerted    6  stage named: {'lateral_movement': 13, 'initial_access': 2}
+   true lateral_movement  val   windows    7  alerted    4  stage named: {'lateral_movement': 5, 'initial_access': 2}
+   true lateral_movement  test  windows   27  alerted    0  stage named: {'lateral_movement': 25, 'initial_access': 1, 'command_control': 1}
+
+ 209.147.138.38 windows 47
+   true reconnaissance    train windows   13  alerted   12  stage named: {'initial_access': 7, 'reconnaissance': 6}
+   true reconnaissance    test  windows    8  alerted    1  stage named: {'reconnaissance': 8}
+   true initial_access    train windows    2  alerted    0  stage named: {'reconnaissance': 2}
+   true lateral_movement  val   windows   21  alerted   14  stage named: {'reconnaissance': 21}
+
+ 209.147.138.211 windows 79
+   true initial_access    val   windows   77  alerted   33  stage named: {'reconnaissance': 70, 'lateral_movement': 5, 'command_control': 2}
+   true initial_access    test  windows    1  alerted    1  stage named: {'reconnaissance': 1}
+   true lateral_movement  train windows    1  alerted    1  stage named: {'reconnaissance': 1}
+train attack windows 184 alerted 0.75 stage correct 0.674 | false alarms on normal 0.0925
+val attack windows 217 alerted 0.59 stage correct 0.369 | false alarms on normal 0.0905
+test attack windows 139 alerted 0.345 stage correct 0.554 | false alarms on normal 0.095

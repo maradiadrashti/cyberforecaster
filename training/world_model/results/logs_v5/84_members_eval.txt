@@ -1,0 +1,317 @@
+# 2026-10-03 23:52:11  python step4_train.py --v5 --unseen none --windows windows_v5.pkl --groups-file feature_groups_v5.json --members C:\Users\htc\OneDrive\Desktop\cyberforecaster\legacy\models\world_model_v4,D:\ml-data\processed\model_v5_unseen-none
+23:52:15 windows: 2,233,308   features: 88   unseen dataset: none
+23:52:34 sequences: {'train': '1,052,571', 'val': '281,337', 'test': '319,924', 'unseen': '0'}
+23:52:35 current-stage windows at sequence ends, per split:
+                   train     val    test  unseen
+command_control    27409   15007    5244       0
+exfiltration        3388    1024    1073       0
+initial_access      7028    1821    2630       0
+lateral_movement    9301    3052    3290       0
+normal            994258  257788  303713       0
+other/ambiguous     7970    2168    2762       0
+reconnaissance      3217     477    1212       0
+23:52:39 train sequences: positives 84,396  negatives 791,020
+23:52:39 train onset events (history normal -> attack within 6): 1,046
+23:52:39 training LogReg last window
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:599: ConvergenceWarning: lbfgs failed to converge after 150 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=150).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+23:52:50 training LogReg 10 windows
+C:\Users\htc\AppData\Local\Programs\Python\Python314\Lib\site-packages\sklearn\linear_model\_logistic.py:599: ConvergenceWarning: lbfgs failed to converge after 150 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=150).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+23:53:10 saved D:\ml-data\processed\model_v5_members_unseen-none\baseline_lr.json
+23:53:10 training XGBoost 10 windows
+23:54:11 member C:\Users\htc\OneDrive\Desktop\cyberforecaster\legacy\models\world_model_v4: 73 features, largest difference between its saved scaling and the scaling used here: 0.00e+00
+23:54:12 v4 sampler groups: attack starts within 600 s 2,511  same hosts, no start 131,408
+23:54:12 sampler groups: onset 1,046  attack-ongoing 84,541  normal 833,065
+23:54:18 v4 sampler groups: attack starts within 600 s 2,511  same hosts, no start 131,408
+23:54:18 sampler groups: onset 1,046  attack-ongoing 84,541  normal 833,065
+23:54:25 v4 sampler groups: attack starts within 600 s 2,511  same hosts, no start 131,408
+23:54:25 sampler groups: onset 1,046  attack-ongoing 84,541  normal 833,065
+23:54:31 member D:\ml-data\processed\model_v5_unseen-none: 88 features, largest difference between its saved scaling and the scaling used here: 0.00e+00
+23:54:32 v4 sampler groups: attack starts within 600 s 2,511  same hosts, no start 131,408
+23:54:32 sampler groups: onset 1,046  attack-ongoing 84,541  normal 833,065
+23:54:38 v4 sampler groups: attack starts within 600 s 2,511  same hosts, no start 131,408
+23:54:38 sampler groups: onset 1,046  attack-ongoing 84,541  normal 833,065
+23:54:45 v4 sampler groups: attack starts within 600 s 2,511  same hosts, no start 131,408
+23:54:45 sampler groups: onset 1,046  attack-ongoing 84,541  normal 833,065
+23:54:52 val score per seed: [0.5029, 0.4957, 0.5284, 0.5082, 0.5269, 0.5111] -> best seed 4
+23:54:52 evaluating
+00:00:29 stage (average of copies) on val: {"all copies": {"macroF1": 0.837, "recall": {"normal": 0.991, "reconnaissance": 0.566, "initial_access": 0.882, "command_control": 0.983, "lateral_movement": 0.981, "exfiltration": 0.946}, "recall_by_dataset": {"reconnaissance": {"dapt2020": [0.469, 32], "unraveled": [1.0, 2], "unsw": [0.571, 443]}, "initial_access": {"cic2017": [1.0, 282], "dapt2020": [0.0, 47], "unsw": [0.888, 1492]}, "command_control": {"cic2017": [0.31, 158], "cic2018": [0.998, 10098], "unraveled": [0.974, 4747], "unsw": [0.0, 4]}, "lateral_movement": {"dapt2020": [0.0, 7], "unraveled": [0.984, 3045]}, "exfiltration": {"unraveled": [0.946, 1024]}}}, "member0 only": {"macroF1": 0.8321, "recall": {"normal": 0.989, "reconnaissance": 0.637, "initial_access": 0.861, "command_control": 0.982, "lateral_movement": 0.982, "exfiltration": 0.946}, "recall_by_dataset": {"reconnaissance": {"dapt2020": [0.469, 32], "unraveled": [1.0, 2], "unsw": [0.648, 443]}, "initial_access": {"cic2017": [1.0, 282], "dapt2020": [0.021, 47], "unsw": [0.861, 1492]}, "command_control": {"cic2017": [0.316, 158], "cic2018": [0.998, 10098], "unraveled": [0.973, 4747], "unsw": [0.0, 4]}, "lateral_movement": {"dapt2020": [0.0, 7], "unraveled": [0.984, 3045]}, "exfiltration": {"unraveled": [0.946, 1024]}}}, "member1 only": {"macroF1": 0.8391, "recall": {"normal": 0.992, "reconnaissance": 0.507, "initial_access": 0.903, "command_control": 0.981, "lateral_movement": 0.984, "exfiltration": 0.948}, "recall_by_dataset": {"reconnaissance": {"dapt2020": [0.531, 32], "unraveled": [1.0, 2], "unsw": [0.503, 443]}, "initial_access": {"cic2017": [1.0, 282], "dapt2020": [0.0, 47], "unsw": [0.914, 1492]}, "command_control": {"cic2017": [0.304, 158], "cic2018": [0.998, 10098], "unraveled": [0.968, 4747], "unsw": [0.0, 4]}, "lateral_movement": {"dapt2020": [0.0, 7], "unraveled": [0.986, 3045]}, "exfiltration": {"unraveled": [0.948, 1024]}}}}
+00:02:30 stage (average of copies) on test: {"all copies": {"macroF1": 0.8395, "recall": {"normal": 0.99, "reconnaissance": 0.711, "initial_access": 0.862, "command_control": 0.972, "lateral_movement": 0.967, "exfiltration": 0.989}, "recall_by_dataset": {"reconnaissance": {"cic2017": [0.778, 36], "dapt2020": [1.0, 4], "unraveled": [1.0, 326], "unsw": [0.596, 846]}, "initial_access": {"cic2017": [1.0, 51], "cic2018": [0.5, 78], "dapt2020": [0.0, 12], "unsw": [0.874, 2489]}, "command_control": {"ctu13": [0.981, 366], "unraveled": [0.972, 4872], "unsw": [0.0, 6]}, "lateral_movement": {"cic2017": [0.0, 3], "dapt2020": [0.0, 25], "unraveled": [0.976, 3259], "unsw": [0.0, 3]}, "exfiltration": {"dapt2020": [0.0, 1], "unraveled": [0.99, 1072]}}}, "member0 only": {"macroF1": 0.8268, "recall": {"normal": 0.989, "reconnaissance": 0.732, "initial_access": 0.836, "command_control": 0.969, "lateral_movement": 0.961, "exfiltration": 0.988}, "recall_by_dataset": {"reconnaissance": {"cic2017": [0.361, 36], "dapt2020": [1.0, 4], "unraveled": [1.0, 326], "unsw": [0.643, 846]}, "initial_access": {"cic2017": [1.0, 51], "cic2018": [0.936, 78], "dapt2020": [0.0, 12], "unsw": [0.833, 2489]}, "command_control": {"ctu13": [0.967, 366], "unraveled": [0.971, 4872], "unsw": [0.0, 6]}, "lateral_movement": {"cic2017": [0.0, 3], "dapt2020": [0.0, 25], "unraveled": [0.971, 3259], "unsw": [0.0, 3]}, "exfiltration": {"dapt2020": [0.0, 1], "unraveled": [0.989, 1072]}}}, "member1 only": {"macroF1": 0.842, "recall": {"normal": 0.991, "reconnaissance": 0.676, "initial_access": 0.887, "command_control": 0.97, "lateral_movement": 0.965, "exfiltration": 0.988}, "recall_by_dataset": {"reconnaissance": {"cic2017": [0.778, 36], "dapt2020": [1.0, 4], "unraveled": [1.0, 326], "unsw": [0.545, 846]}, "initial_access": {"cic2017": [1.0, 51], "cic2018": [0.462, 78], "dapt2020": [0.0, 12], "unsw": [0.902, 2489]}, "command_control": {"ctu13": [0.984, 366], "unraveled": [0.97, 4872], "unsw": [0.0, 6]}, "lateral_movement": {"cic2017": [0.0, 3], "dapt2020": [0.0, 25], "unraveled": [0.974, 3259], "unsw": [0.0, 3]}, "exfiltration": {"dapt2020": [0.0, 1], "unraveled": [0.989, 1072]}}}}
+00:05:23 tree timing model for 300 s trained on 253,044 rows (3,044 positives)
+00:06:11 tree timing model for 600 s trained on 254,304 rows (4,304 positives)
+00:07:56 timing evaluated on val
+00:09:45 timing evaluated on test
+
+--- val  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   0.000   0.000     nan      90            0/26
+LogReg last window       0.003   0.011   0.005   0.002   0.001   0.741      90            1/26
+LogReg 10 windows        0.003   0.244   0.005   0.037   0.001   0.722      90            5/26
+XGBoost 10 windows       0.048   0.122   0.069   0.001   0.017   0.951      90            9/26
+WORLD MODEL (head)       0.600   0.100   0.171   0.000   0.104   0.911      90            9/26
+WM seed0                 0.296   0.089   0.137   0.000   0.039   0.944      90            8/26
+WM seed1                 0.225   0.100   0.139   0.000   0.048   0.968      90            9/26
+WM seed2                 0.800   0.089   0.160   0.000   0.103   0.932      90            8/26
+WM seed3                 0.400   0.089   0.145   0.000   0.085   0.892      90            8/26
+WM seed4                 0.600   0.100   0.171   0.000   0.104   0.911      90            9/26
+WM seed5                 0.714   0.111   0.192   0.000   0.117   0.947      90           10/26
+WORLD MODEL (ensemble of 6)   0.800   0.089   0.160   0.000   0.105   0.957      90            8/26
+member0 (average of 3)   0.400   0.089   0.145   0.000   0.059   0.964      90            8/26
+member1 (average of 3)   0.360   0.100   0.157   0.000   0.103   0.938      90            9/26
+
+--- val  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.995   0.675   0.805   0.000   0.711   0.837   31873               -
+LogReg last window       0.594   0.803   0.683   0.075   0.761   0.953   31873               -
+LogReg 10 windows        0.874   0.889   0.882   0.018   0.933   0.990   31873               -
+XGBoost 10 windows       0.988   0.972   0.980   0.002   0.996   0.999   31873               -
+WORLD MODEL (head)       0.982   0.963   0.973   0.002   0.989   0.997   31873               -
+WM seed0                 0.979   0.962   0.971   0.003   0.991   0.998   31873               -
+WM seed1                 0.982   0.951   0.966   0.002   0.989   0.997   31873               -
+WM seed2                 0.989   0.957   0.973   0.002   0.990   0.998   31873               -
+WM seed3                 0.986   0.956   0.971   0.002   0.990   0.997   31873               -
+WM seed4                 0.982   0.963   0.973   0.002   0.989   0.997   31873               -
+WM seed5                 0.984   0.948   0.965   0.002   0.989   0.998   31873               -
+WORLD MODEL (ensemble of 6)   0.986   0.962   0.974   0.002   0.991   0.998   31873               -
+member0 (average of 3)   0.985   0.961   0.973   0.002   0.991   0.998   31873               -
+member1 (average of 3)   0.988   0.958   0.973   0.002   0.991   0.998   31873               -
+
+--- test  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.000   0.000   0.000   0.000   0.001     nan     168            0/47
+LogReg last window       0.000   0.000   0.000   0.003   0.002   0.633     168            0/47
+LogReg 10 windows        0.004   0.202   0.007   0.032   0.002   0.659     168            8/47
+XGBoost 10 windows       0.021   0.095   0.035   0.003   0.016   0.959     168            8/47
+WORLD MODEL (head)       0.283   0.077   0.121   0.000   0.047   0.918     168           12/47
+WM seed0                 0.100   0.036   0.053   0.000   0.025   0.924     168            6/47
+WM seed1                 0.110   0.095   0.102   0.001   0.028   0.934     168           13/47
+WM seed2                 0.400   0.059   0.104   0.000   0.044   0.902     168            9/47
+WM seed3                 0.077   0.059   0.067   0.000   0.029   0.843     168           10/47
+WM seed4                 0.283   0.077   0.121   0.000   0.047   0.918     168           12/47
+WM seed5                 0.350   0.083   0.135   0.000   0.061   0.929     168           13/47
+WORLD MODEL (ensemble of 6)   0.226   0.042   0.070   0.000   0.030   0.930     168            7/47
+member0 (average of 3)   0.138   0.048   0.071   0.000   0.026   0.930     168            8/47
+member1 (average of 3)   0.092   0.089   0.091   0.001   0.035   0.922     168           13/47
+
+--- test  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+persistence(oracle)      0.992   0.571   0.725   0.000   0.602   0.785   24378               -
+LogReg last window       0.508   0.781   0.615   0.067   0.710   0.950   24378               -
+LogReg 10 windows        0.814   0.854   0.833   0.017   0.907   0.984   24378               -
+XGBoost 10 windows       0.960   0.978   0.969   0.004   0.994   0.999   24378               -
+WORLD MODEL (head)       0.915   0.958   0.936   0.008   0.982   0.997   24378               -
+WM seed0                 0.913   0.950   0.931   0.008   0.980   0.997   24378               -
+WM seed1                 0.925   0.935   0.930   0.007   0.980   0.997   24378               -
+WM seed2                 0.915   0.946   0.930   0.008   0.980   0.997   24378               -
+WM seed3                 0.930   0.946   0.938   0.006   0.983   0.996   24378               -
+WM seed4                 0.915   0.958   0.936   0.008   0.982   0.997   24378               -
+WM seed5                 0.948   0.938   0.943   0.004   0.983   0.998   24378               -
+WORLD MODEL (ensemble of 6)   0.924   0.957   0.940   0.007   0.985   0.998   24378               -
+member0 (average of 3)   0.912   0.950   0.931   0.008   0.982   0.998   24378               -
+member1 (average of 3)   0.939   0.952   0.945   0.005   0.985   0.998   24378               -
+
+--- unseen  |  attack within next 6 windows  |  onset sequences (history all normal = true early warning)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+
+--- unseen  |  attack within next 6 windows  |  all sequences (all)
+model                     prec  recall      F1     FPR      AP   AUROC    #pos   onsets warned
+
+##### TIMING on quiet hosts (normal now, no attack in the last 5 min), held-back hours. 'within-host' = AUROC inside each host: 0.5 = no timing, 1.0 = perfect #####
+model                                       horizon     rows   #pos   AUROC  in-host  hosts   prec  recall    FPR
+WORLD MODEL 60 s risk                           60s   278470    208   0.954    0.808     12  0.142   0.173  0.001
+WORLD MODEL 60 s risk                          300s   256810    811   0.958    0.850     12  0.175   0.356  0.005
+WORLD MODEL 60 s risk                          600s   230447   1106   0.954    0.833     14  0.191   0.266  0.005
+WORLD MODEL start-soon head                    300s   256810    811   0.980    0.891     12  0.946   0.345  0.000
+WORLD MODEL start-soon head                    600s   230447   1106   0.976    0.889     14  0.610   0.256  0.001
+XGBoost 10 windows (start within 300 s)        300s   256810    811   0.983    0.891     12  0.642   0.522  0.001
+XGBoost 10 windows (start within 600 s)        600s   230447   1106   0.970    0.859     14  0.710   0.563  0.001
+
+stage head (test): {
+ "macroF1_t+0": 0.8543,
+ "per_class_recall_t+0": {
+  "normal": 0.993,
+  "reconnaissance": 0.701,
+  "initial_access": 0.838,
+  "command_control": 0.955,
+  "lateral_movement": 0.976,
+  "exfiltration": 0.993
+ },
+ "recall_by_dataset_t+0": {
+  "normal": {
+   "cic2017": [
+    0.981,
+    13943
+   ],
+   "cic2018": [
+    1.0,
+    187073
+   ],
+   "ctu13": [
+    0.939,
+    7163
+   ],
+   "dapt2020": [
+    0.977,
+    2855
+   ],
+   "unraveled": [
+    0.983,
+    72492
+   ],
+   "unsw": [
+    0.996,
+    20187
+   ]
+  },
+  "reconnaissance": {
+   "cic2017": [
+    0.5,
+    36
+   ],
+   "dapt2020": [
+    0.25,
+    4
+   ],
+   "unraveled": [
+    1.0,
+    326
+   ],
+   "unsw": [
+    0.597,
+    846
+   ]
+  },
+  "initial_access": {
+   "cic2017": [
+    1.0,
+    51
+   ],
+   "cic2018": [
+    0.038,
+    78
+   ],
+   "dapt2020": [
+    0.0,
+    12
+   ],
+   "unsw": [
+    0.864,
+    2489
+   ]
+  },
+  "command_control": {
+   "ctu13": [
+    0.981,
+    366
+   ],
+   "unraveled": [
+    0.954,
+    4872
+   ],
+   "unsw": [
+    0.0,
+    6
+   ]
+  },
+  "lateral_movement": {
+   "cic2017": [
+    0.0,
+    3
+   ],
+   "dapt2020": [
+    0.0,
+    25
+   ],
+   "unraveled": [
+    0.985,
+    3259
+   ],
+   "unsw": [
+    0.0,
+    3
+   ]
+  },
+  "exfiltration": {
+   "dapt2020": [
+    0.0,
+    1
+   ],
+   "unraveled": [
+    0.993,
+    1072
+   ]
+  }
+ },
+ "predicted_as_t+0": {
+  "normal": {
+   "normal": 301651,
+   "reconnaissance": 74,
+   "initial_access": 211,
+   "command_control": 743,
+   "lateral_movement": 791,
+   "exfiltration": 243
+  },
+  "reconnaissance": {
+   "normal": 11,
+   "reconnaissance": 850,
+   "initial_access": 351
+  },
+  "initial_access": {
+   "normal": 46,
+   "reconnaissance": 349,
+   "initial_access": 2204,
+   "command_control": 31
+  },
+  "command_control": {
+   "normal": 14,
+   "reconnaissance": 2,
+   "initial_access": 4,
+   "command_control": 5007,
+   "lateral_movement": 112,
+   "exfiltration": 105
+  },
+  "lateral_movement": {
+   "normal": 61,
+   "reconnaissance": 1,
+   "initial_access": 2,
+   "command_control": 11,
+   "lateral_movement": 3211,
+   "exfiltration": 4
+  },
+  "exfiltration": {
+   "normal": 6,
+   "command_control": 2,
+   "exfiltration": 1065
+  }
+ },
+ "macroF1_t+1": 0.6581,
+ "per_class_recall_t+1": {
+  "normal": 0.945,
+  "reconnaissance": 0.295,
+  "initial_access": 0.967,
+  "command_control": 0.957,
+  "lateral_movement": 0.945,
+  "exfiltration": 0.956
+ }
+}
+
+=== run-to-run spread over 6 seeds (same data, same settings, different random start) ===
+test onset AUROC       mean 0.908  std 0.031  min 0.843  max 0.934  (n=6)
+test onsets warned     mean 10.500  std 2.500  min 6.000  max 13.000  (n=6)
+test all-seq F1        mean 0.935  std 0.005  min 0.930  max 0.943  (n=6)
+00:09:45 DONE - everything is in D:\ml-data\processed\model_v5_members_unseen-none

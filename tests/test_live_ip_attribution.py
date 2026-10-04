@@ -3,17 +3,12 @@
 tests/test_live_ip_attribution.py — Real live IP attribution regression test.
 
 Verifies that the live pipeline uses REAL observed IP addresses everywhere:
-
-1. Real flow 10.100.10.77 -> 10.100.17.65 (neither in the seeded demo hosts)
-   is preserved end-to-end (flow cache, live hosts registry, per-pair windows).
+1. Real flow 10.100.10.77 -> 10.100.17.65 (neither in seeded demo hosts)
+   is preserved end-to-end (flow cache, live hosts registry).
 2. NO demo IP fallback (192.168.1.10/.15/.20/.45/.50) is ever introduced for
    live traffic.
-3. LSTM temporal history identity is the REAL pair (src_ip, dst_ip): the pair
-   keeps its own independent window history.
-4. No LSTM inference (and no fabricated "Normal 99%") is emitted before 10
-   REAL 5-second windows exist.
-5. forecast_update payloads carry hostIp = targetIp = real destination IP and
-   sourceIp = real source IP.
+3. World model forecast updates carry hostIp = targetIp = real destination IP,
+   sourceIp = real source IP, and model = 'world_model_v4'.
 """
 
 import sys
@@ -26,9 +21,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'capture-servic
 
 import capture_server
 from capture_server import (
-    LIVE_HOSTS_DB, LIVE_WINDOW_HISTORY, MIN_LIVE_WINDOWS,
-    _register_live_host, _live_pair_key, _append_live_window,
-    _finalize_live_windows, _run_live_forecast,
+    LIVE_HOSTS_DB, _register_live_host, _live_pair_key,
+    _broadcast_world_model_forecasts,
 )
 
 DEMO_IPS = {"192.168.1.10", "192.168.1.15", "192.168.1.20", "192.168.1.45", "192.168.1.50"}
@@ -90,137 +84,57 @@ def test_real_pair_preserved_and_no_demo_fallback():
     print("  PASS: real pair 10.100.10.77 -> 10.100.17.65 preserved; zero demo-IP fallback")
 
 
-def test_temporal_history_keyed_by_real_pair():
-    """LSTM window history is keyed by (src_ip, dst_ip) and independent per pair."""
+def test_world_model_forecast_broadcast_has_real_ips():
+    """World model broadcast produces forecast payloads with ONLY real IPs and correct model mapping."""
     capture_server.reset_backend_state()
 
-    pair = _live_pair_key(ATTACKER, TARGET)
+    # Feed flows to register pair
+    for p in range(20, 25):
+        _feed_scan_flow(ATTACKER, TARGET, 40000 + p, p)
 
-    # Simulate finalized windows for the real pair
-    history = _append_live_window(ATTACKER, TARGET, {
-        "duration": 0.5, "packet_count": 10, "byte_count": 600,
-        "syn_flag": 10, "ack_flag": 0, "rst_flag": 0, "fin_flag": 0,
-        "dst_port": 22, "src_port": 40001, "protocol": "TCP",
-        "flow_count": 1, "last_seen_ts": time.time(),
-    })
-    assert len(LIVE_WINDOW_HISTORY[pair]) == 1
+    # Mock world model result for ATTACKER
+    mock_res = {
+        "chart": {
+            "threshold": 0.694,
+            "classes": ["normal", "reconnaissance", "initial_access", "command_control", "lateral_movement", "exfiltration", "other"],
+            "hosts": {
+                ATTACKER: {
+                    "risk_60s": [0.1, 0.2, 0.85],
+                    "alert": [False, False, True],
+                    "stage_now": ["normal", "normal", "reconnaissance"],
+                    "likely_attack_stage": ["reconnaissance", "reconnaissance", "reconnaissance"],
+                    "likely_attack_stage_prob": [0.7, 0.75, 0.92],
+                    "stage_dist_last": [0.05, 0.92, 0.01, 0.01, 0.0, 0.01, 0.0],
+                }
+            }
+        }
+    }
 
-    # A different pair must have its OWN independent history
-    other = _live_pair_key("10.100.10.88", TARGET)
-    assert LIVE_WINDOW_HISTORY.get(other, []) is not history or not LIVE_WINDOW_HISTORY.get(other)
-
-    # History cap: never more than MIN_LIVE_WINDOWS retained
-    for i in range(MIN_LIVE_WINDOWS + 5):
-        _append_live_window(ATTACKER, TARGET, {"duration": 0.1, "packet_count": 1,
-                                               "byte_count": 60, "flow_count": 1,
-                                               "last_seen_ts": time.time()})
-    assert len(history) <= MIN_LIVE_WINDOWS, (
-        f"FAIL: window history exceeded cap ({len(history)} > {MIN_LIVE_WINDOWS})"
-    )
-
-    print("  PASS: LIVE_WINDOW_HISTORY keyed by real (src, dst) pair, capped at 10")
-
-
-def test_warmup_blocks_inference_before_10_windows():
-    """forecast_host must return WARMING UP for empty flow history and run instant real inference when flows exist."""
-    from models.stage_forecaster_lstm_infer import forecast_host
-
-    res = forecast_host(TARGET, [])
-    assert res.get("model_status") == "WARMING UP", f"FAIL: with 0 windows model_status={res.get('model_status')}"
-    assert res.get("windows_collected") == 0
-    assert res.get("input_shape") is None
-
-    # When real windows exist, instant inference runs without 50s delay
-    windows = [{"duration": 0.5, "packet_count": 10, "byte_count": 600,
-                "dst_port": p, "protocol": "TCP"} for p in range(10)]
-    res = forecast_host(TARGET, windows)
-    assert res.get("model_status") == "TRAINED", f"FAIL: 10 windows -> {res.get('model_status')}"
-    assert res.get("input_shape") == [1, 10, 14], f"FAIL: unexpected input shape {res.get('input_shape')}"
-    assert "predicted_stage" in res and "confidence" in res
-
-    print("  PASS: empty history -> WARMING UP; real flow windows -> instant inference")
-
-
-def test_no_fabricated_forecast_from_live_pair_below_threshold():
-    """Feeding real windows produces clean attribution for the real pair."""
-    capture_server.reset_backend_state()
-
-    for p in range(20, 24):
-        _feed_scan_flow(ATTACKER, TARGET, 41000 + p, p)
-
-    # Let flows age past the 5s window boundary so they are finalized
-    with capture_server.flow_lock:
-        for f in capture_server.flow_cache.values():
-            f["last_seen"] = "2020-01-01T00:00:00Z"
-            f["first_seen_ts"] = 0.0
-
-    capture_server._finalize_live_windows()
-    pair_key = f"{ATTACKER}>{TARGET}"
-    assert pair_key in capture_server._latest_stage_forecasts
-    fc = capture_server._latest_stage_forecasts[pair_key]
-    assert fc.get("sourceIp") == ATTACKER
-    assert fc.get("targetIp") == TARGET
-
-    print("  PASS: live window finalized and real IP attribution preserved")
-
-
-def test_full_pipeline_forecast_payload_has_real_ips():
-    """With 10 real windows, the forecast payload carries ONLY the real IPs."""
-    capture_server.reset_backend_state()
-
-    pair = _live_pair_key(ATTACKER, TARGET)
-    history = []
-    for i in range(MIN_LIVE_WINDOWS):
-        history.append({
-            "duration": 0.5, "packet_count": 50 + i, "byte_count": 3000,
-            "syn_flag": 40, "ack_flag": 2, "rst_flag": 8, "fin_flag": 0,
-            "dst_port": 20 + i, "src_port": 40000 + i, "protocol": "TCP",
-            "flow_count": 3, "last_seen_ts": time.time(),
-        })
-    LIVE_WINDOW_HISTORY[pair] = history
-
-    _run_live_forecast(ATTACKER, TARGET, history)
+    _broadcast_world_model_forecasts(mock_res)
 
     key = f"{ATTACKER}>{TARGET}"
     assert key in capture_server._latest_stage_forecasts, (
-        f"FAIL: no forecast cached under real pair key {key}; "
-        f"got {list(capture_server._latest_stage_forecasts.keys())}"
+        f"FAIL: no forecast cached under real pair key {key}"
     )
     fc = capture_server._latest_stage_forecasts[key]
 
-    assert fc.get("hostIp") == TARGET, f"FAIL: hostIp={fc.get('hostIp')} (expected {TARGET})"
-    assert fc.get("targetIp") == TARGET, f"FAIL: targetIp={fc.get('targetIp')} (expected {TARGET})"
-    assert fc.get("sourceIp") == ATTACKER, f"FAIL: sourceIp={fc.get('sourceIp')} (expected {ATTACKER})"
+    assert fc.get("hostIp") == TARGET, f"FAIL: hostIp={fc.get('hostIp')}"
+    assert fc.get("targetIp") == TARGET, f"FAIL: targetIp={fc.get('targetIp')}"
+    assert fc.get("sourceIp") == ATTACKER, f"FAIL: sourceIp={fc.get('sourceIp')}"
+    assert fc.get("model") == "world_model_v4"
+    assert fc.get("alert_threshold") == 0.694
+    assert fc.get("risk_score") == 0.85
+    assert fc.get("predicted_stage") == "reconnaissance"
+    assert fc.get("confidence") == 0.92
+    assert fc.get("windows_collected") == 3
+    assert fc.get("recent_risk_history") == [0.1, 0.2, 0.85]
 
     # No demo IP anywhere in the serialized forecast
     blob = json.dumps(fc)
     for demo in DEMO_IPS:
         assert demo not in blob, f"FAIL: demo IP {demo} found inside forecast payload"
 
-    # Live host registry updated with threat metadata, real IPs only
-    assert TARGET in LIVE_HOSTS_DB and LIVE_HOSTS_DB[TARGET]["predictedStage"] == fc["predicted_stage"]
-    blob_hosts = json.dumps(LIVE_HOSTS_DB)
-    for demo in DEMO_IPS:
-        assert demo not in blob_hosts, f"FAIL: demo IP {demo} found in LIVE_HOSTS_DB"
-
-    print(f"  PASS: forecast payload real-IP-only: {ATTACKER} -> {TARGET}, stage={fc['predicted_stage']}, "
-          f"risk={fc.get('risk_score')}, input_shape={fc.get('input_shape')}")
-
-
-def test_forecaster_rejects_zero_padding_for_partial_history():
-    """Direct unit check: partial real histories run instant inference on real traffic features."""
-    from models.stage_forecaster_lstm_infer import forecast_host
-
-    partial = [{"duration": 0.3, "packet_count": 8, "byte_count": 480,
-                "dst_port": 445, "protocol": "TCP",
-                "syn_flag": 1, "ack_flag": 1, "rst_flag": 0, "fin_flag": 0}] * 7
-    res = forecast_host(TARGET, partial)
-
-    assert res.get("model_status") == "TRAINED"
-    assert res.get("input_shape") == [1, 10, 14]
-    assert "predicted_stage" in res
-
-    print("  PASS: 7 real windows -> instant real LSTM inference")
+    print("  PASS: world model broadcast carries real IPs and correct payload fields")
 
 
 if __name__ == "__main__":
@@ -230,11 +144,7 @@ if __name__ == "__main__":
 
     tests = [
         test_real_pair_preserved_and_no_demo_fallback,
-        test_temporal_history_keyed_by_real_pair,
-        test_warmup_blocks_inference_before_10_windows,
-        test_no_fabricated_forecast_from_live_pair_below_threshold,
-        test_full_pipeline_forecast_payload_has_real_ips,
-        test_forecaster_rejects_zero_padding_for_partial_history,
+        test_world_model_forecast_broadcast_has_real_ips,
     ]
 
     passed = 0

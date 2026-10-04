@@ -86,158 +86,7 @@ function getMonotonePath(pts) {
   return path;
 }
 
-// ─── SECTION 2: Overview Strip & SVG Risk Trajectory Chart ────────────────────
-function HostOverview({ H, w, threshold = 0.5, onSelect }) {
-  const riskSeries = H?.risk_60s;
-  if (!riskSeries || riskSeries.length < 2) return null;
-
-  const N = riskSeries.length;
-  const svgWidth = 840;
-  const svgHeight = 70;
-  const paddingLeft = 52;
-  const paddingRight = 24;
-  const paddingTop = 22;
-  const paddingBottom = 12;
-  const chartWidth = svgWidth - paddingLeft - paddingRight;
-  const chartHeight = svgHeight - paddingTop - paddingBottom;
-
-  const stepW = N > 1 ? chartWidth / (N - 1) : chartWidth;
-
-  const pts = riskSeries.map((v, i) => {
-    const val = Math.max(0, Math.min(1, Number(v) || 0));
-    const x = paddingLeft + (i / (N - 1)) * chartWidth;
-    const y = paddingTop + (1 - val) * chartHeight;
-    return { x, y, i };
-  });
-
-  const linePath = getMonotonePath(pts);
-
-  const threshVal = Math.max(0, Math.min(1, Number(threshold) || 0.5));
-  const thresholdY = paddingTop + (1 - threshVal) * chartHeight;
-
-  const selectedIdx = Math.max(0, Math.min(N - 1, w ?? (N - 1)));
-  const markerX = paddingLeft + (selectedIdx / (N - 1)) * chartWidth;
-
-  const handleClick = (e) => {
-    if (!onSelect) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clientX = e.clientX - rect.left;
-    const svgX = (clientX / rect.width) * svgWidth;
-    const ratio = Math.max(0, Math.min(1, (svgX - paddingLeft) / chartWidth));
-    const nearestIdx = Math.max(0, Math.min(N - 1, Math.round(ratio * (N - 1))));
-    onSelect(nearestIdx);
-  };
-
-  return (
-    <div className="w-full select-none mb-2">
-      <svg
-        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-        className="w-full h-[70px] block cursor-pointer bg-[#0B0F14] rounded-lg border border-white/10 overflow-hidden"
-        onClick={handleClick}
-      >
-        {/* Label on the left */}
-        <text
-          x={paddingLeft}
-          y={14}
-          fill="#8f8e86"
-          fontSize="11"
-          fontFamily="Inter, sans-serif"
-          fontWeight="600"
-        >
-          Whole capture for this host
-        </text>
-
-        {/* Total windows counter on right */}
-        <text
-          x={paddingLeft + chartWidth}
-          y={14}
-          fill="#8f8e86"
-          fontSize="10"
-          fontFamily="JetBrains Mono, monospace"
-          textAnchor="end"
-        >
-          {N} windows
-        </text>
-
-        {/* Faint Red Background for Attack Stages */}
-        {riskSeries.map((_, i) => {
-          const stage = H?.true_stage?.[i];
-          const isAttack = Boolean(stage && stage !== "normal" && stage !== "ambiguous");
-          if (!isAttack) return null;
-          const x = paddingLeft + (i / (N - 1)) * chartWidth;
-          return (
-            <rect
-              key={`attack-bg-${i}`}
-              x={x - stepW / 2}
-              y={paddingTop}
-              width={stepW}
-              height={chartHeight}
-              fill="rgba(208,59,59,0.18)"
-            />
-          );
-        })}
-
-        {/* Alert Threshold Horizontal Dashed Line */}
-        <line
-          x1={paddingLeft}
-          y1={thresholdY}
-          x2={paddingLeft + chartWidth}
-          y2={thresholdY}
-          stroke="rgba(244,243,238,0.28)"
-          strokeWidth="1"
-          strokeDasharray="2 4"
-        />
-
-        {/* Risk 60s Line */}
-        <path
-          d={linePath}
-          fill="none"
-          stroke="#3987e5"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-
-        {/* Alert Tick Marks on the Bottom Edge */}
-        {riskSeries.map((_, i) => {
-          if (!H?.alert?.[i]) return null;
-          const x = paddingLeft + (i / (N - 1)) * chartWidth;
-          const bottomY = paddingTop + chartHeight;
-          return (
-            <line
-              key={`alert-tick-${i}`}
-              x1={x}
-              y1={bottomY - 4}
-              x2={x}
-              y2={bottomY}
-              stroke="#ef4444"
-              strokeWidth="1.5"
-            />
-          );
-        })}
-
-        {/* Gold Vertical Marker at Window w */}
-        <line
-          x1={markerX}
-          y1={paddingTop}
-          x2={markerX}
-          y2={paddingTop + chartHeight}
-          stroke="#CBA135"
-          strokeWidth="2"
-          strokeDasharray="2 2"
-        />
-        <circle
-          cx={markerX}
-          cy={pts[selectedIdx]?.y ?? (paddingTop + chartHeight / 2)}
-          r="3.5"
-          fill="#0B0F14"
-          stroke="#CBA135"
-          strokeWidth="2"
-        />
-      </svg>
-    </div>
-  );
-}
-
+// ─── SECTION 2: Risk Trajectory & K-Step Simulation Chart ────────────────────
 function KStepSimulationChart({
   H,
   threshold = 0.5,
@@ -248,6 +97,11 @@ function KStepSimulationChart({
   onSelectWindow,
 }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isScrubberDragging, setIsScrubberDragging] = useState(false);
+
+  const dragRef = useRef({ isDown: false, startX: 0, startW: 0, hasMoved: false });
+  const scrubberTrackRef = useRef(null);
 
   const totalObserved = H?.time?.length || 0;
   const w = (selectedWindowIdx !== null && selectedWindowIdx >= 0 && selectedWindowIdx < totalObserved)
@@ -264,12 +118,16 @@ function KStepSimulationChart({
     for (let i = wStart; i <= w; i++) {
       const timeStr = H.time?.[i] || `W${i + 1}`;
       const shortTime = timeStr.includes(" ") ? timeStr.split(" ").pop() : timeStr;
-      const wmRisk = H.risk_60s?.[i] ?? 0;
+      const _st0 = H.stage_forecast?.[i]?.[0] || "normal";
+      const _pr0 = H.stage_forecast_prob?.[i]?.[0];
+      const wmRisk = _pr0 == null ? (H.risk_60s?.[i] ?? 0) : (String(_st0).toLowerCase() !== "normal" ? _pr0 : 1 - _pr0);
       const lrRisk = (baselineAvailable && H.baseline_risk_60s && H.baseline_risk_60s[i] != null)
         ? H.baseline_risk_60s[i]
         : null;
       const stage = H.stage_forecast?.[i]?.[0] || "normal";
       const trueStage = H.true_stage?.[i] || null;
+      const p0 = H.stage_forecast_prob?.[i]?.[0];
+      const nowAttack = p0 == null ? null : (String(stage).toLowerCase() !== "normal" ? p0 : 1 - p0);
 
       observed.push({
         id: `obs-${i}`,
@@ -280,6 +138,11 @@ function KStepSimulationChart({
         lrRisk: lrRisk != null ? Math.max(0, Math.min(1, lrRisk)) : null,
         stage,
         trueStage,
+        nowAttack: nowAttack != null ? Math.max(0, Math.min(1, nowAttack)) : null,
+        stageProb: H.stage_forecast_prob?.[i]?.[0] ?? null,
+        second: H.stage_forecast_second?.[i]?.[0] ?? null,
+        secondProb: H.stage_forecast_second_prob?.[i]?.[0] ?? null,
+        flows: H.flows?.[i] ?? null,
         isForecast: false,
       });
     }
@@ -287,10 +150,11 @@ function KStepSimulationChart({
     // 6 Forecast steps (k = 1..6)
     const forecast = [];
     for (let k = 1; k <= 6; k++) {
-      const wmRisk = H.forecast_curve?.[w]?.[k - 1] ?? (H.risk_60s?.[w] ?? 0);
-      const cMin = H.forecast_curve_min?.[w]?.[k - 1] ?? wmRisk;
-      const cMax = H.forecast_curve_max?.[w]?.[k - 1] ?? wmRisk;
       const stage = H.stage_forecast?.[w]?.[k] || "normal";
+      const _prk = H.stage_forecast_prob?.[w]?.[k];
+      const wmRisk = _prk == null ? 0 : (String(stage).toLowerCase() !== "normal" ? _prk : 1 - _prk);
+      const cMin = wmRisk;
+      const cMax = wmRisk;
 
       forecast.push({
         id: `f-${k}`,
@@ -300,6 +164,11 @@ function KStepSimulationChart({
         lrRisk: null,
         stage,
         trueStage: null,
+        stageProb: H.stage_forecast_prob?.[w]?.[k] ?? null,
+        second: H.stage_forecast_second?.[w]?.[k] ?? null,
+        secondProb: H.stage_forecast_second_prob?.[w]?.[k] ?? null,
+        flows: null,
+        aheadSeconds: k * 10,
         isForecast: true,
         coneUpper: Math.max(0, Math.min(1, cMax)),
         coneLower: Math.max(0, Math.min(1, cMin)),
@@ -309,21 +178,13 @@ function KStepSimulationChart({
     return [...observed, ...forecast];
   }, [H, w, wStart, totalObserved, baselineAvailable]);
 
-  if (!timelineData.length) {
-    return (
-      <div className="py-8 text-center text-[#8f8e86] text-xs font-mono-jb">
-        Timeline unavailable for this host
-      </div>
-    );
-  }
-
   // Chart Dimensions
   const svgWidth = 840;
-  const svgHeight = 280;
+  const svgHeight = 286;
   const paddingLeft = 52;
   const paddingRight = 24;
   const paddingTop = 26;
-  const paddingBottom = 48;
+  const paddingBottom = 54;
 
   const chartWidth = svgWidth - paddingLeft - paddingRight;
   const chartHeight = svgHeight - paddingTop - paddingBottom;
@@ -339,48 +200,228 @@ function KStepSimulationChart({
   const numPoints = timelineData.length;
   const stepW = numPoints > 1 ? chartWidth / (numPoints - 1) : chartWidth;
 
-  const coords = timelineData.map((pt, idx) => {
-    const x = numPoints === 1
-      ? paddingLeft + chartWidth / 2
-      : paddingLeft + (idx / (numPoints - 1)) * chartWidth;
-    const yWm = paddingTop + (1 - pt.wmRisk) * chartHeight;
-    const yLr = pt.lrRisk != null ? paddingTop + (1 - pt.lrRisk) * chartHeight : null;
-    const yUpper = pt.isForecast ? paddingTop + (1 - pt.coneUpper) * chartHeight : yWm;
-    const yLower = pt.isForecast ? paddingTop + (1 - pt.coneLower) * chartHeight : yWm;
-    return {
-      ...pt,
-      x,
-      y: yWm,
-      yLr,
-      yUpper,
-      yLower,
-    };
-  });
+  // Plain-language reading of the graph for the selected window
+  const graphFacts = useMemo(() => {
+    const obs = timelineData.filter((p) => !p.isForecast);
+    const fc = timelineData.filter((p) => p.isForecast);
+    if (obs.length === 0) return [];
+    const thr = Number(threshold) || 0.5;
+    const pc = (x) => `${(x * 100).toFixed(0)}%`;
+    const nice = (st) => String(st || "normal").replace(/_/g, " ");
+    const cur = obs[obs.length - 1];
+    const facts = [];
+    facts.push(
+      cur.wmRisk >= thr
+        ? `Selected window ${cur.label}: attack probability ${pc(cur.wmRisk)}. The model reads this host as attacking now (${nice(cur.stage)}).`
+        : `Selected window ${cur.label}: attack probability ${pc(cur.wmRisk)}. The model reads this host as normal right now.`
+    );
+    const hot = fc.map((p, i) => ({ ...p, k: i + 1 })).filter((p) => p.wmRisk >= thr);
+    if (hot.length > 0) {
+      const top = hot.reduce((a, b) => (b.wmRisk > a.wmRisk ? b : a));
+      facts.push(`Forecast (right of NOW): ${nice(top.stage)} expected between +${hot[0].k * 10} s and +${hot[hot.length - 1].k * 10} s, up to ${pc(top.wmRisk)}.`);
+    } else if (fc.length > 0) {
+      facts.push(`Forecast (right of NOW): no attack expected in the next 60 seconds (highest ${pc(Math.max(...fc.map((p) => p.wmRisk)))}).`);
+    }
+    const above = obs.filter((p) => p.wmRisk >= thr).length;
+    const lab = obs.filter((p) => p.trueStage && !["normal", "ambiguous"].includes(String(p.trueStage).toLowerCase()));
+    let line = `Of the ${obs.length} observed windows shown, the model reads ${above} as attack (probability 50% or more).`;
+    if (obs.some((p) => p.trueStage)) {
+      line += lab.length > 0
+        ? ` The file's own labels mark ${lab.length} of them as attack (red bands); the model reads ${lab.filter((p) => p.wmRisk >= thr).length} of those as attack.`
+        : " The file's own labels mark none of them as attack.";
+    }
+    facts.push(line);
+    if (cur.lrRisk != null) {
+      facts.push(`Grey dashed line: the LR baseline (a simple logistic-regression model). At this window it gives ${pc(cur.lrRisk)}.`);
+    }
+    facts.push("Solid blue line: what the model detected in the traffic that is in the file. Dashed gold line: what the model forecasts for the next 60 seconds. High = attack, low = normal. Red bands: the true answer written in the file, shown only to check the model.");
+    return facts;
+  }, [timelineData, threshold]);
+
+  const coords = useMemo(() => {
+    return timelineData.map((pt, idx) => {
+      const x = numPoints === 1
+        ? paddingLeft + chartWidth / 2
+        : paddingLeft + (idx / (numPoints - 1)) * chartWidth;
+      const yWm = paddingTop + (1 - pt.wmRisk) * chartHeight;
+      const yLr = pt.lrRisk != null ? paddingTop + (1 - pt.lrRisk) * chartHeight : null;
+      const yNow = pt.nowAttack != null ? paddingTop + (1 - pt.nowAttack) * chartHeight : null;
+      const yUpper = pt.isForecast ? paddingTop + (1 - pt.coneUpper) * chartHeight : yWm;
+      const yLower = pt.isForecast ? paddingTop + (1 - pt.coneLower) * chartHeight : yWm;
+      return {
+        ...pt,
+        x,
+        y: yWm,
+        yLr,
+        yNow,
+        yUpper,
+        yLower,
+      };
+    });
+  }, [timelineData, numPoints, chartWidth, chartHeight, paddingLeft, paddingTop]);
 
   // World-model line points
-  const wmPts = coords.map((c) => ({ x: c.x, y: c.y }));
-  const wmPath = getMonotonePath(wmPts);
+  const wmPts = useMemo(() => coords.map((c) => ({ x: c.x, y: c.y })), [coords]);
+  const wmPath = useMemo(() => getMonotonePath(wmPts), [wmPts]);
+  // The same line in two parts: what the model DETECTED on traffic in the file, and what it FORECASTS after NOW.
+  const obsPath = useMemo(() => getMonotonePath(coords.filter((c) => !c.isForecast).map((c) => ({ x: c.x, y: c.y }))), [coords]);
+  const fcPath = useMemo(() => {
+    const lastObs = coords.filter((c) => !c.isForecast).slice(-1);
+    return getMonotonePath([...lastObs, ...coords.filter((c) => c.isForecast)].map((c) => ({ x: c.x, y: c.y })));
+  }, [coords]);
+  const nowX = useMemo(() => {
+    const o = coords.filter((c) => !c.isForecast);
+    return o.length ? o[o.length - 1].x : paddingLeft;
+  }, [coords, paddingLeft]);
 
   // LR baseline points (only over observed windows)
-  const lrCoords = coords.filter(c => !c.isForecast && c.yLr != null);
-  const lrPts = lrCoords.map(c => ({ x: c.x, y: c.yLr }));
-  const lrPath = getMonotonePath(lrPts);
+  const lrCoords = useMemo(() => coords.filter(c => !c.isForecast && c.yLr != null), [coords]);
+  const lrPts = useMemo(() => lrCoords.map(c => ({ x: c.x, y: c.yLr })), [lrCoords]);
+  const lrPath = useMemo(() => getMonotonePath(lrPts), [lrPts]);
+
+  // "Attack happening now" line (observed windows only)
+  const nowCoords = useMemo(() => coords.filter(c => !c.isForecast && c.yNow != null), [coords]);
+  const nowPath = useMemo(() => getMonotonePath(nowCoords.map(c => ({ x: c.x, y: c.yNow }))), [nowCoords]);
 
   // Forecast cone points (starting from last observed window w)
-  const lastObs = coords.find(c => c.obsIdx === w);
-  const forecastCoords = coords.filter(c => c.isForecast);
-  let coneAreaPath = "";
-  let coneUpperPath = "";
-  let coneLowerPath = "";
+  const { coneAreaPath, coneUpperPath, coneLowerPath } = useMemo(() => {
+    const lastObs = coords.find(c => c.obsIdx === w);
+    const forecastCoords = coords.filter(c => c.isForecast);
+    let area = "";
+    let upper = "";
+    let lower = "";
 
-  if (lastObs && forecastCoords.length > 0) {
-    const conePts = [lastObs, ...forecastCoords];
-    const upperPts = conePts.map(c => ({ x: c.x, y: c.yUpper }));
-    const lowerPts = conePts.map(c => ({ x: c.x, y: c.yLower }));
-    coneUpperPath = getMonotonePath(upperPts);
-    coneLowerPath = getMonotonePath(lowerPts);
-    const lowerRev = [...lowerPts].reverse();
-    coneAreaPath = `${coneUpperPath} L ${lowerRev.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" L ")} Z`;
+    if (lastObs && forecastCoords.length > 0) {
+      const conePts = [lastObs, ...forecastCoords];
+      const upperPts = conePts.map(c => ({ x: c.x, y: c.yUpper }));
+      const lowerPts = conePts.map(c => ({ x: c.x, y: c.yLower }));
+      upper = getMonotonePath(upperPts);
+      lower = getMonotonePath(lowerPts);
+      const lowerRev = [...lowerPts].reverse();
+      area = `${upper} L ${lowerRev.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" L ")} Z`;
+    }
+    return { coneAreaPath: area, coneUpperPath: upper, coneLowerPath: lower };
+  }, [coords, w]);
+
+  // Pointer drag on main SVG chart canvas
+  const handlePointerDown = (e) => {
+    if (totalObserved <= 1) return;
+    dragRef.current = {
+      isDown: true,
+      startX: e.clientX,
+      startW: w,
+      hasMoved: false,
+    };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (_) {}
+  };
+
+  const handlePointerMove = (e) => {
+    if (dragRef.current.isDown) {
+      const dx = e.clientX - dragRef.current.startX;
+      if (Math.abs(dx) > 3) {
+        dragRef.current.hasMoved = true;
+        setIsDragging(true);
+        setHoveredIndex(null);
+
+        // Tactile scrub sensitivity: ~14px of drag per window
+        const pxPerStep = 14;
+        const stepShift = Math.round(dx / pxPerStep);
+        const nextW = Math.max(0, Math.min(totalObserved - 1, dragRef.current.startW + stepShift));
+        if (nextW !== w && onSelectWindow) {
+          onSelectWindow(nextW);
+        }
+      }
+    }
+  };
+
+  const handlePointerUp = (e) => {
+    if (dragRef.current.isDown) {
+      if (!dragRef.current.hasMoved) {
+        // Direct click on chart: find clicked horizontal position
+        const rect = e.currentTarget.getBoundingClientRect();
+        const clientX = e.clientX - rect.left;
+        const svgX = (clientX / rect.width) * svgWidth;
+        if (svgX >= paddingLeft && svgX <= paddingLeft + chartWidth) {
+          const ratio = (svgX - paddingLeft) / chartWidth;
+          const pointIdx = Math.round(ratio * (numPoints - 1));
+          if (pointIdx >= 0 && pointIdx < coords.length) {
+            const targetCoord = coords[pointIdx];
+            if (targetCoord && !targetCoord.isForecast && targetCoord.obsIdx != null && onSelectWindow) {
+              onSelectWindow(targetCoord.obsIdx);
+            }
+          }
+        }
+      }
+      dragRef.current.isDown = false;
+      setIsDragging(false);
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+  };
+
+  const handlePointerCancel = (e) => {
+    dragRef.current.isDown = false;
+    setIsDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  };
+
+  // Mouse wheel / trackpad scroll left/right to scrub time
+  const handleWheel = (e) => {
+    if (totalObserved <= 1 || !onSelectWindow) return;
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (Math.abs(delta) > 10) {
+      const step = delta > 0 ? 1 : -1;
+      const nextW = Math.max(0, Math.min(totalObserved - 1, w + step));
+      if (nextW !== w) {
+        onSelectWindow(nextW);
+      }
+    }
+  };
+
+  // Mini scrubber track drag
+  const handleScrubberAction = (clientX) => {
+    if (!scrubberTrackRef.current || totalObserved <= 1 || !onSelectWindow) return;
+    const rect = scrubberTrackRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const targetIdx = Math.max(0, Math.min(totalObserved - 1, Math.round(ratio * (totalObserved - 1))));
+    if (targetIdx !== w) {
+      onSelectWindow(targetIdx);
+    }
+  };
+
+  const handleScrubberPointerDown = (e) => {
+    if (totalObserved <= 1) return;
+    setIsScrubberDragging(true);
+    handleScrubberAction(e.clientX);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (_) {}
+  };
+
+  const handleScrubberPointerMove = (e) => {
+    if (isScrubberDragging) {
+      handleScrubberAction(e.clientX);
+    }
+  };
+
+  const handleScrubberPointerUp = (e) => {
+    setIsScrubberDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  };
+
+  if (!timelineData.length) {
+    return (
+      <div className="py-8 text-center text-[#8f8e86] text-xs font-mono-jb">
+        Timeline unavailable for this host
+      </div>
+    );
   }
 
   const threshVal = Math.max(0, Math.min(1, threshold));
@@ -388,29 +429,32 @@ function KStepSimulationChart({
 
   const hasTrueStage = H?.true_stage != null && Array.isArray(H.true_stage) && H.true_stage.some(s => s != null);
   const activeCoord = hoveredIndex !== null && coords[hoveredIndex] ? coords[hoveredIndex] : null;
+  const currentWindowTime = H?.time?.[w] || `Window ${w + 1}`;
 
   return (
     <div className="w-full relative select-none">
-      {/* Legend Row */}
-      <div className="flex items-center justify-between flex-wrap gap-4 pb-3 mb-2 text-[11px] border-b border-white/20">
-        <div className="flex items-center gap-5 flex-wrap">
+      {/* Interactive Controls & Legend Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3 pb-3 mb-2 text-[11px] border-b border-white/20">
+        {/* Left: Legend */}
+        <div className="flex items-center gap-4 flex-wrap">
           {/* World Model */}
-          <div className="flex items-center gap-2">
-            <span className="w-5 h-[2px] bg-[#3987e5] inline-block rounded-full" />
-            <span className="text-[#f4f3ee] font-medium font-sans">World model</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-4 h-[2px] bg-[#3987e5] inline-block rounded-full" />
+            <span className="text-[#f4f3ee] font-medium font-sans">Detected by the model (traffic in the file)</span>
           </div>
-
-          {/* Forecast cone */}
-          <div className="flex items-center gap-2">
-            <span className="w-5 h-2.5 bg-[#3987e5]/20 border border-[#3987e5] border-dotted inline-block rounded-sm" />
-            <span className="text-[#c3c2b7] font-medium font-sans">Range across {modelCopies} models</span>
+          <div className="flex items-center gap-1.5">
+            <span
+              className="w-5 h-[2px] inline-block"
+              style={{ backgroundImage: "linear-gradient(to right, #cba135 60%, transparent 60%)", backgroundSize: "6px 2px" }}
+            />
+            <span className="text-[#cba135] font-medium font-sans">Forecast by the model (next 60 s)</span>
           </div>
 
           {/* LR baseline */}
           {baselineAvailable && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <span
-                className="w-5 h-[1.5px] inline-block"
+                className="w-4 h-[1.5px] inline-block"
                 style={{
                   backgroundImage: "linear-gradient(to right, #8f8e86 50%, transparent 50%)",
                   backgroundSize: "6px 1.5px",
@@ -420,23 +464,11 @@ function KStepSimulationChart({
             </div>
           )}
 
-          {/* Alert threshold */}
-          <div className="flex items-center gap-2">
-            <span
-              className="w-5 h-[1px] inline-block"
-              style={{
-                backgroundImage: "linear-gradient(to right, rgba(244,243,238,0.3) 50%, transparent 50%)",
-                backgroundSize: "4px 1px",
-              }}
-            />
-            <span className="text-[#8f8e86] font-medium font-sans">Alert threshold ({threshVal.toFixed(2)})</span>
-          </div>
-
           {/* Labelled malicious */}
           {hasTrueStage && (
-            <div className="flex items-center gap-2">
-              <span className="w-3.5 h-3 bg-[rgba(208,59,59,0.18)] border border-[rgba(208,59,59,0.4)] inline-block rounded-sm" />
-              <span className="text-[#8f8e86] font-medium font-sans">Labelled malicious</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2.5 bg-[rgba(208,59,59,0.18)] border border-[rgba(208,59,59,0.4)] inline-block rounded-sm" />
+              <span className="text-[#8f8e86] font-medium font-sans">True answer in the file: attack (for checking only)</span>
             </div>
           )}
         </div>
@@ -447,12 +479,21 @@ function KStepSimulationChart({
         </span>
       </div>
 
-      {/* SVG Canvas */}
-      <div className="w-full relative">
+      {/* SVG Canvas with Direct Left/Right Drag Scrubbing */}
+      <div className="w-full relative group">
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          className="w-full h-auto overflow-visible"
-          onMouseLeave={() => setHoveredIndex(null)}
+          className={`w-full h-auto overflow-visible select-none touch-none transition-colors ${
+            isDragging ? "cursor-grabbing" : "cursor-grab"
+          }`}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onWheel={handleWheel}
+          onMouseLeave={() => {
+            if (!dragRef.current.isDown) setHoveredIndex(null);
+          }}
         >
           {/* Ground truth full-height attack bars */}
           {coords.map((c, idx) => {
@@ -521,19 +562,47 @@ function KStepSimulationChart({
             fontFamily="Inter, sans-serif"
             fontWeight="normal"
           >
-            risk score
+            attack probability
           </text>
-          <text
-            x={paddingLeft + chartWidth / 2}
-            y={paddingTop + chartHeight + 36}
-            fill="#8f8e86"
-            fontSize="11"
-            fontFamily="Inter, sans-serif"
-            fontWeight="normal"
-            textAnchor="middle"
-          >
-            timeline (observed windows → forecast horizon)
-          </text>
+          {/* X Axis Region Labels */}
+          {(() => {
+            const nowCoord = coords.find((c) => c.obsIdx === w);
+            const nowX = nowCoord ? nowCoord.x : paddingLeft + chartWidth * 0.65;
+            const obsMidX = (paddingLeft + nowX) / 2;
+            const predMidX = (nowX + (paddingLeft + chartWidth)) / 2;
+
+            return (
+              <g className="select-none pointer-events-none">
+                {/* Observed / Labelled Traffic */}
+                <text
+                  x={obsMidX}
+                  y={paddingTop + chartHeight + 43}
+                  fill="#8f8e86"
+                  fontSize="11"
+                  fontFamily="Inter, sans-serif"
+                  fontWeight="600"
+                  textAnchor="middle"
+                  letterSpacing="0.04em"
+                >
+                  ◀ LABELLED TRAFFIC
+                </text>
+
+                {/* Predicted Traffic */}
+                <text
+                  x={predMidX}
+                  y={paddingTop + chartHeight + 43}
+                  fill="#cba135"
+                  fontSize="11"
+                  fontFamily="Inter, sans-serif"
+                  fontWeight="600"
+                  textAnchor="middle"
+                  letterSpacing="0.04em"
+                >
+                  PREDICTED ▶
+                </text>
+              </g>
+            );
+          })()}
 
           {/* X Axis Ticks */}
           {(() => {
@@ -573,27 +642,6 @@ function KStepSimulationChart({
             });
           })()}
 
-          {/* Forecast Cone Area */}
-          {coneAreaPath && (
-            <>
-              <path d={coneAreaPath} fill="rgba(57,135,229,0.16)" />
-              <path
-                d={coneUpperPath}
-                fill="none"
-                stroke="#3987e5"
-                strokeWidth="1.2"
-                strokeDasharray="2 3"
-              />
-              <path
-                d={coneLowerPath}
-                fill="none"
-                stroke="#3987e5"
-                strokeWidth="1.2"
-                strokeDasharray="2 3"
-              />
-            </>
-          )}
-
           {/* Logistic-Regression Baseline Line */}
           {baselineAvailable && lrPath && (
             <path
@@ -605,35 +653,9 @@ function KStepSimulationChart({
             />
           )}
 
-          {/* Alert Threshold Line */}
-          <line
-            x1={paddingLeft}
-            y1={thresholdY}
-            x2={paddingLeft + chartWidth}
-            y2={thresholdY}
-            stroke="rgba(244,243,238,0.28)"
-            strokeWidth="1"
-            strokeDasharray="2 4"
-          />
-          <text
-            x={paddingLeft + 6}
-            y={thresholdY - 4}
-            fill="rgba(244,243,238,0.4)"
-            fontSize="10"
-            fontFamily="Inter, sans-serif"
-            fontWeight="500"
-          >
-            Alert threshold ({threshVal.toFixed(2)})
-          </text>
-
           {/* World-Model Line */}
-          <path
-            d={wmPath}
-            fill="none"
-            stroke="#3987e5"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
+          <path d={obsPath} fill="none" stroke="#3987e5" strokeWidth="2" strokeLinecap="round" />
+          <path d={fcPath} fill="none" stroke="#cba135" strokeWidth="2" strokeLinecap="round" strokeDasharray="6 5" />
 
           {/* Selected-Window Cursor Marker */}
           {coords.map((c) => {
@@ -646,10 +668,30 @@ function KStepSimulationChart({
                     x2={c.x}
                     y2={paddingTop + chartHeight}
                     stroke="#CBA135"
-                    strokeWidth="1.5"
+                    strokeWidth="2"
                     strokeDasharray="2 2"
                   />
-                  <circle cx={c.x} cy={c.y} r="5" fill="#0B0F14" stroke="#CBA135" strokeWidth="2.5" />
+                  {/* Top scrubber badge indicator */}
+                  <rect
+                    x={c.x - 14}
+                    y={paddingTop - 12}
+                    width={28}
+                    height={12}
+                    rx={3}
+                    fill="#CBA135"
+                  />
+                  <text
+                    x={c.x}
+                    y={paddingTop - 3}
+                    fill="#0B0F14"
+                    fontSize="8.5"
+                    fontFamily="JetBrains Mono, monospace"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    NOW
+                  </text>
+                  <circle cx={c.x} cy={c.y} r="5.5" fill="#0B0F14" stroke="#CBA135" strokeWidth="2.5" />
                 </g>
               );
             }
@@ -657,7 +699,7 @@ function KStepSimulationChart({
           })}
 
           {/* Active Hover Circle */}
-          {activeCoord && (
+          {activeCoord && !isDragging && (
             <circle
               cx={activeCoord.x}
               cy={activeCoord.y}
@@ -675,19 +717,15 @@ function KStepSimulationChart({
               width={stepW}
               height={chartHeight}
               fill="transparent"
-              className="cursor-pointer"
-              onMouseEnter={() => setHoveredIndex(idx)}
-              onClick={() => {
-                if (!c.isForecast && c.obsIdx != null && onSelectWindow) {
-                  onSelectWindow(c.obsIdx);
-                }
+              onMouseEnter={() => {
+                if (!dragRef.current.isDown) setHoveredIndex(idx);
               }}
             />
           ))}
         </svg>
 
-        {/* Hover Tooltip */}
-        {activeCoord && (
+        {/* Hover Tooltip (hidden during active dragging) */}
+        {activeCoord && !isDragging && (
           <div
             style={{
               position: "absolute",
@@ -697,68 +735,92 @@ function KStepSimulationChart({
             }}
             className="z-30 p-3 bg-[#262624] border border-[#3a3a37] rounded-lg shadow-xl pointer-events-none min-w-[200px]"
           >
-            <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-[#3a3a37] gap-2">
-              <span className="text-[12px] font-semibold text-[#f4f3ee] font-sans">
-                {activeCoord.label} ({activeCoord.sub})
-              </span>
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded font-mono-jb uppercase font-bold"
-                style={{
-                  backgroundColor: getStageThemeColor(activeCoord.stage) + "26",
-                  color: getStageThemeColor(activeCoord.stage),
-                }}
-              >
-                {activeCoord.stage?.replace(/_/g, " ")}
-              </span>
-            </div>
-
-            <div className="space-y-1.5 text-[11px] text-[#c3c2b7]">
-              <div className="flex justify-between items-center">
-                <span className="text-[#8f8e86] font-sans">World Model:</span>
-                <span className="font-mono-jb font-bold text-[#f4f3ee]">
-                  {(activeCoord.wmRisk * 100).toFixed(1)}%
-                </span>
-              </div>
-              {baselineAvailable && activeCoord.lrRisk != null && (
-                <div className="flex justify-between items-center">
-                  <span className="text-[#8f8e86] font-sans">LR baseline:</span>
-                  <span className="font-mono-jb text-[#c3c2b7]">
-                    {(activeCoord.lrRisk * 100).toFixed(1)}%
-                  </span>
+            {(() => {
+              const c = activeCoord;
+              const nm = (st) => (!st || String(st).toLowerCase() === "normal" ? "Normal" : formatStageDisplayName(st));
+              const pct = (x) => (x == null || !Number.isFinite(Number(x)) ? "" : `${(Number(x) * 100).toFixed(0)}%`);
+              const modelAttack = String(c.stage || "normal").toLowerCase() !== "normal";
+              const lbl = c.trueStage ? String(c.trueStage).toLowerCase() : null;
+              const labelAttack = lbl != null && lbl !== "normal" && lbl !== "ambiguous";
+              const row = (k, v, cls = "text-[#f4f3ee]") => (
+                <div className="flex justify-between items-center gap-4">
+                  <span className="text-[#8f8e86] font-sans">{k}</span>
+                  <span className={`font-mono-jb font-bold ${cls}`}>{v}</span>
                 </div>
-              )}
-              {activeCoord.isForecast && (
-                <div className="flex justify-between items-center text-[10px] text-[#8f8e86]">
-                  <span className="font-sans">Forecast cone:</span>
-                  <span className="font-mono-jb text-[#3987e5]">
-                    {(activeCoord.coneLower * 100).toFixed(0)}% – {(activeCoord.coneUpper * 100).toFixed(0)}%
-                  </span>
-                </div>
-              )}
-              {activeCoord.trueStage && (
-                <div className="flex justify-between items-center text-[10px] pt-1 border-t border-[#3a3a37]">
-                  <span className="text-[#8f8e86] font-sans">Labelled malicious:</span>
-                  <span className="font-mono-jb text-[#d03b3b] font-bold">
-                    {activeCoord.trueStage}
-                  </span>
-                </div>
-              )}
-            </div>
+              );
+              return (
+                <>
+                  <div className="pb-1.5 mb-2 border-b border-[#3a3a37]">
+                    <div className="text-[12px] font-semibold text-[#f4f3ee] font-sans">
+                      {c.isForecast ? `+${c.aheadSeconds} seconds from NOW` : `Time ${c.label}`}
+                    </div>
+                    <div className={`text-[10px] font-bold uppercase tracking-wider ${c.isForecast ? "text-gold" : "text-[#8f8e86]"}`}>
+                      {c.isForecast ? "Forecast: has not happened yet" : "Observed: traffic that is in the file"}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 text-[11px] text-[#c3c2b7]">
+                    {row(c.isForecast ? "Model expects:" : "Model says:", `${nm(c.stage)} ${pct(c.stageProb)}`, modelAttack ? "text-[#e5484d]" : "text-[#3fb950]")}
+                    {row("Attack probability:", `${(c.wmRisk * 100).toFixed(1)}%`)}
+                    {c.second && pct(c.secondProb) && row("Other possibility:", `${nm(c.second)} ${pct(c.secondProb)}`, "text-[#c3c2b7]")}
+                    {!c.isForecast && c.flows != null && row("Flows in these 10 s:", String(c.flows), "text-[#c3c2b7]")}
+                    {!c.isForecast && baselineAvailable && c.lrRisk != null && row("LR baseline:", `${(c.lrRisk * 100).toFixed(1)}%`, "text-[#c3c2b7]")}
+                    {!c.isForecast && lbl != null && (
+                      <div className="pt-1.5 mt-1 border-t border-[#3a3a37] space-y-1.5">
+                        {row("True answer in the file:", lbl === "ambiguous" ? "Mixed" : labelAttack ? nm(lbl) : "Normal", labelAttack ? "text-[#e5484d]" : "text-[#3fb950]")}
+                        {lbl !== "ambiguous" && row("Model vs true answer:", modelAttack === labelAttack ? "agree" : "differ", modelAttack === labelAttack ? "text-[#3fb950]" : "text-[#f59e0b]")}
+                      </div>
+                    )}
+                    {c.isForecast && (
+                      <div className="pt-1.5 mt-1 border-t border-[#3a3a37] text-[10px] text-[#8f8e86]">
+                        No true answer yet: this is the model's prediction.
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
 
-      {/* Notices Under Risk Chart */}
-      {notices && notices.length > 0 && (
-        <div className="mt-4 pt-3 border-t border-white/10 space-y-1.5 text-xs text-[#8f8e86]">
-          <p className="font-bold text-white uppercase tracking-wider text-[11px]">
-            What this result can and cannot tell you
-          </p>
+      {/* Below Graph Controls (Scroll to Latest Button on the right) */}
+      <div className="flex items-center justify-end pt-2">
+        {totalObserved > 1 && (
+          <button
+            type="button"
+            onClick={() => onSelectWindow && onSelectWindow(totalObserved - 1)}
+            disabled={w === totalObserved - 1}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors flex items-center gap-1.5 ${
+              w === totalObserved - 1
+                ? "bg-white/5 text-[#8f8e86] border-white/10 opacity-40 cursor-default"
+                : "bg-surface-2 hover:bg-surface-3 text-text hover:text-white border-white/20 hover:border-white/40 cursor-pointer"
+            }`}
+            title="Scroll graph to the latest window"
+          >
+            <span>Scroll to Latest</span>
+            <span className="font-mono-jb text-[10px] text-text-muted">(W{totalObserved})</span>
+            <span>→</span>
+          </button>
+        )}
+      </div>
+      {graphFacts.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-white/10 space-y-1.5 text-xs text-[#c3c2b7]">
+          <p className="font-bold text-white uppercase tracking-wider text-[11px]">What the graph shows</p>
           <ul className="list-disc list-inside space-y-1 font-medium">
-            {notices.map((notice, idx) => (
-              <li key={idx}>{notice}</li>
+            {graphFacts.map((t, idx) => (
+              <li key={idx}>{t}</li>
             ))}
           </ul>
+          {notices && notices.length > 0 && (
+            <details className="pt-1 text-[#8f8e86]">
+              <summary className="cursor-pointer text-[11px]">Notes about this file ({notices.length})</summary>
+              <ul className="list-disc list-inside space-y-1 mt-1">
+                {notices.map((notice, idx) => (
+                  <li key={idx}>{notice}</li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
     </div>
@@ -791,6 +853,7 @@ function AttackForecastTree({ P }) {
 
     // Headers per level
     const colHeaders = P.levels.map((_, colIdx) => {
+      if (Array.isArray(P.col_headers) && P.col_headers[colIdx]) return P.col_headers[colIdx];
       if (colIdx === 0) return P.start_from === "within 60 s" ? "WITHIN 60 S" : "NOW";
       if (colIdx === 1) return "NEXT STAGE";
       if (colIdx === 2) return "THEN";
@@ -835,8 +898,9 @@ function AttackForecastTree({ P }) {
         w,
         h,
         centerY: y + h / 2,
-        stageDisplayName: formatStageDisplayName(n.stage),
+        stageDisplayName: n.display || formatStageDisplayName(n.stage),
         probPct: Math.round((n.prob || 0) * 100),
+        probText: n.prob_text || `${Math.round((n.prob || 0) * 100)}%`,
         isGold,
         isRoot,
         hasChildren,
@@ -944,11 +1008,11 @@ function AttackForecastTree({ P }) {
               <text
                 key={cIdx}
                 x={treeData.paddingLeft + cIdx * treeData.colSpacing}
-                y={22}
-                fill="#8f8e86"
-                fontSize="11"
-                fontWeight="700"
-                letterSpacing="0.08em"
+                y={24}
+                fill="#F4F3EE"
+                fontSize="14"
+                fontWeight="800"
+                letterSpacing="0.06em"
                 fontFamily="Inter, sans-serif"
               >
                 {hdr}
@@ -957,7 +1021,7 @@ function AttackForecastTree({ P }) {
           </g>
 
           {/* Links and Nodes Container */}
-          <g transform="translate(0, 12)">
+          <g transform="translate(0, 16)">
             {/* Links */}
             <g className="transition-all duration-300">
               {treeData.links.map(link => {
@@ -1002,7 +1066,7 @@ function AttackForecastTree({ P }) {
                 opacityClass = isActive ? "opacity-100 scale-100" : "opacity-25 scale-[0.98]";
               }
 
-              let basisText = "from the model";
+              let basisText = node.note || "from the model";
               if (node.basis !== "model") {
                 const delayText = node.median_delay_min != null ? ` · ${formatDelay(node.median_delay_min)}` : "";
                 basisText = `seen ${node.observed ?? 0} of ${node.observed_total ?? 0} times${delayText}`;
@@ -1023,9 +1087,9 @@ function AttackForecastTree({ P }) {
                     style={{ width: `${node.w}px` }}
                     className={`flex flex-col justify-between p-4 rounded-xl transition-all duration-200 cursor-pointer ${opacityClass} ${
                       isRoot
-                        ? "bg-[#121826] border-2 border-gold shadow-[0_0_18px_rgba(203,161,53,0.35)]"
+                        ? "bg-[#121826] border-2 border-gold"
                         : node.isGold
-                        ? "bg-[#162032] border-2 border-gold shadow-[0_0_15px_rgba(203,161,53,0.3)]"
+                        ? "bg-[#162032] border-2 border-gold"
                         : "bg-[#101522]/90 border border-white/25 hover:border-white/50 hover:bg-[#151c2c]"
                     }`}
                   >
@@ -1034,7 +1098,7 @@ function AttackForecastTree({ P }) {
                       {isRoot && (
                         <div className="mb-1.5">
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-gold text-bg">
-                            CURRENT STATE
+                            {P.root_badge || "CURRENT STATE"}
                           </span>
                         </div>
                       )}
@@ -1051,7 +1115,7 @@ function AttackForecastTree({ P }) {
                       {/* Probability */}
                       <div className="flex items-center justify-between text-xs sm:text-sm mt-1 text-text-muted">
                         <span>
-                          Probability: <strong className={node.isGold ? "text-gold font-bold" : "text-white font-semibold"}>{node.probPct}%</strong>
+                          Probability: <strong className={node.isGold ? "text-gold font-bold" : "text-white font-semibold"}>{node.probText}</strong>
                         </span>
                       </div>
 
@@ -1063,9 +1127,9 @@ function AttackForecastTree({ P }) {
                       )}
                     </div>
 
-                    {/* Footer notes under node (omitted for first column) */}
-                    {!isFirstColumn && (
-                      <div className="pt-2 border-t border-white/10 mt-2 space-y-1">
+                    {/* Footer notes under node (omitted for first column, only rendered if data exists) */}
+                    {!isFirstColumn && ((node.hasChildren && node.hosts_moved_on != null && node.hosts_reached != null) || (node.leaf && node.leaf_reason)) && (
+                      <div className="pt-2 mt-2 space-y-1">
                         {node.hasChildren && node.hosts_moved_on != null && node.hosts_reached != null && (
                           <div className="text-xs text-[#a3a299] font-mono-jb leading-normal">
                             {node.hosts_moved_on} of {node.hosts_reached} hosts in this stage moved on
@@ -1090,129 +1154,125 @@ function AttackForecastTree({ P }) {
 }
 
 // ─── SECTION 4: MITRE ATT&CK Analysis Cards ─────────────────────────────────
-function MitreAttackAnalysis({ P, mitreDict }) {
-  if (!P || P.available === false || !Array.isArray(P.steps) || P.steps.length === 0) {
+function MitreAttackAnalysis({ stageSegments, mitreDict }) {
+  if (!stageSegments || !Array.isArray(stageSegments) || stageSegments.length === 0) {
     return (
-      <div className="py-12 text-center text-[#8f8e86] font-mono-jb text-sm border border-dashed border-white/10 rounded-xl">
-        {P?.reason || "The model sees no attack stage for this host, so there is no progression to show."}
+      <div className="py-12 text-center text-[#8f8e86] font-sans text-sm border border-dashed border-white/10 rounded-xl">
+        No stage forecast for this host.
       </div>
     );
   }
 
-  const steps = P.steps;
-
   return (
-    <div className="w-full space-y-4 select-none">
-      {/* Grid / Flex container for 1 to 4 cards */}
+    <div className="w-full select-none">
       <div className="flex flex-col md:flex-row items-stretch justify-between gap-3">
-        {steps.map((step, i) => {
-          const isNow = i === 0;
-          const stageKey = step.stage || "normal";
-          const stageColor = getStageThemeColor(stageKey);
-          const stageDisplayName = formatStageDisplayName(stageKey);
+        {stageSegments.map((seg, i) => {
+          const isNow = i === 0 || seg.from === 0;
+          const isAttack = Boolean(seg.isAttack || (seg.stage && String(seg.stage).toLowerCase() !== "normal"));
+          const stageKey = String(seg.stage || "normal").toLowerCase().trim();
+          const stageColor = isAttack ? getStageThemeColor(stageKey) : "#8f8e86";
+          const stageDisplayName = isAttack ? formatStageDisplayName(stageKey) : "Normal";
 
-          const lookupKey = stageKey ? String(stageKey).toLowerCase().trim() : "";
-          const mitreInfo = mitreDict ? mitreDict[lookupKey] || mitreDict[stageKey] || null : null;
-          const firstTech = mitreInfo?.techniques?.[0];
+          const lookupKey = stageKey;
+          const mitreInfo = isAttack && mitreDict ? mitreDict[lookupKey] || mitreDict[seg.stage] || null : null;
+          const tacticId = mitreInfo?.tactic_id || null;
+          const tacticName = mitreInfo?.tactic || null;
+          const firstTech = mitreInfo?.techniques?.[0] || null;
 
-          const pct = Math.round((step.prob || 0) * 100);
-
-          let basisLine = "Model's current reading";
-          if (step.basis !== "model") {
-            const delayText = step.typical_delay ? ` · typically ${step.typical_delay} later` : "";
-            basisLine = `Seen ${step.observed ?? 0} of ${step.observed_total ?? 0} times${delayText}`;
-          }
+          const pctMax = Math.round((seg.probMax || 0) * 100);
+          const probText = seg.probText || `${pctMax}%`;
+          const probWidth = Math.max(0, Math.min(100, pctMax));
+          const timeSpanText = String(seg.when || (seg.from === 0 ? "NOW" : `+${seg.from * 10} S`)).toUpperCase();
 
           return (
             <React.Fragment key={i}>
               <div className="flex-1 min-w-0 flex flex-col">
                 <div
-                  className={`h-full min-h-[190px] p-4 flex flex-col justify-between rounded-[12px] transition-all duration-200 ${
-                    isNow
-                      ? "bg-[#121826] border-2 border-gold shadow-[0_0_18px_rgba(203,161,53,0.35)]"
-                      : "bg-[#101522]/90 border border-white/25 hover:border-white/50"
-                  }`}
+                  className="h-full min-h-[210px] flex flex-col justify-between rounded-xl overflow-hidden transition-all duration-200 bg-[#101522]/90 border border-white/20 hover:border-white/40"
                 >
-                  <div className="space-y-2">
-                    {/* 1. Step Label Header */}
-                    <div className="flex items-center justify-between gap-1">
-                      {isNow ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-gold text-bg font-sans">
-                            {step.label || "NOW"}
+                  {/* Top Timeline Strip */}
+                  <div className="w-full px-4 py-2.5 border-b border-white/15 bg-white/[0.07] text-white flex items-center justify-between">
+                    <span className="text-base font-black uppercase tracking-wider font-sans text-white">
+                      {timeSpanText}
+                    </span>
+                  </div>
+
+                  {/* Card Content */}
+                  <div className="p-4 flex-1 flex flex-col justify-between space-y-3.5">
+                    <div className="space-y-2.5">
+                      {/* Stage Name */}
+                      <h4
+                        className="text-lg sm:text-xl font-black tracking-tight leading-snug line-clamp-2 font-sans"
+                        style={{ color: stageColor }}
+                      >
+                        {stageDisplayName}
+                      </h4>
+
+                      {/* MITRE Tactic line */}
+                      {isAttack && tacticId ? (
+                        <div className="text-[13px] sm:text-sm truncate flex items-center gap-1.5 pt-0.5 font-sans">
+                          <span className="font-mono-jb text-xs sm:text-[13px] text-gold font-bold shrink-0">
+                            {tacticId}
+                          </span>
+                          <span className="text-[13px] sm:text-sm text-[#d4d3cb] font-semibold truncate">
+                            {tacticName}
                           </span>
                         </div>
                       ) : (
-                        <span className="text-[11px] font-bold text-[#8f8e86] uppercase tracking-wider">
-                          {step.label}
-                        </span>
+                        <div className="text-[13px] sm:text-sm text-[#a3a299] font-sans font-medium pt-0.5">
+                          No attack tactic (Normal)
+                        </div>
+                      )}
+
+                      {/* First technique */}
+                      {isAttack && firstTech ? (
+                        <p
+                          className="text-xs sm:text-[13px] text-[#a3a299] font-medium truncate mt-0.5 font-sans"
+                          title={`${firstTech.id} ${firstTech.name}`}
+                        >
+                          {firstTech.id} {firstTech.name}
+                        </p>
+                      ) : (
+                        <div className="h-4" />
                       )}
                     </div>
 
-                    {/* 2. Stage Name */}
-                    <h4
-                      className="text-base sm:text-lg font-bold tracking-tight leading-snug line-clamp-2"
-                      style={{ color: stageColor }}
-                    >
-                      {stageDisplayName}
-                    </h4>
-
-                    {/* 3. MITRE Tactic line */}
-                    {mitreInfo?.tactic_id ? (
-                      <div className="text-xs truncate flex items-center gap-1.5 pt-0.5">
-                        <span className="font-mono-jb text-[11px] text-[#8f8e86] font-semibold shrink-0">
-                          {mitreInfo.tactic_id}
-                        </span>
-                        <span className="text-xs text-[#c3c2b7] font-medium truncate">
-                          {mitreInfo.tactic}
+                    {/* Probability Bar */}
+                    <div className="pt-2 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs sm:text-[13px] font-sans">
+                        <span className="text-[#a3a299] font-medium">Probability</span>
+                        <span className="font-sans font-extrabold text-sm sm:text-base text-white">
+                          {probText}
+                          {probText !== `${pctMax}%` && (
+                            <span className="text-xs text-[#a3a299] font-normal ml-1">
+                              ({pctMax}%)
+                            </span>
+                          )}
                         </span>
                       </div>
-                    ) : (
-                      <div className="h-4" />
-                    )}
-
-                    {/* 4. First technique */}
-                    {firstTech ? (
-                      <p
-                        className="text-[11px] text-[#8f8e86] font-normal truncate mt-0.5 font-mono-jb"
-                        title={`${firstTech.id} ${firstTech.name}`}
-                      >
-                        {firstTech.id} {firstTech.name}
+                      <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${isAttack ? "bg-gold" : "bg-[#8f8e86]"}`}
+                          style={{ width: `${probWidth}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-[#8f8e86] font-sans pt-0.5 truncate">
+                        Model's forecast
                       </p>
-                    ) : (
-                      <div className="h-3.5" />
-                    )}
-                  </div>
-
-                  {/* 5. Probability Bar & Muted Basis Line */}
-                  <div className="mt-auto pt-3 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-[#8f8e86]">Probability</span>
-                      <span className="font-mono-jb font-bold text-white">{pct}%</span>
                     </div>
-                    <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gold rounded-full transition-all duration-300"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <p className="text-[10px] text-[#8f8e86] font-mono-jb pt-0.5 truncate">
-                      {basisLine}
-                    </p>
                   </div>
                 </div>
               </div>
 
-              {i < steps.length - 1 && (
+              {i < stageSegments.length - 1 && (
                 <div className="hidden md:flex items-center justify-center text-[#8f8e86] shrink-0 px-1">
-                  <span className="text-lg font-light opacity-60">→</span>
+                  <span className="text-xl font-light opacity-60">→</span>
                 </div>
               )}
             </React.Fragment>
           );
         })}
       </div>
-
     </div>
   );
 }
@@ -1323,21 +1383,21 @@ function OcclusionFeatureGraph({ attributionLast, hostIp, dstIp, threatLevel, pr
       {/* Left: Full-width Occlusion Graph */}
       <div className="lg:col-span-9 space-y-2 lg:border-r lg:border-white/10 lg:pr-6 w-full">
         <div className="flex items-center justify-end flex-wrap gap-2 pb-0.5">
-          <div className="inline-flex items-center gap-5 text-sm">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[#EF4444] font-black text-sm leading-none">↑</span>
-              <span className="text-white font-medium">Increases Risk</span>
+          <div className="inline-flex items-center gap-4 text-xs font-sans">
+            <div className="flex items-center gap-1.5 text-[#DE5252] font-semibold">
+              <span className="text-xs font-black">↑</span>
+              <span>Increases Risk</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[#4A72E8] font-black text-sm leading-none">↓</span>
-              <span className="text-white font-medium">Decreases Risk</span>
+            <div className="flex items-center gap-1.5 text-[#3B82F6] font-semibold">
+              <span className="text-xs font-black">↓</span>
+              <span>Decreases Risk</span>
             </div>
           </div>
         </div>
 
         <div className="w-full">
           <svg viewBox={`0 0 ${W} ${H_height}`} className="w-full h-auto select-none overflow-visible">
-            <text x={xPercent} y="20" textAnchor="end" fill="#9BA6B4" fontSize="11"
+            <text x={xPercent} y="20" textAnchor="end" fill="#9BA6B4" fontSize="10"
               fontWeight="800" letterSpacing="0.08em" fontFamily="Inter, sans-serif">
               SHARE %
             </text>
@@ -1377,7 +1437,7 @@ function OcclusionFeatureGraph({ attributionLast, hostIp, dstIp, threatLevel, pr
               const isSel = selectedFeature === f.name;
               const isPos = f.contribution >= 0;
               const bw = Math.min(halfBarPx, Math.abs(f.contribution) * scale);
-              const bh = 38;
+              const bh = 36;
               return (
                 <g key={f.name} data-shap-row="true" className="cursor-pointer group"
                   onClick={(e) => { e.stopPropagation(); setSelectedFeature(isSel ? null : f.name); }}>
@@ -1387,34 +1447,34 @@ function OcclusionFeatureGraph({ attributionLast, hostIp, dstIp, threatLevel, pr
                     className="transition-all duration-150 group-hover:fill-white/[0.03]" />
                   
                   {/* Feature Label with description tooltip */}
-                  <text x={xLabel} y={y + 6} textAnchor="end"
-                    fill={isSel ? "#CBA135" : "#D1D5DB"} fontSize="18" fontWeight="700"
-                    fontFamily="JetBrains Mono, monospace">
+                  <text x={xLabel} y={y + 5} textAnchor="end"
+                    fill={isSel ? "#CBA135" : "#D1D5DB"} fontSize="13.5" fontWeight="600"
+                    fontFamily="Inter, sans-serif">
                     <title>{f.description}</title>
                     {f.name}
                   </text>
 
                   {isPos ? (
                     <>
-                      <rect x={xCenter} y={y - bh / 2} width={Math.max(bw, 4)} height={bh} rx="2"
-                        fill="#EF4444" className="transition-all duration-200 group-hover:brightness-110" />
-                      <text x={xCenter + Math.max(bw, 4) + 8} y={y + 6} fill="#EF4444"
-                        fontSize="18" fontWeight="800" fontFamily="Inter, sans-serif">
+                      <rect x={xCenter} y={y - bh / 2} width={Math.max(bw, 4)} height={bh} rx="3"
+                        fill="#DE5252" className="transition-all duration-200 group-hover:brightness-110" />
+                      <text x={xCenter + Math.max(bw, 4) + 8} y={y + 5} fill="#DE5252"
+                        fontSize="13.5" fontWeight="700" fontFamily="Inter, sans-serif">
                         +{f.contribution.toFixed(3)}
                       </text>
                     </>
                   ) : (
                     <>
-                      <rect x={xCenter - Math.max(bw, 4)} y={y - bh / 2} width={Math.max(bw, 4)} height={bh} rx="2"
-                        fill="#4A72E8" className="transition-all duration-200 group-hover:brightness-110" />
-                      <text x={xCenter - Math.max(bw, 4) - 8} y={y + 6} textAnchor="end" fill="#4A72E8"
-                        fontSize="18" fontWeight="800" fontFamily="Inter, sans-serif">
+                      <rect x={xCenter - Math.max(bw, 4)} y={y - bh / 2} width={Math.max(bw, 4)} height={bh} rx="3"
+                        fill="#3B82F6" className="transition-all duration-200 group-hover:brightness-110" />
+                      <text x={xCenter - Math.max(bw, 4) - 8} y={y + 5} textAnchor="end" fill="#3B82F6"
+                        fontSize="13.5" fontWeight="700" fontFamily="Inter, sans-serif">
                         {f.contribution.toFixed(3)}
                       </text>
                     </>
                   )}
-                  <text x={xPercent} y={y + 6} textAnchor="end" fill="#FFF"
-                    fontSize="18" fontWeight="800" fontFamily="Inter, sans-serif">
+                  <text x={xPercent} y={y + 5} textAnchor="end" fill="#FFF"
+                    fontSize="13.5" fontWeight="700" fontFamily="Inter, sans-serif">
                     {f.percent.toFixed(1)}%
                   </text>
                 </g>
@@ -1429,17 +1489,17 @@ function OcclusionFeatureGraph({ attributionLast, hostIp, dstIp, threatLevel, pr
                 <line x1={t.x} y1={axisY} x2={t.x} y2={axisY + (t.ratio === 0 ? 8 : 5)}
                   stroke="#FFF" strokeWidth={t.ratio === 0 ? 1.5 : 1}
                   strokeOpacity={t.ratio === 0 ? 0.9 : 0.4} />
-                <text x={t.x} y={axisY + 25} textAnchor="middle"
+                <text x={t.x} y={axisY + 22} textAnchor="middle"
                   fill={t.ratio === 0 ? "#FFF" : "#9BA6B4"}
-                  fontSize={t.ratio === 0 ? "18" : "17"}
+                  fontSize={t.ratio === 0 ? "13" : "12"}
                   fontWeight={t.ratio === 0 ? "900" : "700"}
                   fontFamily="Inter, sans-serif">
                   {t.label}
                 </text>
               </g>
             ))}
-            <text x={xCenter} y={axisY + 50} textAnchor="middle" fill="#9BA6B4"
-              fontSize="17" fontWeight="900" letterSpacing="0.08em" fontFamily="Inter, sans-serif">
+            <text x={xCenter} y={axisY + 44} textAnchor="middle" fill="#9BA6B4"
+              fontSize="12" fontWeight="800" letterSpacing="0.08em" fontFamily="Inter, sans-serif">
               CHANGE IN RISK WHEN THE FEATURE IS REMOVED
             </text>
           </svg>
@@ -1447,48 +1507,50 @@ function OcclusionFeatureGraph({ attributionLast, hostIp, dstIp, threatLevel, pr
       </div>
 
       {/* Right Column: Feature Attribution Details & Recommended Actions */}
-      <div className="lg:col-span-3 flex flex-col pt-1">
-        <div className="space-y-3 pb-5">
-          <span className="text-sm uppercase font-black tracking-wider text-white block">
+      <div className="lg:col-span-3 flex flex-col pt-1 font-sans">
+        <div className="space-y-2.5 pb-4">
+          <span className="text-xs uppercase font-black tracking-wider text-white block">
             {isSelectedNonTop ? "SELECTED FEATURE ATTRIBUTION" : "OVERALL PRIMARY DRIVING FEATURE"}
           </span>
 
           <div className="border-t border-white/20 w-full" />
 
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[15px] sm:text-base font-black text-white font-mono-jb tracking-tight">
+            <span className="text-sm font-bold text-white font-mono-jb tracking-tight truncate">
               {activeItem.name}
             </span>
             {activeItem.increases ? (
-              <span className="px-2.5 py-1 rounded text-[11px] font-black bg-[#EF4444] text-white uppercase tracking-wide shrink-0 inline-flex items-center gap-1">
-                <svg width="9" height="9" viewBox="0 0 10 10"><path d="M5 1 L9 8 H1 Z" fill="white"/></svg>INCREASES RISK
-              </span>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#DE5252]/10 border border-[#DE5252]/30 text-[#DE5252] text-[11px] font-bold uppercase tracking-wider shrink-0">
+                <span className="text-xs leading-none font-black">↑</span>
+                <span>Increases Risk</span>
+              </div>
             ) : (
-              <span className="px-2.5 py-1 rounded text-[11px] font-black bg-[#4A72E8] text-white uppercase tracking-wide shrink-0 inline-flex items-center gap-1">
-                <svg width="9" height="9" viewBox="0 0 10 10"><path d="M5 9 L9 2 H1 Z" fill="white"/></svg>DECREASES RISK
-              </span>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#3B82F6]/10 border border-[#3B82F6]/30 text-[#3B82F6] text-[11px] font-bold uppercase tracking-wider shrink-0">
+                <span className="text-xs leading-none font-black">↓</span>
+                <span>Decreases Risk</span>
+              </div>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-1 items-center">
+          <div className="grid grid-cols-2 gap-3 pt-1 items-center">
             <div className="pr-3 border-r border-white/20">
-              <span className="text-[11px] uppercase font-bold text-[#9BA6B4] tracking-wider block">CONTRIBUTION</span>
-              <span className={`text-[26px] font-black font-mono-jb block mt-0.5 ${activeItem.increases ? "text-[#EF4444]" : "text-[#4A72E8]"}`}>
+              <span className="text-[10px] uppercase font-bold text-[#9BA6B4] tracking-wider block">CONTRIBUTION</span>
+              <span className={`text-xl font-bold font-mono-jb block mt-0.5 ${activeItem.increases ? "text-[#DE5252]" : "text-[#3B82F6]"}`}>
                 {activeItem.contribution >= 0 ? `+${activeItem.contribution.toFixed(3)}` : activeItem.contribution.toFixed(3)}
               </span>
             </div>
             <div className="pl-1">
-              <span className="text-[11px] uppercase font-bold text-[#9BA6B4] tracking-wider block">SHARE</span>
-              <span className="text-[26px] font-black text-gold font-mono-jb block mt-0.5">
+              <span className="text-[10px] uppercase font-bold text-[#9BA6B4] tracking-wider block">SHARE</span>
+              <span className="text-xl font-bold text-gold font-mono-jb block mt-0.5">
                 {activeItem.percent.toFixed(1)}%
               </span>
             </div>
           </div>
           <div className="space-y-1 pt-1">
-            <span className="text-[11px] uppercase font-bold tracking-wider text-[#9BA6B4] block">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-[#9BA6B4] block">
               FEATURE ROLE &amp; CONTEXT
             </span>
-            <p className="text-xs text-[#C5CEE0] leading-relaxed">
+            <p className="text-[11px] text-[#C5CEE0] leading-relaxed">
               {activeItem.description}
               {activeItem.value != null ? ` (Observed value: ${activeItem.value})` : ""}
               {activeItem.group ? ` [Group: ${activeItem.group}]` : ""}
@@ -1770,6 +1832,63 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
   const hasSoon = Number.isFinite(Number(soon5));
   const pct1 = (x) => `${(Number(x) * 100).toFixed(0)}%`;
 
+  // Stage forecast of the selected window (NOW, +10 s .. +60 s) merged into runs of the same stage.
+  const stageSegments = [];
+  {
+    const sfRow = (H?.stage_forecast?.[w] || []).slice(0, 7);
+    const spRow = H?.stage_forecast_prob?.[w] || [];
+    const lab = (k) => (k === 0 ? "now" : `+${k * 10} s`);
+    sfRow.forEach((st, k) => {
+      const key = String(st || "normal").toLowerCase();
+      const last = stageSegments[stageSegments.length - 1];
+      const pr = Number(spRow[k]);
+      if (last && last.stage === key) { last.to = k; last.probs.push(pr); }
+      else stageSegments.push({ stage: key, from: k, to: k, probs: [pr], isAttack: key !== "normal" });
+    });
+    stageSegments.forEach((sg) => {
+      sg.when = sg.from === sg.to ? lab(sg.from) : `${lab(sg.from)} to ${lab(sg.to)}`;
+      const ok = sg.probs.filter((x) => Number.isFinite(x));
+      const lo = ok.length ? Math.round(Math.min(...ok) * 100) : null;
+      const hi = ok.length ? Math.round(Math.max(...ok) * 100) : null;
+      sg.probMax = ok.length ? Math.max(...ok) : 0;
+      sg.probText = lo == null ? "" : lo === hi ? `${hi}%` : `${lo}–${hi}%`;
+    });
+  }
+  // The same forecast as a tree over time: one column per time span; the gold path is the most likely stage,
+  // the blue cards are the model's second choice for that time span (shown when it has at least 5%).
+  const timeTree = (() => {
+    if (stageSegments.length === 0) return { available: false, reason: "No stage forecast for this host." };
+    const sec = H?.stage_forecast_second?.[w] || [];
+    const secP = H?.stage_forecast_second_prob?.[w] || [];
+    const nodes = [], levels = [], path = [];
+    let prevMain = null;
+    stageSegments.forEach((sg, li) => {
+      const main = { id: nodes.length, parent: prevMain, level: li, stage: sg.stage, display: sg.isAttack ? formatStageDisplayName(sg.stage) : "Normal",
+        prob: sg.probMax, prob_text: sg.probText, basis: "model", note: "most likely stage" };
+      nodes.push(main); path.push(main.id);
+      const lvl = [main.id];
+      const alt = {};                                        // second choice inside this time span: stage -> highest probability
+      for (let k = sg.from; k <= sg.to; k++) {
+        const st = String(sec[k] || "").toLowerCase(), pr = Number(secP[k]);
+        if (st && st !== sg.stage && Number.isFinite(pr)) alt[st] = Math.max(alt[st] || 0, pr);
+      }
+      const best = Object.entries(alt).sort((a, b) => b[1] - a[1])[0];
+      if (best && best[1] >= 0.05) {
+        const an = { id: nodes.length, parent: prevMain, level: li, stage: best[0], display: best[0] === "normal" ? "Normal" : formatStageDisplayName(best[0]),
+          prob: best[1], prob_text: `up to ${Math.round(best[1] * 100)}%`, basis: "model", note: "other possibility (second choice)" };
+        nodes.push(an); lvl.push(an.id);
+      }
+      levels.push(lvl); prevMain = main.id;
+    });
+    return { available: true, nodes, levels, most_likely_path: path, root_badge: "NOW",
+      col_headers: stageSegments.map((sg) => sg.when.toUpperCase()) };
+  })();
+
+  const _atkSegs = stageSegments.filter((sg) => sg.isAttack);
+  const mitreFromForecast = _atkSegs.length
+    ? { available: true, steps: _atkSegs.map((sg) => ({ stage: sg.stage, prob: sg.probMax, basis: "model", label: sg.when.toUpperCase() })) }
+    : { available: false, reason: "The model sees no attack stage for this host now or in the next 60 seconds." };
+
   let threatLevel = "NORMAL";
   let threatLevelColor = "#10b981";
   let threatLevelSub = "";
@@ -1791,12 +1910,22 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
     predictedStageFormatted = "—";
     stageProbabilityPct = "—";
   } else {
-    if (riskW >= threshold) {
+    // Attack in progress in this window: the model's stage for "now" is an attack stage (probability >= 50%).
+    const _s0 = H?.stage_forecast?.[w]?.[0];
+    const _p0 = H?.stage_forecast_prob?.[w]?.[0];
+    const attackNow = _s0 && String(_s0).toLowerCase() !== "normal" && Number(_p0) >= 0.5;
+    if (attackNow) {
       threatLevel = "HIGH RISK";
       threatLevelColor = "#ef4444";
+      threatLevelSub = `attack in progress now (${String(_s0).replace(/_/g, " ")})`;
+    } else if (riskW >= threshold) {
+      threatLevel = "HIGH RISK";
+      threatLevelColor = "#ef4444";
+      threatLevelSub = "attack expected within 60 s";
     } else if (riskW >= 0.5) {
       threatLevel = "ELEVATED";
       threatLevelColor = "#f59e0b";
+      threatLevelSub = "possible attack within 60 s";
     } else if (riskW < threshold && hasSoon && typeof soon5Level === "number" && soon5 >= soon5Level) {
       threatLevel = "WATCH";
       threatLevelColor = "#f59e0b";
@@ -1968,6 +2097,7 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
                   Network Conversation
                 </span>
               </div>
+
               <div className="relative">
                 <select
                   value={selectedPairKey}
@@ -2016,7 +2146,7 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
             className: "text-xl md:text-2xl font-extrabold",
           },
           {
-            label: "MODEL CONFIDENCE",
+            label: "STAGE CONFIDENCE",
             value: stageProbabilityPct,
             sub: stageProbSub,
             color: "text-white",
@@ -2056,14 +2186,9 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
       {/* ===== 2. RISK FORECAST — INFILTRATION PROBABILITY ===== */}
       <section id="risk-forecast" className="space-y-4 scroll-mt-6 pb-6 border-b-2 border-white/30">
         <div className="flex items-center justify-between border-b border-white/30 pb-2.5 flex-wrap gap-2">
-          <div className="flex items-center gap-3">
-            <h3 className="text-base md:text-lg font-black uppercase tracking-wider text-white">
-              Risk Forecast — Infiltration Probability
-            </h3>
-            <span className="text-xs text-text-muted px-2 py-0.5 font-semibold">
-              6 steps ahead
-            </span>
-          </div>
+          <h3 className="text-base md:text-lg font-black uppercase tracking-wider text-white">
+            Risk Forecast — Infiltration Probability
+          </h3>
           <button
             onClick={() => setActiveInfoModal("risk_forecast")}
             title="What is Risk Forecast?"
@@ -2074,16 +2199,10 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
         </div>
 
         {H ? (
-          <div className="w-full pt-1 space-y-3">
-            <HostOverview
-              H={H}
-              w={w}
-              threshold={v2Data?.chart?.threshold ?? 0.5}
-              onSelect={(i) => setSelectedWindowIdx(i)}
-            />
+          <div className="w-full pt-1">
             <KStepSimulationChart
               H={H}
-              threshold={v2Data?.chart?.threshold ?? 0.5}
+              threshold={0.5}
               modelCopies={v2Data?.chart?.model_copies ?? 3}
               baselineAvailable={Boolean(v2Data?.chart?.baseline_available)}
               notices={v2Data?.notices || []}
@@ -2104,25 +2223,20 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <h3 className="text-base md:text-lg font-black uppercase tracking-wider text-white">
-                STAGE PROGRESSION TREE
+                STAGE PROGRESSION TREE — NOW TO +60 SECONDS
               </h3>
             </div>
           </div>
 
           <div className="flex items-center gap-4 text-xs flex-wrap">
             <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-gold shadow-[0_0_8px_rgba(203,161,53,0.9)]" />
-              <span className="text-white font-bold">Most Likely Path</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-gold" />
+              <span className="text-white font-bold">Most likely stage</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#3E63C7]" />
-              <span className="text-text-muted font-semibold">Alternative</span>
+              <span className="text-text-muted font-semibold">Other possibility</span>
             </div>
-            {H?.progression?.evidence && (
-              <span className="px-2 py-0.5 rounded bg-white/10 text-text-muted border border-white/15 text-[10px] font-mono-jb font-semibold">
-                Evidence: {H.progression.evidence.progressions_observed} stage changes on {H.progression.evidence.hosts_with_a_progression} hosts
-              </span>
-            )}
             <button
               onClick={() => setActiveInfoModal("mitre_attack")}
               title="What is Stage Progression Tree?"
@@ -2133,12 +2247,12 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
           </div>
         </div>
 
-        {H?.progression?.available === false || !H?.progression ? (
-          <div className="py-12 text-center text-[#8f8e86] font-mono-jb text-sm border border-dashed border-white/10 rounded-xl">
-            {H?.progression?.reason || "The model sees no attack stage for this host, so there is no progression to show."}
-          </div>
+        {stageSegments.length > 0 ? (
+          <AttackForecastTree P={timeTree} />
         ) : (
-          <AttackForecastTree P={H.progression} />
+          <div className="py-12 text-center text-[#8f8e86] font-mono-jb text-sm border border-dashed border-white/10 rounded-xl">
+            No stage forecast for this host.
+          </div>
         )}
       </section>
 
@@ -2163,17 +2277,17 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
         </div>
 
         <MitreAttackAnalysis
-          P={H?.progression}
+          stageSegments={stageSegments}
           mitreDict={v2Data?.chart?.mitre}
         />
       </section>
 
-      {/* ===== 5. FEATURE ATTRIBUTION (OCCLUSION) ===== */}
+      {/* ===== 5. FEATURE ATTRIBUTION ===== */}
       <section id="shap-explanation" className="space-y-4 scroll-mt-6 pb-1 border-b-2 border-white/30">
         <div className="flex items-center justify-between border-b border-white/30 pb-2.5 flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <h3 className="text-base md:text-lg font-black uppercase tracking-wider text-white">
-              FEATURE ATTRIBUTION (OCCLUSION)
+              FEATURE ATTRIBUTION
             </h3>
           </div>
           <button
@@ -2202,6 +2316,7 @@ export default function AttackForecast({ isActive, onToggleSidebar, onNavigateTo
             <h3 className="text-base md:text-lg font-black uppercase tracking-wider text-white">
               Observed Network Evidence
             </h3>
+
             <span className="text-xs text-text-muted px-2 py-0.5 font-semibold">
               {conversationFlows.length} flows recorded
             </span>

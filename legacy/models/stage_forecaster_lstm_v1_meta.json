@@ -1,0 +1,86 @@
+{
+  "model_config": {
+    "input_size": 15,
+    "hidden_size": 64,
+    "num_layers": 2,
+    "num_stages": 6,
+    "dropout": 0.3
+  },
+  "sequence_length": 5,
+  "forecast_horizon": 3,
+  "log_transform_columns": [
+    "duration",
+    "packet_count",
+    "byte_count",
+    "syn_count",
+    "ack_count",
+    "fin_count",
+    "rst_count",
+    "ttl_var",
+    "win_var",
+    "payload_mean",
+    "payload_std",
+    "retransmit_count"
+  ],
+  "feature_columns": [
+    "duration",
+    "packet_count",
+    "byte_count",
+    "syn_count",
+    "ack_count",
+    "fin_count",
+    "rst_count",
+    "ttl_mean",
+    "ttl_var",
+    "win_mean",
+    "win_var",
+    "frag_ratio",
+    "payload_mean",
+    "payload_std",
+    "retransmit_count"
+  ],
+  "stages": [
+    "normal",
+    "reconnaissance",
+    "initial_access",
+    "lateral_movement",
+    "command_control",
+    "exfiltration"
+  ],
+  "normalizer": {
+    "feature_min": [
+      0.0,
+      0.6931471824645996,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "feature_max": [
+      12.473190307617188,
+      14.797361373901367,
+      19.460800170898438,
+      3.931825637817383,
+      7.542213439941406,
+      3.044522523880005,
+      3.465735912322998,
+      255.0,
+      9.011034965515137,
+      65535.0,
+      20.78563690185547,
+      0.0,
+      10.35326099395752,
+      10.121752738952637,
+      0.0
+    ]
+  }
+}

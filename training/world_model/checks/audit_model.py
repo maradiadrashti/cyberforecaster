@@ -1,6 +1,6 @@
 r"""Model-level audit: recompute the model's outputs for test files A-D with SEPARATE code (own preprocessing, own
 network definition, own occlusion loop) and compare them with what the dashboard backend (world_model.analyze) returns.
-Also compares the window features of an upload with the features the model was trained on (windows.pkl)."""
+Also compares the window features of an upload with the features the model was trained on (windows_v5.pkl)."""
 import os as _os
 from pathlib import Path as _P
 REPO = _P(_os.environ.get("CYBERFORECASTER_REPO") or _P(__file__).resolve().parents[3])   # repository root
@@ -99,12 +99,12 @@ for name, train_ref in FILES.items():
     # ---- features of the upload against the features used in training (same host, same 10-second window)
     if train_ref:
         if WP is None:
-            WP = pd.read_pickle(HERE / "windows.pkl")
+            WP = pd.read_pickle(HERE / "windows_v5.pkl")
         src, hs = train_ref
         for ip in hs:
             a = W[W["host_ip"] == ip].set_index("t0"); b = WP[(WP["source"] == src) & (WP["host_ip"] == ip)].set_index("t0")
             common = a.index.intersection(b.index)
-            common = common[(common > a.index.min()) & (common < a.index.max())]      # first / last window of a cut file are partial
+            common = common[(common > a.index.min() + 300) & (common < a.index.max())]      # the first 5 minutes of a cut file lack the incoming-traffic history; the last window is partial      # first / last window of a cut file are partial
             xa, xb = a.loc[common, FE].to_numpy(float), b.loc[common, FE].to_numpy(float)
             same = np.isclose(xa, xb, rtol=1e-5, atol=1e-6, equal_nan=True)
             chk("upload features = training features (same host and window)", len(common) > 0 and bool(same.all()),
