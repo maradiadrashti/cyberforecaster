@@ -97,42 +97,22 @@ All models get the same input: the last 10 windows of a host, 88 features each. 
 | Attack starts within 10 minutes | 65.3% | 26.9% |
 
 
-### On the demo file (`samples/demo_unraveled_5_stages.csv`)
+##  What makes CyberForecaster different?
 
-91,851 real flows from the Unraveled APT dataset · five attack stages · 91 hosts.
+**1. Trained on real multi-stage APT campaigns.**
+Besides the standard intrusion datasets, the model learns from DAPT2020 and Unraveled, where one attacker moves
+through reconnaissance, initial access, lateral movement, command & control and exfiltration over days. Most
+systems only see single, isolated attacks.
 
-| Measure | Result |
-| :--- | :---: |
-| Attack windows alerted | **94%** |
-| Stage named correctly | **97%** |
-| The four attacking hosts | ranked 1st to 4th by risk |
-| Host 10.1.3.8: exfiltration, then command & control | both stages named, 154 of 156 windows alerted |
-| Host 10.1.3.17: repeating exfiltration bursts (held-back hour), 5-minute warning up before the burst | **13 of 15** |
+**2. Forecasts a sequence of stages, not one label.**
+For every host it gives the stage at seven points in time (now, +10 s … +60 s), so you see a change coming, for
+example "normal now, exfiltration in 10–40 s, normal again after". Each step also shows the second most likely stage.
 
-Four of the five hours in this file were held back from training; the hour that adds initial access was not.
-A version with only held-back hours is `samples/demo_unraveled_heldback.csv` (90% alerted, 96% stage correct).
+**3. Follows each host through the attack.**
+Forecasts are per host, not one score for the network, so a machine that moves from exfiltration to
+command & control is tracked across stages (host `10.1.3.8` in the demo file).
 
-### What the dashboard shows for each host
-
-| Part | Content |
-| :--- | :--- |
-| Threat level | HIGH RISK / ELEVATED / WATCH / NORMAL, with the reason |
-| Risk forecast graph | Solid line: what the model detected in the file. Dashed line: its forecast for the next 60 s. Red bands: the true labels, for checking. |
-| Stage progression tree | Most likely stage and the other possibility for every time span from NOW to +60 s |
-| MITRE ATT&CK mapping | Tactic and technique for each time span |
-| Feature attribution | The traffic features behind the result |
-
-### Verified end to end
-
-At the v5 release check, every number on the Attack Forecast page was compared with an independent recomputation:
-126,105 displayed values against the backend, 36,019 backend rule checks, and 29,893 model outputs recomputed
-with separately written code. No mismatch. Scripts and logs: [`training/world_model/checks/`](training/world_model/checks/).
-
-Full results, per-dataset breakdown and the comparison between model versions:
-[`docs/RESULTS_world_model_v5.md`](docs/RESULTS_world_model_v5.md).
-
----
-## 🏗️ Architecture
+##  Architecture
 
 ```mermaid
 flowchart LR
@@ -157,23 +137,24 @@ flowchart LR
 | Backend | Python, FastAPI, Uvicorn, WebSockets, Scapy, dpkt, pandas, NumPy |
 | Frontend | React 19, Vite, Tailwind CSS, Recharts, Spline (works offline) |
 
-**Why a world model.** A classifier answers "is this an attack?". A world model also predicts what the host's
+**Why a world model?**
+A classifier answers "is this an attack?". A world model also predicts what the host's
 traffic will look like next, so it can say what is coming: the stage for each of the next 60 seconds and the
 chance that an attack is about to start.
 
-### Training data
+##  Training datasets
 
-| Dataset | In problem statement | Host-windows | Hosts |
-| :--- | :---: | ---: | ---: |
-| CSE-CIC-IDS2018 | ✅ | 1,218,017 | 32,820 |
-| Unraveled | – | 577,727 | 1,768 |
-| CTU-13 | ✅ | 172,845 | 89,303 |
-| CIC-IDS2017 | ✅ | 132,327 | 5,090 |
-| UNSW-NB15 | ✅ | 117,963 | 43 |
-| DAPT2020 | – | 14,439 | 129 |
+**Public labelled datasets**
 
-Split by 1-hour blocks: about 60% train, 20% validation, 20% test. A test hour never shares its hour with training.
-How to rebuild and retrain: [`training/world_model/README.md`](training/world_model/README.md).
+- CSE-CIC-IDS2018
+- CTU-13
+- CIC-IDS2017
+- UNSW-NB15
+
+**Multi-stage APT datasets**
+
+- Unraveled
+- DAPT2020
 
 ---
 
@@ -202,9 +183,6 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\start.ps1
 ```
 
-`pip install -r requirements.txt` downloads every Python dependency (PyTorch is large; allow a few minutes).
-`start.ps1` uses the `.venv` automatically, so you do not have to activate it.
-
 `start.ps1` asks for Administrator permission (needed for live capture). Click **Yes**.
 The dashboard opens at **http://127.0.0.1:5173**. Press **Enter** in that window to stop.
 
@@ -220,8 +198,6 @@ The dashboard opens at **http://127.0.0.1:5173**. Press **Enter** in that window
    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
    .\start.ps1
    ```
-
-**Next time** you only need `cd cyberforecaster`, the `Set-ExecutionPolicy` line and `.\start.ps1`.
 
 ### Linux / macOS
 
@@ -241,67 +217,12 @@ sudo ./start.sh
 
 Open **http://127.0.0.1:5173**. Press **Ctrl + C** to stop.
 
-### Start by hand (any OS)
 
-If you prefer two terminals instead of the start script (virtual environment active in the first):
 
-```bash
-# Terminal 1: backend
-cd capture-service
-python -m uvicorn capture_server:app --host 127.0.0.1 --port 8080
-```
+**Real Time Attack Forecast graph from our dashboard**
 
-```bash
-# Terminal 2: dashboard
-cd client
-npm run dev
-```
+<img width="2820" height="1755" alt="image" src="https://github.com/user-attachments/assets/eab4ef02-1635-47d0-a7af-00081cb11b3f" />
 
-No GPU is needed. Internet is needed only once, for the two install commands.
-
----
-
-## ▶️ Try it
-
-1. Open the dashboard and go to **File Upload**.
-2. Upload **`samples/demo_unraveled_5_stages.csv`** (18 MB, takes under 30 seconds).
-3. Go to **Attack Forecast** and pick a host:
-
-| Host | What you see |
-| :--- | :--- |
-| `10.8.10.87` | Reconnaissance, alerted in every window |
-| `10.1.3.8` | Exfiltration on 22 June, then command & control from 25 June: a real stage change |
-| `10.1.3.17` | Repeating exfiltration bursts. The forecast rises before each burst. |
-| `192.168.0.11` | Lateral movement |
-
-Other files: [`samples/`](samples/README.md). Without the dashboard:
-
-```bash
-python capture-service/world_model.py samples/demo_unraveled_5_stages.csv
-```
-
----
-
-## 🖥️ The dashboard
-
-| Page | What you get |
-| :--- | :--- |
-| **File Upload** | Upload `.pcap` / `.pcapng` / `.csv`. The world model scores every source host. |
-| **Attack Forecast** | The full result for one host (below). |
-| **Live Telemetry** | Capture from a network interface: live traffic rate, topology, per-flow labels, and download of the captured traffic as PCAP or CSV. |
-
-**Attack Forecast, top to bottom**
-
-| Part | What it shows |
-| :--- | :--- |
-| **Threat level** | HIGH RISK, ELEVATED, WATCH or NORMAL, with the reason ("attack in progress now", "attack expected within 60 s") |
-| **Attack probability** | Chance of an attack in the next 60 seconds, with the 5- and 10-minute values |
-| **Stage confidence** | How sure the model is about the stage it names |
-| **Risk forecast graph** | Solid blue: what the model detected in the traffic of the file. Dashed gold: its forecast for the next 60 seconds. Red bands: the true labels in the file, for checking. Hover any point for details. |
-| **Stage progression tree** | The model's stage from NOW to +60 s as a tree over time: the most likely stage and the other possibility for each time span |
-| **MITRE ATT&CK mapping** | Tactic and technique for each time span |
-| **Feature attribution** | Which traffic features pushed the risk up or down |
-| **Recommended actions / evidence** | Suggested firewall steps and the actual flows |
 
 ---
 
@@ -342,47 +263,40 @@ Details and per-dataset numbers: [`docs/RESULTS_world_model_v5.md`](docs/RESULTS
 
 ---
 
-## 🔌 Main API endpoints
+## Honest Limitations
 
-| Method | Endpoint | Purpose |
-| :--- | :--- | :--- |
-| `POST` | `/api/upload` | Upload a PCAP/CSV, run the world model, return the hosts and conversations |
-| `GET` | `/api/v2/forecast/latest` | Full world-model result of the last upload (graph, stages, attribution, self-check) |
-| `GET` | `/api/forecast/latest` | Conversation list of the last upload |
-| `POST` | `/api/forecast/reset` | Clear the last upload |
-| `GET` | `/api/interfaces` | Network interfaces available for capture |
-| `POST` | `/api/capture/start/{iface}` · `/api/capture/stop/{iface}` | Start / stop live capture |
-| `GET` | `/api/capture/export-pcap` · `/api/capture/download` | Download captured traffic |
-| `WS` | `/ws/live` | Live flow and forecast stream |
+**1. First-time attacks are hard to forecast.**
+When a host has been normal and then attacks for the first time, the model warned in the minute before in 13 of
+47 cases on held-back data. In our test files it warned before a host's first attack in 1 of 7 cases. Many attacks
+give no sign in the traffic beforehand, so there is nothing to forecast from.
 
-Full list: http://127.0.0.1:8080/docs while the backend is running.
+**2. Stage naming is uneven.**
+Command & control, lateral movement and exfiltration are named correctly 96–99% of the time. Initial access is
+at 89% and reconnaissance at 68%. Initial access drops to 46% on CSE-CIC-IDS2018.
 
----
+**3. XGBoost is ahead on plain detection.**
+On the same inputs XGBoost reaches F1 0.969 against our 0.945. Our model is ahead on early warning and is the
+only one of the two that names stages and forecasts.
 
-## 🛠️ Troubleshooting
+**4. Live Telemetry detects only when on the same network interface.**
+ live telemetry can only  analyse the traffic that reaches the interface. To put it in simple words, it can only detect traffics coming from the same interface/network.
 
-| Problem | Fix |
-| :--- | :--- |
-| `.\start.ps1 : The term ... is not recognized` | You are not inside the project folder. `dir` must show `start.ps1`. |
-| *"running scripts is disabled on this system"* | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same window, then retry. |
-| `python` or `npm` is not recognized | Install Python 3.10+ / Node.js 18+, then open a **new** PowerShell window. |
-| `.\start.ps1` closes at once or nothing opens | Open **Windows PowerShell as Administrator**, `cd` into the project folder and run it there (see *If `start.ps1` does not start* above). |
-| No interfaces / capture won't start (Windows) | Install **Npcap** with *WinPcap API-compatible Mode* and run `start.ps1` as Administrator. |
-| Port 8080 or 5173 already in use | `start.ps1` frees them automatically; otherwise stop the other program. |
-| Dashboard opens but uploads fail | The backend stopped. Close the start window and run `.\start.ps1` again. Errors are in `logs\capture.err`. |
-| Upload is refused | The message says why (for a CSV: no source IP, destination IP or flow time). |
-| Attack Forecast is empty | Upload a file on **File Upload** first. |
+**5. Input requirements.**
+A CSV must contain source IP, destination IP and a time for every flow. A file should hold all traffic of its
+time span, because the model also uses what each host receives.
 
 ---
 
-## 📚 References
 
-1. I. Sharafaldin, A. H. Lashkari, A. A. Ghorbani, *"Toward Generating a New Intrusion Detection Dataset and Intrusion Traffic Characterization"*, ICISSP 2018 (CIC-IDS2017 / CSE-CIC-IDS2018).
-2. S. García, M. Grill, J. Stiborek, A. Zunino, *"An empirical comparison of botnet detection methods"*, Computers & Security 45, 2014 (CTU-13).
-3. N. Moustafa, J. Slay, *"UNSW-NB15: a comprehensive data set for network intrusion detection systems"*, MilCIS 2015.
-4. S. Myneni et al., *"DAPT 2020 — Constructing a Benchmark Dataset for Advanced Persistent Threats"*, Springer 2020.
-5. S. Myneni et al., *"Unraveled — A semi-synthetic dataset for Advanced Persistent Threats"*, Computer Networks 227, 2023.
-6. MITRE ATT&CK® — https://attack.mitre.org
+##  Dataset References
+
+1. CIC-IDS2017 — https://www.unb.ca/cic/datasets/ids-2017.html
+2. CSE-CIC-IDS2018 — https://www.unb.ca/cic/datasets/ids-2018.html
+3. CTU-13 — https://www.stratosphereips.org/datasets-ctu13
+4. UNSW-NB15 — https://research.unsw.edu.au/projects/unsw-nb15-dataset
+5. DAPT2020 — https://gitlab.com/asu22/dapt2020
+6. Unraveled — https://gitlab.com/asu22/unraveled
+7. MITRE ATT&CK — https://attack.mitre.org
 
 ---
 
