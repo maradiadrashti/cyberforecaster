@@ -246,23 +246,6 @@ cyberforecaster/
 
 ---
 
-## 🧭 Scope and next steps
-
-- **Forecasting is strongest for attacks that repeat on a host.** Warning before a host's very first attack is the
-  hardest case (13 of 47 on held-back data) and the main thing we are improving.
-- **Results are measured on networks the model was trained on** (held-back hours). On a network it has never seen,
-  detection drops; adapting to a new network is the next step.
-- **Datasets:** four of the seven named in the problem statement are used, plus two APT datasets (DAPT2020, Unraveled).
-  LANL, DARPA 1999 and CICIoT2023 are not used yet.
-- **DDoS** is detected as an attack but has no stage of its own in the model.
-- **Live Telemetry** uses the earlier live models (a per-flow classifier and a 5-flow stage model); moving it to the
-  world model is the next step.
-- A CSV needs source IP, destination IP and a time per flow. A file should contain all traffic of its time span.
-
-Details and per-dataset numbers: [`docs/RESULTS_world_model_v5.md`](docs/RESULTS_world_model_v5.md).
-
----
-
 ## Honest Limitations
 
 **1. First-time attacks are hard to forecast.**
